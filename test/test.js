@@ -25,14 +25,11 @@ function CheckResult(obj) {
 // - query is a non optional string
 // - params is optional, can be a single value or an array
 // - callback is optional
-
 test1 = function(){
-    var n = Date.now();
     database.execute("select cast(? as integer) from rdb$database", 123,
         // success
         function (result) {
             console.log(result.data);
-            console.log(Date.now() - n + 'ms');
         },
         // error
         logerror);
@@ -74,12 +71,28 @@ test3 = function() {
     })
 };
 
+// concurrency
+test4 = function(count) {
+    var n = Date.now();
+    var max = count;
+    for (var i = 0; i < max; i++) {
+        database.execute("select cast(? as integer) from rdb$database", 123, function(){
+            if (--count == 0) {
+                console.log(max + " queries");
+                console.log((Date.now() - n)/max + 'ms / query');
+            }
+        });
+    }
+};
+
 connect = function(callback){
     database = new fb.Database('127.0.0.1', 3050, db, 'SYSDBA', 'masterkey', callback)
 };
 
+
+
 repl.start();
 connect(function() {
     console.log('connected');
-    test1();
+    //test4(1000);
 });
