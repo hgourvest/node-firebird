@@ -6,13 +6,11 @@ Pure javascript and asynchronous Firebird client for Node.js
 
 ### Connecting
 
-  fb = require("node-firebird");
-    var database = new fb.Database('127.0.0.1', 3050, db, 'SYSDBA', 'masterkey', 
-		// success
-    function(){
+	fb = require("node-firebird");
+    	var database = new fb.Database('127.0.0.1', 3050, db, 'SYSDBA', 'masterkey', 
+		function(){
 		
 		}, 
-    // error
 		function(error){
 		
 		}
