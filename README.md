@@ -2,6 +2,10 @@
 
 Pure javascript and asynchronous Firebird client for Node.js
 
+## Install
+
+	npm install node-firebird
+
 ## Examples
 
 ### Connecting
