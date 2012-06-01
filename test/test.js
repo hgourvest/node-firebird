@@ -2,7 +2,7 @@ fb = require("../lib");
 repl = require("repl");
 
 macdb = '/fbdata/test.fdb';
-windb = 'c:\\dev\\test.fdb';
+windb = 'D:\\test\\test.fdb';
 db = macdb;
 
 quit = function() {
@@ -72,27 +72,73 @@ test3 = function() {
 };
 
 // concurrency
-test4 = function(count) {
-    var n = Date.now();
-    var max = count;
-    for (var i = 0; i < max; i++) {
-        database.execute("select cast(? as integer) from rdb$database", 123, function(){
-            if (--count == 0) {
-                console.log(max + " queries");
-                console.log((Date.now() - n)/max + 'ms / query');
+
+function createPool(count, callback) {
+    var pool = [];
+    var done = count;
+    while (count > 0) {
+        pool[--count] = new fb.Database('127.0.0.1', 3050, db, 'SYSDBA', 'masterkey', function() {
+            done--;
+            if (done == 0) {
+                callback(pool);
             }
-        });
+        }, function(err) {
+            callback(err)
+            callback = null;
+        })
     }
+}
+
+test4 = function(count, poolsize) {
+
+    createPool(poolsize, function(pool) {
+        var n = Date.now();
+        var max = count;
+        for (var i = 0; i < max; i++) {
+            pool[i % poolsize].execute("select * from rdb$database", function(){
+                if (--count == 0) {
+                    console.log(max + " queries");
+                    console.log((Date.now() - n)/max + 'ms / query');
+                    for (var db in pool) {pool[db].detach()}
+                }
+            });
+        }
+    });
 };
 
-connect = function(callback){
-    database = new fb.Database('127.0.0.1', 3050, db, 'SYSDBA', 'masterkey', callback)
+// more complex sample
+
+test5 = function() {
+    var tr, st;
+    function error(err) {
+        if (tr) tr.rollback();
+        if (st) st.drop();
+        console.log(err);
+    }
+    database.startTransaction(function(transaction) {
+        tr = transaction;
+        tr.newStatement("select cas t(? as integer) from rdb$database", function(statement) {
+            st = statement;
+            st.execute(tr, [123], function() {
+                st.fetchAll(tr, function(data) {
+                    console.log(data);
+                    st.drop();
+                    tr.commit()
+                }, error)
+            }, error)
+        }, error);
+    }, error)
+}
+
+connect = function(callback, error){
+    database = new fb.Database('127.0.0.1', 3050, db, 'SYSDBA', 'masterkey', callback, error)
 };
-
-
 
 repl.start();
-connect(function() {
-    console.log('connected');
-    //test4(1000);
-});
+connect(
+    function() {
+        console.log('connected');
+
+    },
+    logerror
+);
