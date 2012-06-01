@@ -115,16 +115,29 @@ test5 = function() {
         if (st) st.drop();
         console.log(err);
     }
+
+    function fetch(callback) {
+        st.fetch(tr, function(ret) {
+            console.log(ret.data);
+            callback(ret.fetched);
+        }, error)
+    }
+
     database.startTransaction(function(transaction) {
         tr = transaction;
-        tr.newStatement("select cas t(? as integer) from rdb$database", function(statement) {
+        tr.newStatement("select * from rdb$relations", function(statement) {
             st = statement;
-            st.execute(tr, [123], function() {
-                st.fetchAll(tr, function(data) {
-                    console.log(data);
-                    st.drop();
-                    tr.commit()
-                }, error)
+            st.execute(tr, function() {
+
+                var cb = function(fetched) {
+                    if (fetched) {
+                        st.drop();
+                        tr.commit();
+                    } else {
+                        fetch(cb);
+                    }
+                };
+                fetch(cb);
             }, error)
         }, error);
     }, error)
