@@ -5,8 +5,14 @@ macdb = '/fbdata/test.fdb';
 windb = 'D:\\test\\test.fdb';
 db = macdb;
 
+host = '127.0.0.1';
+port = 3050;
+user = 'SYSDBA';
+password = 'masterkey';
+pagesize = 4096;
+
 quit = function() {
-    database.detach(function(ret){
+    database.detach(function(){
         console.log('database detached');
     });
 };
@@ -29,7 +35,7 @@ test1 = function(){
     database.execute("select cast(? as integer) from rdb$database", 123,
         // success
         function (result) {
-            console.log(result.data);
+            console.log(result.data[0][0]);
         },
         // error
         logerror);
@@ -62,7 +68,7 @@ test3 = function() {
         tr = transaction;
         tr.execute("select cast(? as integer) from rdb$database", 123, function(result1) {
             tr.execute("select cast(? as integer) from rdb$database", 456, function(result2) {
-                tr.commit(function(ret) {
+                tr.commit(function() {
                     console.log(result1.data[0]);
                     console.log(result2.data[0]);
                 }, fail)
@@ -75,15 +81,14 @@ test3 = function() {
 
 function createPool(count, callback) {
     var pool = [];
-    var done = count;
-    while (count > 0) {
-        pool[--count] = new fb.Database('127.0.0.1', 3050, db, 'SYSDBA', 'masterkey', function() {
-            done--;
-            if (done == 0) {
+    for(var i = 0; i < count; i++) {
+         fb.attach(host, port, db, user, password, function(db) {
+             pool[--count] = db;
+             if (count == 0) {
                 callback(pool);
-            }
+             }
         }, function(err) {
-            callback(err)
+            callback(err);
             callback = null;
         })
     }
@@ -95,7 +100,7 @@ test4 = function(count, poolsize) {
         var n = Date.now();
         var max = count;
         for (var i = 0; i < max; i++) {
-            pool[i % poolsize].execute("select * from rdb$database", function(){
+            pool[i % poolsize].execute("select * from rdb$relations", function(){
                 if (--count == 0) {
                     console.log(max + " queries");
                     console.log((Date.now() - n)/max + 'ms / query');
@@ -141,17 +146,14 @@ test5 = function() {
             }, error)
         }, error);
     }, error)
-}
-
-connect = function(callback, error){
-    database = new fb.Database('127.0.0.1', 3050, db, 'SYSDBA', 'masterkey', callback, error)
 };
 
-repl.start();
-connect(
-    function() {
-        console.log('connected');
 
-    },
-    logerror
+repl.start();
+
+fb.attachOrCreate(host, port, db, user, password, pagesize,
+    function (db) {
+        database = db;
+        test1()
+    }, logerror
 );
