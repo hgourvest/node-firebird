@@ -11,7 +11,7 @@ Pure javascript and asynchronous Firebird client for Node.js
 ### Connecting
 
 	fb = require("node-firebird");
-	fb.attach('127.0.0.1', 3050, db, 'SYSDBA', 'masterkey', 
+	fb.attach('127.0.0.1', 3050, 'database.fdb', 'SYSDBA', 'masterkey', 
 		function(db){
             database = db;
 			console.log("connected");
