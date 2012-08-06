@@ -149,7 +149,7 @@ test5 = function() {
 };
 
 
-repl.start();
+repl.start("");
 
 fb.attachOrCreate(host, port, db, user, password, pagesize,
     function (db) {
