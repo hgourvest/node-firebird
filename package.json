@@ -1,6 +1,6 @@
 {
   "name": "node-firebird",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Firebird client - pure javascript",
   "keywords": [
     "firebird",
