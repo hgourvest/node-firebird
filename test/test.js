@@ -83,7 +83,7 @@ test3 = function() {
 function createPool(count, callback) {
     var pool = [];
     for(var i = 0; i < count; i++) {
-         fb.attach(host, port, db, user, password, function(db) {
+         fb.attach(host, port, db, user, password, role, function(db) {
              pool[--count] = db;
              if (count == 0) {
                 callback(pool);
