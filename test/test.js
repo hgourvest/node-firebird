@@ -9,6 +9,7 @@ host = '127.0.0.1';
 port = 3050;
 user = 'SYSDBA';
 password = 'masterkey';
+role = null;
 pagesize = 4096;
 
 quit = function() {
@@ -151,7 +152,7 @@ test5 = function() {
 
 repl.start("");
 
-fb.attachOrCreate(host, port, db, user, password, pagesize,
+fb.attachOrCreate(host, port, db, user, password, pagesize, role,
     function (db) {
         database = db;
         test1();
