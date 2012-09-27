@@ -2,8 +2,8 @@ fb = require("../lib");
 repl = require("repl");
 
 macdb = '/fbdata/test.fdb';
-windb = 'D:\\test\\test.fdb';
-db = macdb;
+windb = 'C:\\dev\\bases\\test.fdb';
+db = windb;
 
 host = '127.0.0.1';
 port = 3050;
@@ -154,6 +154,6 @@ repl.start("");
 fb.attachOrCreate(host, port, db, user, password, pagesize,
     function (db) {
         database = db;
-        test1()
+        test1();
     }, logerror
 );
