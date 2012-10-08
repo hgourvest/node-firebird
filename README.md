@@ -44,7 +44,7 @@ The transaction automatically started and commited/rollbacked.
 
 	function fail(err) {
 		tr.rollback();
-		console.log(err.status);
+		console.log(err.message);
 	}
 
 	database.startTransaction(function(transaction) {
