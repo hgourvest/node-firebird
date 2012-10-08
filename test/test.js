@@ -19,7 +19,7 @@ quit = function() {
 };
 
 function logerror(err) {
-    console.log(err.status);
+    console.log(err.message);
 }
 
 function CheckResult(obj) {

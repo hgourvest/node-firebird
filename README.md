@@ -65,7 +65,7 @@ Most async methods can trigger a callback and an error event, they are optionnal
 
 	function CheckResult(obj) {
 		if (obj.status) {
-			throw new Error('oups')
+			throw new Error(obj.message)
 		}
 	}
 
