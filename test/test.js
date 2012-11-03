@@ -5,26 +5,31 @@ macdb = '/fbdata/test.fdb';
 windb = 'C:\\dev\\bases\\test.fdb';
 db = windb;
 
-host = '127.0.0.1';
-port = 3050;
-user = 'SYSDBA';
-password = 'masterkey';
-role = null;
-pagesize = 4096;
+config = {
+    database: db,
+    host: '127.0.0.1',     // default
+    port: 3050,            // default
+    user: 'SYSDBA',        // default
+    password: 'masterkey', // default
+    role: null,            // default
+    pageSize: 4096         // default when creating database
+}
 
 quit = function() {
-    database.detach(function(){
-        console.log('database detached');
-    });
+    database.detach(
+        function(){
+            console.log('database detached');
+        }
+    );
 };
 
-function logerror(err) {
+function logError(err) {
     console.log(err.message);
 }
 
-function CheckResult(obj) {
-    if (obj.status) {
-        throw new Error('oups')
+function checkError(err) {
+    if (err) {
+        throw new Error(err.message)
     }
 }
 
@@ -33,49 +38,68 @@ function CheckResult(obj) {
 // - params is optional, can be a single value or an array
 // - callback is optional
 test1 = function(){
-    database.execute("select cast(? as integer) from rdb$database", 123,
-        // success
-        function (result) {
-            console.log(result.data[0][0]);
-        },
-        // error
-        logerror);
+    database.query("select cast(? as integer) from rdb$database", 123,
+        function (err, result) {
+            if (err) {logError(err); return}
+            console.log(result[0].cast);
+        }
+    );
 };
 
-// simple usage of a transaction  without providing error event
+// simple usage of a transaction
 test2 = function() {
-    database.startTransaction(function(transaction) {
-        transaction.execute("select cast(? as integer) from rdb$database", 123, function(result) {
-            transaction.commit(function(ret) { // commit in all situations for a single query
-                CheckResult(result);           // error executing query ?
-                CheckResult(ret);              // error commiting ?
-                console.log(result.data);
-            })
-        });
-    })
+    database.startTransaction(
+        function(err0, transaction) {
+            checkError(err0);
+            transaction.query("select cast(? as integer) from rdb$database", 123,
+                function(err1, result) {
+                    transaction.commit(
+                        function(err2) { // commit in all situations for a single query
+                            checkError(err1);           // error executing query ?
+                            checkError(err2);           // error commiting ?
+                            console.log(result);
+                        }
+                    )
+                }
+            );
+        }
+    )
 };
 
 // multiple queries in a transaction
 test3 = function() {
-    var tr;
 
-    function fail(err) {
-        tr.rollback(function() {
-            console.log(err.status);
-        })
+    function check(tr, callback){
+        return function(err, param) {
+            if (!err) {
+                callback(err, param);
+            } else {
+                tr.rollback();
+                console.log(err.message);
+            }
+        }
     }
 
-    database.startTransaction(function(transaction) {
-        tr = transaction;
-        tr.execute("select cast(? as integer) from rdb$database", 123, function(result1) {
-            tr.execute("select cast(? as integer) from rdb$database", 456, function(result2) {
-                tr.commit(function() {
-                    console.log(result1.data[0]);
-                    console.log(result2.data[0]);
-                }, fail)
-            }, fail);
-        }, fail);
-    })
+    database.startTransaction(
+        function(err, transaction) {
+            checkError(err);
+            transaction.query("select cast(? as integer) from rdb$database", 123,
+                check(transaction, function(err, result1) {
+                    transaction.query("select cast(? as integer) from rdb$database", 456,
+                        check(transaction, function(err, result2) {
+                            transaction.commit(
+                                function(err) {
+                                    checkError(err);
+                                    console.log(result1[0]);
+                                    console.log(result2[0]);
+                                }
+                            )
+                        })
+                    );
+                })
+            );
+        }
+    )
 };
 
 // concurrency
@@ -83,33 +107,39 @@ test3 = function() {
 function createPool(count, callback) {
     var pool = [];
     for(var i = 0; i < count; i++) {
-         fb.attach(host, port, db, user, password, role, function(db) {
-             pool[--count] = db;
-             if (count == 0) {
-                callback(pool);
-             }
-        }, function(err) {
-            callback(err);
-            callback = null;
-        })
+        fb.attach(config,
+            function(err, db) {
+                if (err) {
+                    logError(err);
+                    return;
+                }
+                pool[--count] = db;
+                if (count == 0) {
+                    callback(pool);
+                }
+            }
+        )
     }
 }
 
 test4 = function(count, poolsize) {
-
-    createPool(poolsize, function(pool) {
-        var n = Date.now();
-        var max = count;
-        for (var i = 0; i < max; i++) {
-            pool[i % poolsize].execute("select * from rdb$relations", function(){
-                if (--count == 0) {
-                    console.log(max + " queries");
-                    console.log((Date.now() - n)/max + 'ms / query');
-                    for (var db in pool) {pool[db].detach()}
-                }
-            });
+    createPool(poolsize,
+        function(pool) {
+            var n = Date.now();
+            var max = count;
+            for (var i = 0; i < max; i++) {
+                pool[i % poolsize].execute("select * from rdb$relations",
+                    function(){
+                        if (--count == 0) {
+                            console.log(max + " queries");
+                            console.log((Date.now() - n)/max + 'ms / query');
+                            for (var db in pool) {pool[db].detach()}
+                        }
+                    }
+                );
+            }
         }
-    });
+    );
 };
 
 // more complex sample
@@ -119,42 +149,59 @@ test5 = function() {
     function error(err) {
         if (tr) tr.rollback();
         if (st) st.drop();
-        console.log(err);
+        logError(err);
     }
 
     function fetch(callback) {
-        st.fetch(tr, function(ret) {
-            console.log(ret.data);
-            callback(ret.fetched);
-        }, error)
+        st.fetch(tr,
+            function(err, ret) {
+                if (err) {
+                    error(err);
+                } else {
+                    console.log(ret.data);
+                    callback(ret.fetched);
+                }
+            }
+        )
     }
 
-    database.startTransaction(function(transaction) {
-        tr = transaction;
-        tr.newStatement("select * from rdb$relations", function(statement) {
-            st = statement;
-            st.execute(tr, function() {
-
-                var cb = function(fetched) {
-                    if (fetched) {
-                        st.drop();
-                        tr.commit();
-                    } else {
-                        fetch(cb);
-                    }
-                };
-                fetch(cb);
-            }, error)
-        }, error);
-    }, error)
+    database.startTransaction(
+        function(err, transaction) {
+            if (err) {error(err); return};
+            tr = transaction;
+            tr.newStatement("select * from rdb$relations",
+                function(err, statement) {
+                    if (err) {error(err); return};
+                    st = statement;
+                    st.execute(tr,
+                        function(err) {
+                            if (err) {error(err); return};
+                            var cb = function(fetched) {
+                                if (fetched) {
+                                    st.drop();
+                                    tr.commit();
+                                } else {
+                                    fetch(cb);
+                                }
+                            };
+                            fetch(cb);
+                        }
+                    )
+                }
+            );
+        }
+    )
 };
-
 
 repl.start("");
 
-fb.attachOrCreate(host, port, db, user, password, pagesize, role,
-    function (db) {
-        database = db;
-        test1();
-    }, logerror
+fb.attachOrCreate(config,
+    function (err, db) {
+        if (err) {
+            console.log(err.message);
+        } else {
+            database = db;
+            test1();
+        }
+    }
 );

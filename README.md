@@ -1,6 +1,8 @@
 # node-firebird
 
-Pure javascript and asynchronous Firebird client for Node.js
+Pure javascript and asynchronous Firebird client for Node.js.
+
+If you are new to Firebird you will find useful documentation [here] [1].
 
 ## Install
 
@@ -11,13 +13,20 @@ Pure javascript and asynchronous Firebird client for Node.js
 ### Connecting
 
 	fb = require("node-firebird");
-	fb.attach('127.0.0.1', 3050, 'database.fdb', 'SYSDBA', 'masterkey', 'role',
-		function(db){
-            database = db;
-			console.log("connected");
-		}, 
-		function(error){
-			console.log("can't connect");
+	fb.attach(
+	    {
+	        host: '127.0.0.1',
+	        database: 'database.fdb',
+	        user: 'SYSDBA',
+	        password: 'masterkey'
+	    },
+		function(err, db){
+            if (err) {
+                console.log(err.message);
+            } else {
+                database = db;
+            	console.log("connected");
+            }
 		}
 	);
 
@@ -25,56 +34,91 @@ Pure javascript and asynchronous Firebird client for Node.js
 
 #### Simple query
 
-	database.execute("select cast(? as integer) from rdb$database", [123],
-		function (result) {
-			console.log(result.data)
+	database.query("select cast(? as integer) from rdb$database", 123,
+		function (err, result) {
+			console.log(result)
 		}
 	);
 
-The transaction automatically started and commited/rollbacked.
+The transaction automatically started, commited or rollbacked.
 
 - query is a non optional string.
 - params is optional, can be a single value or an array.
-- callback & error are optional.
+- callback is optional.
 
 
 ### Using transaction
 
-	var tr;
+    function checkError(err) {
+        if (err) {
+            throw new Error(err.message)
+        }
+    }
+    function check(tr, callback){
+        return function(err, param) {
+            if (!err) {
+                callback(err, param);
+            } else {
+                tr.rollback();
+                throw new Error(err.message)
+            }
+        }
+    }
 
-	function fail(err) {
-		tr.rollback();
-		console.log(err.message);
-	}
+    database.startTransaction(
+        function(err, transaction) {
+            checkError(err);
+            transaction.query("select cast(? as integer) from rdb$database", 123,
+                check(transaction, function(err, result1) {
+                    transaction.query("select cast(? as integer) from rdb$database", 456,
+                        check(transaction, function(err, result2) {
+                            transaction.commit(
+                                function(err) {
+                                    checkError(err);
+                                    console.log(result1[0]);
+                                    console.log(result2[0]);
+                                }
+                            )
+                        })
+                    );
+                })
+            );
+        }
+    )
 
-	database.startTransaction(function(transaction) {
-		tr = transaction;
-		tr.execute("select cast(? as integer) from rdb$database", 123, function(result1) {
-			tr.execute("select cast(? as integer) from rdb$database", 456, function(result2) {
-				tr.commit(function(ret) {
-					console.log(result1.data[0]);
-					console.log(result2.data[0]);
-				}, fail)
-			}, fail);
-		}, fail);
-	})
+### Arrays or Objects ?
+
+The common usage is to fetch records as objects
+
+    database.query(...)
+
+You can also fetch records as arrays
+
+    database.execute(...)
+
+In this case you can retrieve fields name in the callback
+
+    function(err, rows, fields){...}
+
+You can do the same on transactions.
 
 ### Errors handling
 
-Most async methods can trigger a callback and an error event, they are optionnals. If an error occur the error event will be called, if no error event is provided, the error will be sent to the callback event and you will have to check if the result is an error. An error object have a status property.
+This is a typical error object:
 
-	function CheckResult(obj) {
-		if (obj.status) {
-			throw new Error(obj.message)
-		}
-	}
+    {
+    	status: [
+    		{gdscode: 335544569},                   // Dynamic SQL Error
+    		{gdscode: 335544436, params: [-104]},   // SQL error code = -104
+    		{gdscode: 335544634, params: [1,31]},   // Token unknown - line 1, column 31
+    		{gdscode: 335544382, params: ["m"]}     // m
+    	],
+    	sqlcode: -104,
+    	message: "Dynamic SQL Error, SQL error code = -104, Token unknown - line 1, column 31, m"
+    }
 
-	database.startTransaction(function(transaction) {
-		transaction.execute("select cast(? as integer) from rdb$database", 123, function(result) {
-			transaction.commit(function(ret) { // commit in all situations for a single query
-				CheckResult(result);           // error executing query ?
-				CheckResult(ret);              // error commiting ?
-				console.log(result.data);
-			})
-		});
-	})
+- The first gdscode value is the most significant error.
+- The sqlcode value is extracted from status vector.
+- The message string is built using firebrd.msg file.
+
+  [1]: http://www.firebirdsql.org/en/documentation/
