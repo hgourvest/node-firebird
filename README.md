@@ -2,6 +2,7 @@
 
 Pure javascript and asynchronous Firebird client for Node.js.
 
+To get help, join [this] [2] google group.
 If you are new to Firebird you will find useful documentation [here] [1].
 
 ## Install
@@ -122,3 +123,4 @@ This is a typical error object:
 - The message string is built using firebrd.msg file.
 
   [1]: http://www.firebirdsql.org/en/documentation/
+  [2]: https://groups.google.com/forum/#!forum/node-firebird
