@@ -3,6 +3,7 @@
 Pure javascript and asynchronous Firebird client for Node.js.
 
 To get help, join [this] [2] google group.
+
 If you are new to Firebird you will find useful documentation [here] [1].
 
 ## Install
