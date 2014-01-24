@@ -125,3 +125,9 @@ This is a typical error object:
 
   [1]: http://www.firebirdsql.org/en/documentation/
   [2]: https://groups.google.com/forum/#!forum/node-firebird
+  
+### Charset for database connection is always UTF-8 
+
+node-firebird doesn't let you chose the charset connection, it will always use UTF8.
+Node is unicode, no matter if your database is using another charset to store string or blob, firebird will transliterate automatically.
+You should use firebird 2.5 server at least.
