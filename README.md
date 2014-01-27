@@ -1,6 +1,6 @@
 # node-firebird
 
-Pure javascript and asynchronous Firebird client for Node.js.
+Pure JavaScrip and Asynchronous Firebird client for Node.js.
 
 To get help, join [this] [2] google group.
 
