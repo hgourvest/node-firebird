@@ -47,12 +47,12 @@ The transaction automatically started, commited or rollbacked.
 - query is a non optional string.
 - params is optional, can be a single value or an array.
 - callback is optional.
-- 
+
 
 
 ### Detaching
 
-#### Simple query
+To quit the event loop you can do 
 
 	database.detach();
 
