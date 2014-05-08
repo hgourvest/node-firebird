@@ -50,14 +50,6 @@ The transaction automatically started, commited or rollbacked.
 
 
 
-### Detaching
-
-To quit the event loop you can do 
-
-	database.detach();
-
-
-
 ### Using transaction
 
     function checkError(err) {
@@ -112,6 +104,14 @@ In this case you can retrieve fields name in the callback
     function(err, rows, fields){...}
 
 You can do the same on transactions.
+
+### Detaching
+
+To quit the event loop you can do 
+
+	database.detach();
+
+
 
 ### Errors handling
 
