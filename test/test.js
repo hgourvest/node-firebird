@@ -3,6 +3,7 @@ repl = require("repl");
 
 macdb = '/fbdata/test.fdb';
 windb = 'C:\\dev\\bases\\test.fdb';
+lindb = '/tmp/test.fdb';
 db = windb;
 
 config = {
