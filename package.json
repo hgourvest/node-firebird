@@ -1,6 +1,6 @@
 {
   "name": "node-firebird",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Firebird client - pure javascript",
   "keywords": [
     "firebird",
@@ -17,5 +17,10 @@
     "email": "hgourvest@gmail.com"
   },
   "main": "./lib",
-  "licenses" : [ { "type" : "MPL-2.0" } ] 
+  "licenses" : [ 
+    { 
+      "type" : "MPL-2.0",
+      "url": "https://raw.githubusercontent.com/hgourvest/node-firebird/master/LICENSE"
+    } 
+  ] 
 }
