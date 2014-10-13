@@ -4,9 +4,9 @@ __New version v0.2.0 supports:__
 
 - events (part is implemented (attach, detach, row, result, transaction, commit, rollback, error))
 - performance improvements
-- timeouts
 - better unit-test (in progress)
-- streams (in progress)
+- supports inserting/updating buffers and streams
+- reading blobs (sequentially)
 - pooling (in progress)
 - `database.detach()` waits for last command
 

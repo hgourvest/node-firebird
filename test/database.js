@@ -7,7 +7,7 @@ lindb = '/tmp/test.fdb';
 
 db = macdb;
 
-config = {
+var config = {
     database: db,
     host: '127.0.0.1',     // default
     port: 3050,            // default
@@ -39,24 +39,25 @@ if (fs.existsSync(config.database))
 */
 fb.attachOrCreate(config, function (err, db) {
 
-    if (err)
+    if (err) {
+        console.log(err);
         throw err;
+    }
 
     database = db;
 
     var task = [];
 
 //    task.push(test_events);
-    task.push(test_create);
+//    task.push(test_create);
     task.push(test_insert);
-    task.push(test_select);
-    task.push(test_transaction);
-/*
+//      task.push(test_select);
+    //task.push(test_transaction);
+
     task.push(function(next) {
-        db.detach();
-        next();
+        db.detach(next);
     });
-*/
+
     task.async();
     //db.detach();
 });
@@ -64,23 +65,35 @@ fb.attachOrCreate(config, function (err, db) {
 function test_create(next) {
     console.log('TEST: create');
     database.query('CREATE TABLE test (ID INT, NAME VARCHAR(50), FILE BLOB)', next);
-    database.detach();
+    //database.detach();
+    //next();
 }
 
 function test_insert(next) {
     console.log('TEST: insert');
-//    database.query('INSERT INTO test (ID, NAME, FILE) VALUES(?, ?, ?) RETURNING ID', [1, 'Peter', fs.readFileSync('/users/petersirka/desktop/image.jpg')], function(err, result) {
+    database.query('INSERT INTO test (ID, NAME, FILE) VALUES(?, ?, ?) RETURNING ID', [100, 'Janko', fs.createReadStream('/users/petersirka/desktop/image.jpg')], function(err, result) {
+        console.log(err);
         //database.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [2, 'Lucia'], next);
-            next();
-//    });
-    next();
+        next();
+    });
 }
 
 function test_select(next) {
     console.log('TEST: select');
 
     database.query('SELECT * FROM test', function(err, result) {
-        console.log(fs.writeFileSync('/users/petersirka/desktop/aaa.jpg', result[0].file));
+        //console.log(fs.writeFileSync('/users/petersirka/desktop/aaa.jpg', result[0].file));
+/*
+        result[0].file(function(err, name, event) {
+            console.log(err, name);
+
+            event.on('end', function() {
+                next();
+            });
+
+            //fs.writeFileSync('/users/petersirka/desktop/aaa.jpg', buffer);
+        });
+*/
         next();
     });
 }
