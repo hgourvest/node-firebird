@@ -8,6 +8,7 @@ __New version v0.2.0 supports:__
 - better unit-test (in progress)
 - streams (in progress)
 - pooling (in progress)
+- `database.detach()` waits for last command
 
 ---
 

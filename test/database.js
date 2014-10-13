@@ -1,7 +1,7 @@
 var fb = require('../lib');
 var fs = require('fs');
 
-macdb = '/Volumes/Development/github/node-firebird/test/fbdata/test2.fdb';
+macdb = '/Volumes/Development/github/node-firebird/test/fbdata/test.fdb';
 windb = 'C:\\dev\\bases\\test.fdb';
 lindb = '/tmp/test.fdb';
 
@@ -33,10 +33,10 @@ Array.prototype.async = function() {
     });
 
 };
-
+/*
 if (fs.existsSync(config.database))
     fs.unlinkSync(config.database);
-
+*/
 fb.attachOrCreate(config, function (err, db) {
 
     if (err)
@@ -46,44 +46,59 @@ fb.attachOrCreate(config, function (err, db) {
 
     var task = [];
 
+//    task.push(test_events);
     task.push(test_create);
     task.push(test_insert);
     task.push(test_select);
     task.push(test_transaction);
-
-    task.push(function() {
-        database.detach();
+/*
+    task.push(function(next) {
+        db.detach();
+        next();
     });
-
+*/
     task.async();
+    //db.detach();
 });
 
 function test_create(next) {
     console.log('TEST: create');
-    database.query('CREATE TABLE test (ID INT, NAME VARCHAR(50))', next);
+    database.query('CREATE TABLE test (ID INT, NAME VARCHAR(50), FILE BLOB)', next);
+    database.detach();
 }
 
 function test_insert(next) {
     console.log('TEST: insert');
-    database.query('INSERT INTO test (ID, NAME) VALUES(?, ?) RETURNING ID', [1, 'Peter'], function(err, result) {
-        database.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [2, 'Lucia'], next);
-    });
+//    database.query('INSERT INTO test (ID, NAME, FILE) VALUES(?, ?, ?) RETURNING ID', [1, 'Peter', fs.readFileSync('/users/petersirka/desktop/image.jpg')], function(err, result) {
+        //database.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [2, 'Lucia'], next);
+            next();
+//    });
+    next();
 }
 
 function test_select(next) {
     console.log('TEST: select');
 
-    database.on('row', function(row, index) {
-        console.log('--->', index, row)
-    });
-
-    database.on('rows', function(rows) {
-        console.log('--->', rows)
-    });
-
     database.query('SELECT * FROM test', function(err, result) {
+        console.log(fs.writeFileSync('/users/petersirka/desktop/aaa.jpg', result[0].file));
         next();
     });
+}
+
+function test_events(next) {
+    database.on('row', function(row, index) {
+        console.log('row: --->', index, row);
+    });
+
+    database.on('query', function(q) {
+        console.log('query: --->', q);
+    });
+
+    database.on('result', function(rows) {
+        console.log('result --->', rows);
+    });
+
+    next();
 }
 
 function test_transaction(next) {
