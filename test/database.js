@@ -1,7 +1,7 @@
 var fb = require('../lib');
 var fs = require('fs');
 
-macdb = '/Volumes/Repository/github/node-firebird/test/fbdata/test2.fdb';
+macdb = '/Volumes/Development/github/node-firebird/test/fbdata/test2.fdb';
 windb = 'C:\\dev\\bases\\test.fdb';
 lindb = '/tmp/test.fdb';
 
