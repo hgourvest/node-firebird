@@ -2,7 +2,7 @@
 
 __New version v0.2.0 supports:__
 
-- events (part is implemented (attach, detach, row, result, transaction, commit, rollback))
+- events (part is implemented (attach, detach, row, result, transaction, commit, rollback, error))
 - performance improvements
 - timeouts
 - better unit-test (in progress)
