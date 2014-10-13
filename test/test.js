@@ -1,10 +1,10 @@
 fb = require("../lib");
 repl = require("repl");
 
-macdb = '/fbdata/test.fdb';
+macdb = '/Volumes/Repository/github/node-firebird/test/fbdata/test.fdb';
 windb = 'C:\\dev\\bases\\test.fdb';
 lindb = '/tmp/test.fdb';
-db = windb;
+db = macdb;
 
 config = {
     database: db,

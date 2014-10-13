@@ -1,4 +1,15 @@
-# node-firebird
+# node-firebird v0.2.0
+
+__New version v0.2.0 supports:__
+
+- events (part is implemented (attach, detach, row, result, transaction, commit, rollback))
+- performance improvements
+- timeouts
+- better unit-test (in progress)
+- streams (in progress)
+- pooling (in progress)
+
+---
 
 Pure JavaScript and Asynchronous Firebird client for Node.js.
 
@@ -132,6 +143,24 @@ This is a typical error object:
 - The sqlcode value is extracted from status vector.
 - The message string is built using firebird.msg file.
 
+### Utils
+
+#### Escaping query values
+
+```js
+var firebird = require('node-firebird');
+var sql1 = 'SELECT * FROM TBL_USER WHERE ID>' + firebird.escape(1);
+var sql2 = 'SELECT * FROM TBL_USER WHERE NAME=' + firebird.escape('Pe\'er');
+var sql3 = 'SELECT * FROM TBL_USER WHERE CREATED<=' + firebird.escape(new Date());
+var sql4 = 'SELECT * FROM TBL_USER WHERE NEWSLETTER=' + firebird.escape(true);
+
+// or db.escape()
+
+console.log(sql1);
+console.log(sql2);
+console.log(sql3);
+console.log(sql4);
+```
 
 ### Charset for database connection is always UTF-8 
 
