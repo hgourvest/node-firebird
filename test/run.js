@@ -32,9 +32,6 @@ Array.prototype.async = function(cb) {
     });
 };
 
-if (fs.existsSync(config.database))
-    fs.unlinkSync(config.database);
-
 fb.attachOrCreate(config, function (err, db) {
 
     if (err)
