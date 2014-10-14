@@ -11,17 +11,17 @@ __Firebird database on social networks__
 - [Firebird on Twitter](https://twitter.com/firebirdsql/)
 - [Firebird on Facebook](https://www.facebook.com/FirebirdSQL)
 
-__New version v0.2.0 supports:__
+__New version v0.2.0 supports__
 
 - added auto-reconnect
 - added sequentially selects
-- events (part is implemented (attach, detach, row, result, transaction, commit, rollback, error))
+- events (attach, detach, row, result, transaction, commit, rollback, error, etc.)
 - performance improvements
-- better unit-test
 - supports inserting/updating buffers and streams
 - reading blobs (sequentially)
 - pooling
 - `database.detach()` waits for last command
+- better unit-test
 - best of use with [total.js - web application framework for node.js](http://www.totaljs.com)
 
 ---
