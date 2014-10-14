@@ -1,159 +1,275 @@
-# node-firebird v0.2.0
+# Pure JavaScript and Asynchronous Firebird client for Node.js.
 
 __New version v0.2.0 supports:__
 
+- added auto-reconnect
+- added sequentially selects
 - events (part is implemented (attach, detach, row, result, transaction, commit, rollback, error))
 - performance improvements
-- better unit-test (in progress)
+- better unit-test
 - supports inserting/updating buffers and streams
 - reading blobs (sequentially)
-- pooling (in progress)
+- pooling
 - `database.detach()` waits for last command
+- best of use with [total.js - web application framework for node.js](http://www.totaljs.com)
 
 ---
 
-Pure JavaScript and Asynchronous Firebird client for Node.js.
-
-To get help, join [this] [2] google group.
-
-If you are new to Firebird you will find useful documentation [here] [1].
+- [Firebird documentation](http://www.firebirdsql.org/en/documentation/)
+- [Firebird limits and data types](http://www.firebirdmanual.com/firebird/en/firebird-manual/2/limites-de-firebird/36)
 
 ## Install
 
-	npm install node-firebird
+```bash
+npm install node-firebird
+```
+
+## Usage
+
+```js
+var Firebird = require('node-firebird');
+```
+
+### Methods
+
+- `Firebird.attach(options, function(err, db))` attach a database
+- `Firebird.create(options, function(err, db))` create a database
+- `Firebird.attachOrCreate(options, function(err, db))` attach or create database
+- `Firebird.pool(maxSockets, options, function(err, db)) -> return {Object}` create a connection pooling
+- `Firebird.escape(value) -> return {String}` - prevent for SQL Injections
+
+## Connection types
+
+### Connection options
+
+```js
+var options = {};
+
+options.host = '127.0.0.1';
+// options.port = 3050;
+options.database = 'database.fdb';
+options.user = 'SYSDBA';
+options.password = 'masterkey';
+```
+
+### Classic
+
+```js
+Firebird.attach(options, function(err, db) {
+
+    if (err)
+        throw err;
+
+    // db = DATABASE
+    db.query('SELECT * FROM TABLE', function(err, result) {
+        // IMPORTANT: close the connection
+        db.detach();
+    });
+
+});
+```
+
+### Pooling
+
+```js
+// 5 = the number is count of opened sockets
+var pool = Firebird.pool(5, options);
+
+// Get pool
+pool.get(function(err, db) {
+
+    if (err)
+        throw err;
+
+    // db = DATABASE
+    db.query('SELECT * FROM TABLE', function(err, result) {
+        // IMPORTANT: close the connection
+        db.detach();
+    });
+});
+
+// close all opened connections
+pool.detach();
+
+// Destroy pool
+pool.destroy();
+```
+
+## Database object (db)
+
+### Methods
+
+- `db.query(query, [params], function(err, result))` - classic query, returns Array of Object
+- `db.execute(query, [params], function(err, result))` - classic query, returns Array of Array
+- `db.sequentially(query, [params], function(row, index), function(err))` - sequentially query
+- `db.detach(function(err))` detach a database
+- `db.transaction(isolation, function(err, transaction))` create transaction
+
+### Transaction methods
+
+- `transaction.query(query, [params], function(err, result))` - classic query, returns Array of Object
+- `transaction.execute(query, [params], function(err, result))` - classic query, returns Array of Array
+- `transaction.commit(function(err))` commit current transaction
+- `transaction.rollback(function(err))` rollback current transaction
 
 ## Examples
 
-### Connecting
+### PARAMETRIZED QUERIES
 
-	fb = require("node-firebird");
-	fb.attach(
-	    {
-	        host: '127.0.0.1',
-	        database: 'database.fdb',
-	        user: 'SYSDBA',
-	        password: 'masterkey'
-	    },
-		function(err, db){
-            if (err) {
-                console.log(err.message);
-            } else {
-                database = db;
-            	console.log("connected");
-            }
-		}
-	);
-
-### Querying
-
-#### Simple query
-
-	database.query("select cast(? as integer) from rdb$database", 123,
-		function (err, result) {
-			console.log(result)
-		}
-	);
-
-The transaction automatically started, commited or rollbacked.
-
-- query is a non optional string.
-- params is optional, can be a single value or an array.
-- callback is optional.
-
-
-
-### Using transaction
-
-    function checkError(err) {
-        if (err) {
-            throw new Error(err.message)
-        }
-    }
-    function check(tr, callback){
-        return function(err, param) {
-            if (!err) {
-                callback(err, param);
-            } else {
-                tr.rollback();
-                throw new Error(err.message)
-            }
-        }
-    }
-
-    database.startTransaction(
-        function(err, transaction) {
-            checkError(err);
-            transaction.query("select cast(? as integer) from rdb$database", 123,
-                check(transaction, function(err, result1) {
-                    transaction.query("select cast(? as integer) from rdb$database", 456,
-                        check(transaction, function(err, result2) {
-                            transaction.commit(
-                                function(err) {
-                                    checkError(err);
-                                    console.log(result1[0]);
-                                    console.log(result2[0]);
-                                }
-                            )
-                        })
-                    );
-                })
-            );
-        }
-    )
-
-### Arrays or Objects ?
-
-The common usage is to fetch records as objects
-
-    database.query(...)
-
-You can also fetch records as arrays
-
-    database.execute(...)
-
-In this case you can retrieve fields name in the callback
-
-    function(err, rows, fields){...}
-
-You can do the same on transactions.
-
-### Detaching
-
-To quit the event loop you can do 
-
-	database.detach();
-
-
-
-### Errors handling
-
-This is a typical error object:
-
-    {
-    	status: [
-    		{gdscode: 335544569},                   // Dynamic SQL Error
-    		{gdscode: 335544436, params: [-104]},   // SQL error code = -104
-    		{gdscode: 335544634, params: [1,31]},   // Token unknown - line 1, column 31
-    		{gdscode: 335544382, params: ["m"]}     // m
-    	],
-    	sqlcode: -104,
-    	message: "Dynamic SQL Error, SQL error code = -104, Token unknown - line 1, column 31, m"
-    }
-
-- The first gdscode value is the most significant error.
-- The sqlcode value is extracted from status vector.
-- The message string is built using firebird.msg file.
-
-### Utils
-
-#### Escaping query values
+### Parameters
 
 ```js
-var firebird = require('node-firebird');
-var sql1 = 'SELECT * FROM TBL_USER WHERE ID>' + firebird.escape(1);
-var sql2 = 'SELECT * FROM TBL_USER WHERE NAME=' + firebird.escape('Pe\'er');
-var sql3 = 'SELECT * FROM TBL_USER WHERE CREATED<=' + firebird.escape(new Date());
-var sql4 = 'SELECT * FROM TBL_USER WHERE NEWSLETTER=' + firebird.escape(true);
+Firebird.attach(options, function(err, db) {
+
+    if (err)
+        throw err;
+
+    // db = DATABASE
+    db.query('INSERT INTO USERS (ID, ALIAS, CREATED) VALUES(?, ?, ?) RETURNING ID', [1, 'Pe\'ter', new Date()] function(err, result) {
+        console.log(result[0].id);
+        db.query('SELECT * FROM USERS WHERE Alias=?', ['Peter'], function(err, result) {
+            console.log(result);
+            db.detach();
+        });
+    });
+});
+```
+
+### BLOB (stream)
+
+```js
+Firebird.attach(options, function(err, db) {
+
+    if (err)
+        throw err;
+
+    // db = DATABASE
+    // INSERT STREAM as BLOB
+    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.createReadStream('/users/image.jpg')] function(err, result) {
+        // IMPORTANT: close the connection
+        db.detach();
+    });
+});
+```
+
+### BLOB (buffer)
+
+```js
+Firebird.attach(options, function(err, db) {
+
+    if (err)
+        throw err;
+
+    // db = DATABASE
+    // INSERT BUFFER as BLOB
+    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.readFileSync('/users/image.jpg')] function(err, result) {
+        // IMPORTANT: close the connection
+        db.detach();
+    });
+});
+```
+
+### READING BLOBS (ASYNCHRONOUS)
+
+```js
+Firebird.attach(options, function(err, db) {
+
+    if (err)
+        throw err;
+
+    // db = DATABASE
+    db.query('SELECT ID, ALIAS, USERPICTURE FROM USER', function(err, rows) {
+
+        if (err)
+            throw err;
+
+        // first row
+        rows[0].userpicture(function(err, name, e) {
+
+            if (err)
+                throw err;
+
+            // e === EventEmitter
+            e.on('data', function(chunk) {
+                // reading data
+            });
+
+            e.on('end', function() {
+                // end reading
+                // IMPORTANT: close the connection
+                db.detach();
+            });
+        });
+
+    });
+});
+```
+
+### STREAMING A BIG DATA
+
+```js
+Firebird.attach(options, function(err, db) {
+
+    if (err)
+        throw err;
+
+    // db = DATABASE
+    db.sequentially('SELECT * FROM BIGTABLE', function(row, index) {
+
+        // EXAMPLE
+        stream.write(JSON.stringify(row));
+
+    }, function(err) {
+        // END
+        // IMPORTANT: close the connection
+        db.detach();
+    });
+});
+```
+
+### TRANSACTIONS
+
+__Transaction types:__
+
+- ISOLATION_READ_UNCOMMITTED
+- ISOLATION_READ_COMMITED
+- ISOLATION_REPEATABLE_READ
+- ISOLATION_SERIALIZABLE
+- ISOLATION_READ_COMMITED_READ_ONLY
+
+```js
+Firebird.attach(options, function(err, db) {
+
+    if (err)
+        throw err;
+
+    // db = DATABASE
+    db.transaction(Firebird.ISOLATION_READ_COMMITED, function(err, transaction) {
+        transaction.query('INSERT INTO users VALUE(?,?)', [1, 'Janko'], function(err, result) {
+            
+            if (err) {
+                transaction.rollback();
+                return;
+            }
+
+            transaction.commit(function(err) {                
+                if (err)
+                    transaction.rollback();
+                else
+                    db.detach();
+            });
+        });        
+    });
+});
+```
+
+### Escaping query values
+
+```js
+var sql1 = 'SELECT * FROM TBL_USER WHERE ID>' + Firebird.escape(1);
+var sql2 = 'SELECT * FROM TBL_USER WHERE NAME=' + Firebird.escape('Pe\'er');
+var sql3 = 'SELECT * FROM TBL_USER WHERE CREATED<=' + Firebird.escape(new Date());
+var sql4 = 'SELECT * FROM TBL_USER WHERE NEWSLETTER=' + Firebird.escape(true);
 
 // or db.escape()
 
@@ -163,12 +279,9 @@ console.log(sql3);
 console.log(sql4);
 ```
 
-### Charset for database connection is always UTF-8 
+### Charset for database connection is always UTF-8
 
 node-firebird doesn't let you chose the charset connection, it will always use UTF8.
 Node is unicode, no matter if your database is using another charset to store string or blob, Firebird will transliterate automatically.
 
-This is why you should use Firebird 2.5 server at least.
-
-  [1]: http://www.firebirdsql.org/en/documentation/
-  [2]: https://groups.google.com/forum/#!forum/node-firebird
+This is why you should use **Firebird 2.5** server at least.

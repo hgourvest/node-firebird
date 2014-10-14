@@ -1,7 +1,7 @@
 
 TODOLIST:
 
-  ☐ support for blob (streams)
-  ☐ extend events
+  ✔ support for blob (streams) @done (14-10-14 08:05)
+  ✔ extend events @done (14-10-14 08:05)
   ☐ support for pooling
-  ☐ improve performance
+  ✔ improve performance @done (14-10-14 08:05)

@@ -5,7 +5,8 @@
   "keywords": [
     "firebird",
     "database",
-    "rdbms"
+    "rdbms",
+    "sql"
   ],
   "homepage": "https://github.com/hgourvest/node-firebird",
   "repository": {
