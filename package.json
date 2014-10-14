@@ -1,11 +1,12 @@
 {
   "name": "node-firebird",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Firebird client - pure javascript",
   "keywords": [
     "firebird",
     "database",
-    "rdbms"
+    "rdbms",
+    "sql"
   ],
   "homepage": "https://github.com/hgourvest/node-firebird",
   "repository": {
@@ -16,11 +17,15 @@
     "name": "Henri Gourvest",
     "email": "hgourvest@gmail.com"
   },
+  "contributors": [
+      "Popa Marius Adrian <mapopa@gmail.com>",
+      "Peter \u0160irka <petersirka@gmail.com>"
+  ],
   "main": "./lib",
-  "licenses" : [ 
-    { 
+  "licenses" : [
+    {
       "type" : "MPL-2.0",
       "url": "https://raw.githubusercontent.com/hgourvest/node-firebird/master/LICENSE"
-    } 
-  ] 
+    }
+  ]
 }
