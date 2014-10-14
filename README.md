@@ -1,4 +1,16 @@
-# Pure JavaScript and Async Firebird client for Node.js.
+![Firebird Logo](https://www.totaljs.com/exports/firebird-logo.png)
+
+[![NPM version][npm-version-image]][npm-url] [![NPM downloads][npm-downloads-image]][npm-url] [![Mozilla License][license-image]][license-url]
+
+# Pure JavaScript Firebird client for Node.js.
+
+Pure JavaScript and Asynchronous Firebird client for Node.js. [Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups. Please share and follow Firebird database, it's a very good open-source product.
+
+__Firebird on social networks__
+
+- [Firebird on Google+](https://plus.google.com/111558763769231855886/posts)
+- [Firebird on Twitter](https://twitter.com/firebirdsql/)
+- [Firebird on Facebook](https://www.facebook.com/FirebirdSQL)
 
 __New version v0.2.0 supports:__
 
@@ -285,3 +297,16 @@ node-firebird doesn't let you chose the charset connection, it will always use U
 Node is unicode, no matter if your database is using another charset to store string or blob, Firebird will transliterate automatically.
 
 This is why you should use **Firebird 2.5** server at least.
+
+## Contributors
+
+- Henri Gourvest, <https://github.com/hgourvest>
+- Popa Marius Adrian, <https://github.com/mariuz>
+- Peter Širka, <https://github.com/petersirka>
+
+[license-image]: http://img.shields.io/badge/license-MOZILLA-blue.svg?style=flat
+[license-url]: LICENSE
+
+[npm-url]: https://npmjs.org/package/node-firebird
+[npm-version-image]: http://img.shields.io/npm/v/node-firebird.svg?style=flat
+[npm-downloads-image]: http://img.shields.io/npm/dm/node-firebird.svg?style=flat
