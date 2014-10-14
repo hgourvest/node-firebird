@@ -1,4 +1,4 @@
-# Pure JavaScript and Asynchronous Firebird client for Node.js.
+# Pure JavaScript and Async Firebird client for Node.js.
 
 __New version v0.2.0 supports:__
 
@@ -32,11 +32,11 @@ var Firebird = require('node-firebird');
 
 ### Methods
 
+- `Firebird.escape(value) -> return {String}` - prevent for SQL Injections
 - `Firebird.attach(options, function(err, db))` attach a database
 - `Firebird.create(options, function(err, db))` create a database
 - `Firebird.attachOrCreate(options, function(err, db))` attach or create database
 - `Firebird.pool(maxSockets, options, function(err, db)) -> return {Object}` create a connection pooling
-- `Firebird.escape(value) -> return {String}` - prevent for SQL Injections
 
 ## Connection types
 
@@ -75,7 +75,7 @@ Firebird.attach(options, function(err, db) {
 // 5 = the number is count of opened sockets
 var pool = Firebird.pool(5, options);
 
-// Get pool
+// Get a free pool
 pool.get(function(err, db) {
 
     if (err)
