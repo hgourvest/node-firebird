@@ -94,7 +94,7 @@ pool.get(function(err, db) {
 
     // db = DATABASE
     db.query('SELECT * FROM TABLE', function(err, result) {
-        // IMPORTANT: close the connection
+        // IMPORTANT: release the pool connection
         db.detach();
     });
 });
