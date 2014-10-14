@@ -5,7 +5,7 @@
 
 Pure JavaScript and Asynchronous Firebird client for Node.js. [Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups. Please share and follow Firebird database, it's a very good open-source product.
 
-__Firebird on social networks__
+__Firebird database on social networks__
 
 - [Firebird on Google+](https://plus.google.com/111558763769231855886/posts)
 - [Firebird on Twitter](https://twitter.com/firebirdsql/)
@@ -257,20 +257,69 @@ Firebird.attach(options, function(err, db) {
     // db = DATABASE
     db.transaction(Firebird.ISOLATION_READ_COMMITED, function(err, transaction) {
         transaction.query('INSERT INTO users VALUE(?,?)', [1, 'Janko'], function(err, result) {
-            
+
             if (err) {
                 transaction.rollback();
                 return;
             }
 
-            transaction.commit(function(err) {                
+            transaction.commit(function(err) {
                 if (err)
                     transaction.rollback();
                 else
                     db.detach();
             });
-        });        
+        });
     });
+});
+```
+
+### EVENTS
+
+```js
+Firebird.attach(options, function(err, db) {
+
+    if (err)
+        throw err;
+
+    db.on('row', function(row, index, isObject) {
+        // index === Number
+        // isObject === is row object or array?
+    });
+
+    db.on('result', function(result) {
+        // result === Array
+    });
+
+    db.on('attach', function() {
+
+    });
+
+    db.on('detach', function(isPoolConnection) {
+        // isPoolConnection == Boolean
+    });
+
+    db.on('reconnect', function() {
+
+    });
+
+    db.on('error', function(err) {
+
+    });
+
+    db.on('transaction', function(isolation) {
+        // isolation === Number
+    });
+
+    db.on('commit', function() {
+
+    });
+
+    db.on('rollback', function() {
+
+    });
+
+    db.detach();
 });
 ```
 
