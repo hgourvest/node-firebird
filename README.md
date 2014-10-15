@@ -15,7 +15,7 @@ __New version v0.2.0 supports__
 
 - added auto-reconnect
 - added sequentially selects
-- events (attach, detach, row, result, transaction, commit, rollback, error, etc.)
+- events for connection (attach, detach, row, result, transaction, commit, rollback, error, etc.)
 - performance improvements
 - supports inserting/updating buffers and streams
 - reading blobs (sequentially)
