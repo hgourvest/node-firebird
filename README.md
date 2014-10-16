@@ -14,7 +14,7 @@ __Firebird database on social networks__
 __New version v0.2.0 supports__
 
 - added auto-reconnect
-- added sequentially selects
+- added [sequentially selects](https://github.com/hgourvest/node-firebird/wiki/What-is-sequentially-selects)
 - events for connection (attach, detach, row, result, transaction, commit, rollback, error, etc.)
 - performance improvements
 - supports inserting/updating buffers and streams
