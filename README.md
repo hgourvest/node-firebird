@@ -27,7 +27,7 @@ __New version v0.2.0 supports__
 ---
 
 - [Firebird documentation](http://www.firebirdsql.org/en/documentation/)
-- [Firebird limits and data types](http://www.firebirdmanual.com/firebird/en/firebird-manual/2/limites-de-firebird/36)
+- [Firebird limits and data types](http://www.firebirdsql.org/en/firebird-technical-specifications/)
 
 ## Installation
 
