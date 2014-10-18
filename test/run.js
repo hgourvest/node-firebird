@@ -2,6 +2,7 @@ var fb = require('../lib');
 var fs = require('fs');
 var assert = require('assert');
 var Path = require('path');
+var now = new Date();
 
 var config = {
     database: Path.join(process.cwd(), 'test-' + new Date().getTime() + '.fdb'),
@@ -61,7 +62,7 @@ function test_create(next) {
     console.time(name);
 
     // Create table
-    database.query('CREATE TABLE test (ID INT, NAME VARCHAR(50), FILE BLOB)', function(err) {
+    database.query('CREATE TABLE test (ID INT, NAME VARCHAR(50), FILE BLOB, CREATED TIMESTAMP)', function(err) {
         assert.ok(!err, name + ': create table ' + err);
 
         // Check if table exists
@@ -91,13 +92,13 @@ function test_reconnect(next) {
 function test_insert(next) {
 
     var name = 'TEST ---> test_insert';
-    console.time(name);
-
     var query = [];
+
+    console.time(name);
 
     // Insert record with blob (STREAM)
     query.push(function(next) {
-        database.query('INSERT INTO test (ID, NAME, FILE) VALUES(?, ?, ?) RETURNING ID', [1, 'Firebird 1', fs.createReadStream('image.png')], function(err, r) {
+        database.query('INSERT INTO test (ID, NAME, FILE, CREATED) VALUES(?, ?, ?, ?) RETURNING ID', [1, 'Firebird 1', fs.createReadStream('image.png'), '14.12.2014 12:12:12'], function(err, r) {
             assert.ok(!err, name + ': insert blob (stream) ' + err);
             assert.ok(r['id'] === 1, name + ': blob (stream) returning value');
             next();
@@ -106,7 +107,7 @@ function test_insert(next) {
 
     // Insert record with blob (BUFFER)
     query.push(function(next) {
-        database.query('INSERT INTO test (ID, NAME, FILE) VALUES(?, ?, ?) RETURNING ID', [2, 'Firebird 2', fs.readFileSync('image.png')], function(err, r) {
+        database.query('INSERT INTO test (ID, NAME, FILE, CREATED) VALUES(?, ?, ?, ?) RETURNING ID', [2, 'Firebird 2', fs.readFileSync('image.png'), '14.12.2014T12:12:12'], function(err, r) {
             assert.ok(!err, name + ': insert blob (buffer) ' + err);
             assert.ok(r['id'] === 2, name + ': blob (buffer) returning value');
             next();
@@ -115,7 +116,7 @@ function test_insert(next) {
 
     // Insert record without blob
     query.push(function(next) {
-        database.query('INSERT INTO test (ID, NAME) VALUES(?, ?) RETURNING ID', [3, 'Firebird 3'], function(err, r) {
+        database.query('INSERT INTO test (ID, NAME, CREATED) VALUES(?, ?, ?) RETURNING ID', [3, 'Firebird 3', now], function(err, r) {
             assert.ok(!err, name + ': insert without blob (buffer) (1) ' + err);
             assert.ok(r['id'] === 3, name + ': without blob (buffer) returning value');
             next();
@@ -124,7 +125,7 @@ function test_insert(next) {
 
     // Insert record without blob (without returning value)
     query.push(function(next) {
-        database.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [4, 'Firebird 4'], function(err, r) {
+        database.query('INSERT INTO test (ID, NAME, CREATED) VALUES(?, ?, ?)', [4, 'Firebird 4', '2014-12-12 13:59'], function(err, r) {
             assert.ok(!err, name + ': insert without blob (buffer) (2) ' + err);
             assert.ok(err === undefined, name + ': insert without blob + without returning value');
             next();
@@ -177,14 +178,19 @@ function test_select_insert(next) {
 
     // Classic select
     query.push(function(next) {
-        database.query('SELECT * FROM test WHERE Id=1', function(err, r) {
+        database.query('SELECT * FROM test', function(err, r) {
 
             var row = r[0];
+            var row2 = r[2];
+            var row4 = r[3];
 
             assert.ok(!err, name + ': problem (1) ' + err);
             assert.ok(row !== undefined, name + ': problem (2)');
             assert.ok(row.id === 1 && row.name === 'Firebird 1', name + ': problem with deserializer');
             assert.ok(typeof(row.file) === 'function', name + ': blob');
+            assert.ok(row.created.getMonth() === 11 && row.created.getDate() === 14 && row.created.getFullYear() === 2014 && row.created.getHours() === 12 && row.created.getMinutes() === 12, name + ': date problem (1)');
+            assert.ok(row2.created.getTime() === now.getTime(), name + ': date problem (2)');
+            assert.ok(row4.created.getMonth() === 11 && row4.created.getDate() === 12 && row4.created.getFullYear() === 2014 && row4.created.getHours() === 13 && row4.created.getMinutes() === 59, name + ': date problem (3)');
 
             row.file(function(err, name, e) {
 
@@ -201,6 +207,7 @@ function test_select_insert(next) {
                     next();
                 });
             });
+
         });
     });
 
