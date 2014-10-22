@@ -36,7 +36,7 @@ Array.prototype.async = function(cb) {
 fb.attachOrCreate(config, function (err, db) {
 
     if (err)
-        throw err;
+        throw err.message;
 
     database = db;
 
@@ -423,7 +423,7 @@ function test_pooling(next) {
 
     query.push(function(next) {
         setTimeout(function() {
-            pool.detach();
+            pool.destroy();
             console.timeEnd(name);
         }, 500);
         next();
