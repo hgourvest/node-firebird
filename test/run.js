@@ -1,11 +1,13 @@
 var fb = require('../lib');
 var fs = require('fs');
+var os = require('os');
+
 var assert = require('assert');
 var Path = require('path');
 var now = new Date();
 
 var config = {
-    database: Path.join(process.cwd(), 'test-' + new Date().getTime() + '.fdb'),
+    database: Path.join(os.tmpdir(), 'test-' + new Date().getTime() + '.fdb'),
     host: '127.0.0.1',     // default
     port: 3050,            // default
     user: 'SYSDBA',        // default
