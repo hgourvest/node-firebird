@@ -7,7 +7,11 @@ var Path = require('path');
 var now = new Date();
 
 var config = {
-    database: Path.join(os.tmpdir(), 'test-' + new Date().getTime() + '.fdb'),
+
+    //  Problem with privileges in OSX
+    //  database: Path.join(os.tmpdir(), 'test-' + new Date().getTime() + '.fdb'),
+
+    database: Path.join(process.cwd(), 'test-' + new Date().getTime() + '.fdb'),
     host: '127.0.0.1',     // default
     port: 3050,            // default
     user: 'SYSDBA',        // default
@@ -51,9 +55,11 @@ fb.attachOrCreate(config, function (err, db) {
     task.push(test_update);
     task.push(test_select_update); // for updated rows
     task.push(test_transaction);
+
     task.push(function(next) {
         db.detach(next);
     });
+
     task.push(test_pooling);
     task.async();
 });
@@ -217,7 +223,7 @@ function test_select_insert(next) {
     query.push(function(next) {
         // Deserialize to array
         database.execute('SELECT COUNT(*), SUM(Id) FROM test', function(err, r) {
-            assert.ok(r[0][0] === 4 && r[0][1].low_ === 10, name + ': array deserializer problem');
+            assert.ok(r[0][0] === 4 && r[0][1] === 10, name + ': array deserializer problem');
             next();
         });
     });
