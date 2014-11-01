@@ -200,6 +200,9 @@ Firebird.attach(options, function(err, db) {
             if (err)
                 throw err;
 
+            // +v0.2.4
+            // e.pipe(writeStream/Response);
+
             // e === EventEmitter
             e.on('data', function(chunk) {
                 // reading data
