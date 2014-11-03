@@ -219,6 +219,17 @@ function test_select_insert(next) {
         });
     });
 
+    // Scalar testing
+    query.push(function(next) {
+        database.query('SELECT CAST(123 as NUMERIC(10,2)) As a, MAX(2) AS b, COUNT(*) AS c FROM RDB$DATABASE', function(err, results) {
+            var row = results[0];
+            assert.ok(row.a === 123, name + ': cast problem');
+            assert.ok(row.b === 2, name + ': max problem');
+            assert.ok(row.c !== 0, name + ': count problem');
+            next();
+        });
+    });
+
     // Select to array
     query.push(function(next) {
         // Deserialize to array
