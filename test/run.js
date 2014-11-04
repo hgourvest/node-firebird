@@ -448,5 +448,7 @@ function test_pooling(next) {
         next();
     });
 
-    query.async(next);
+    setTimeout(function() {
+        query.async(next);
+    }, 1000);
 }
