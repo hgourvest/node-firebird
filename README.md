@@ -349,6 +349,14 @@ Node is unicode, no matter if your database is using another charset to store st
 
 This is why you should use **Firebird 2.5** server at least.
 
+### Firebird 3.0 Support 
+
+Firebird new wire protocol is not supported yet so 
+For Firebird 3.0 you need the following in firebird.conf
+```
+AuthServer = Legacy_Auth
+WireCrypt= Disabled
+```
 ## Contributors
 
 - Henri Gourvest, <https://github.com/hgourvest>
