@@ -70,7 +70,7 @@ function test_create(next) {
     console.time(name);
 
     // Create table
-    database.query('CREATE TABLE test (ID INT, NAME VARCHAR(50), FILE BLOB, CREATED TIMESTAMP)', function(err) {
+    database.query('CREATE TABLE test (ID INT, PARENT BIGINT, NAME VARCHAR(50), FILE BLOB, CREATED TIMESTAMP)', function(err) {
         assert.ok(!err, name + ': create table ' + err);
 
         // Check if table exists
@@ -124,7 +124,7 @@ function test_insert(next) {
 
     // Insert record without blob
     query.push(function(next) {
-        database.query('INSERT INTO test (ID, NAME, CREATED) VALUES(?, ?, ?) RETURNING ID', [3, 'Firebird 3', now], function(err, r) {
+        database.query('INSERT INTO test (ID, NAME, CREATED, PARENT) VALUES(?, ?, ?, ?) RETURNING ID', [3, 'Firebird 3', now, 862304020112911], function(err, r) {
             assert.ok(!err, name + ': insert without blob (buffer) (1) ' + err);
             assert.ok(r['id'] === 3, name + ': without blob (buffer) returning value');
             next();
