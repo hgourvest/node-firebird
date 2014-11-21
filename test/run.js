@@ -49,8 +49,8 @@ fb.attachOrCreate(config, function (err, db) {
     var task = [];
 
     task.push(test_create);
-    task.push(test_reconnect);
     task.push(test_insert);
+    task.push(test_reconnect);
     task.push(test_select_insert); // for inserted rows
     task.push(test_update);
     task.push(test_select_update); // for updated rows
@@ -61,7 +61,11 @@ fb.attachOrCreate(config, function (err, db) {
     });
 
     task.push(test_pooling);
-    task.async();
+    task.async(function() {
+        setTimeout(function() {
+            process.exit();
+        }, 2000);
+    });
 });
 
 function test_create(next) {
@@ -419,8 +423,8 @@ function test_pooling(next) {
                 // detach a current connection (socket is opened)
                 db.detach();
             }, 1000);
-            next();
         });
+        next();
     });
 
     query.push(function(next) {
@@ -428,16 +432,58 @@ function test_pooling(next) {
             setTimeout(function() {
                 // detach a current connection (socket is still opened)
                 db.detach();
-            }, 1500);
-            next();
+            }, 2000);
+        });
+        next();
+    });
+
+    query.push(function(next) {
+        pool.get(function(err, db) {
+            db.query('SELECT * FROM test WHERE id=1', function(err, results) {
+                setImmediate(function() {
+                    assert.ok(db.pool === 1 && results.length === 1, 'pool selector 1');
+                    db.detach();
+                });
+            });
+        });
+        next();
+    });
+
+    query.push(function(next) {
+        assert.ok(pool.pending.length === 1, name + ': pool pending');
+        next();
+    });
+
+    query.push(function(next) {
+        pool.get(function(err, db) {
+            db.query('SELECT * FROM test WHERE id=2', function(err, results) {
+                assert.ok(db.pool === 0 && results.length === 1, 'pool selector 2');
+                db.detach();
+                next();
+            });
         });
     });
 
     query.push(function(next) {
         pool.get(function(err, db) {
-            next();
+            db.query('SELECT * FROM test WHERE id=1', function(err, results) {
+                setImmediate(function() {
+                    assert.ok(db.pool === 1 && results.length === 1, 'pool selector 3');
+                    db.detach();
+                });
+                next();
+            });
         });
-        assert.ok(pool.pending.length > 0, name + ': pool pending');
+    });
+
+    query.push(function(next) {
+        pool.get(function(err, db) {
+            db.query('SELECT * FROM test WHERE id=2', function(err, results) {
+                assert.ok(db.pool === 0 && results.length === 1, 'pool selector 4');
+                db.detach();
+                next();
+            });
+        });
     });
 
     query.push(function(next) {
