@@ -441,7 +441,7 @@ function test_pooling(next) {
         pool.get(function(err, db) {
             db.query('SELECT * FROM test WHERE id=1', function(err, results) {
                 setImmediate(function() {
-                    assert.ok(db.pool === 1 && results.length === 1, 'pool selector 1');
+                    assert.ok(results.length === 1, 'pool selector 1');
                     db.detach();
                 });
             });
@@ -457,7 +457,7 @@ function test_pooling(next) {
     query.push(function(next) {
         pool.get(function(err, db) {
             db.query('SELECT * FROM test WHERE id=2', function(err, results) {
-                assert.ok(db.pool === 0 && results.length === 1, 'pool selector 2');
+                assert.ok(results.length === 1, 'pool selector 2');
                 db.detach();
                 next();
             });
@@ -468,7 +468,7 @@ function test_pooling(next) {
         pool.get(function(err, db) {
             db.query('SELECT * FROM test WHERE id=1', function(err, results) {
                 setImmediate(function() {
-                    assert.ok(db.pool === 1 && results.length === 1, 'pool selector 3');
+                    assert.ok(results.length === 1, 'pool selector 3');
                     db.detach();
                 });
                 next();
@@ -479,7 +479,17 @@ function test_pooling(next) {
     query.push(function(next) {
         pool.get(function(err, db) {
             db.query('SELECT * FROM test WHERE id=2', function(err, results) {
-                assert.ok(db.pool === 0 && results.length === 1, 'pool selector 4');
+                assert.ok(results.length === 1, 'pool selector 4');
+                db.detach();
+                next();
+            });
+        });
+    });
+
+    query.push(function(next) {
+        pool.get(function(err, db) {
+            db.query('INSERT INTO test (ID) VALUES(?)', function(err, results) {
+                assert.ok(err, 'pool exception');
                 db.detach();
                 next();
             });
@@ -488,10 +498,10 @@ function test_pooling(next) {
 
     query.push(function(next) {
         setTimeout(function() {
-            pool.destroy();
+            assert.ok(pool.db === 0, 'pool detach');
             console.timeEnd(name);
-        }, 500);
-        next();
+            next();
+        }, 1000);
     });
 
     setTimeout(function() {

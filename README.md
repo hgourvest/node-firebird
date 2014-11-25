@@ -47,7 +47,7 @@ var Firebird = require('node-firebird');
 - `Firebird.attach(options, function(err, db))` attach a database
 - `Firebird.create(options, function(err, db))` create a database
 - `Firebird.attachOrCreate(options, function(err, db))` attach or create database
-- `Firebird.pool(maxSockets, options, function(err, db)) -> return {Object}` create a connection pooling
+- `Firebird.pool(max, options, function(err, db)) -> return {Object}` create a connection pooling
 
 ## Connection types
 
@@ -98,9 +98,6 @@ pool.get(function(err, db) {
         db.detach();
     });
 });
-
-// close all opened connections
-pool.detach();
 
 // Destroy pool
 pool.destroy();
