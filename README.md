@@ -57,7 +57,7 @@ var Firebird = require('node-firebird');
 var options = {};
 
 options.host = '127.0.0.1';
-// options.port = 3050;
+options.port = 3050;
 options.database = 'database.fdb';
 options.user = 'SYSDBA';
 options.password = 'masterkey';
@@ -346,9 +346,9 @@ Node is unicode, no matter if your database is using another charset to store st
 
 This is why you should use **Firebird 2.5** server at least.
 
-### Firebird 3.0 Support 
+### Firebird 3.0 Support
 
-Firebird new wire protocol is not supported yet so 
+Firebird new wire protocol is not supported yet so
 for Firebird 3.0 you need to add the following in firebird.conf
 ```
 AuthServer = Legacy_Auth
