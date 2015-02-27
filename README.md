@@ -339,6 +339,28 @@ console.log(sql3);
 console.log(sql4);
 ```
 
+### Backup Service 
+
+```js
+
+Firebird.attach(options, function(err, svc) { 
+    if (err)
+        return;
+    svc.backup(
+        {
+            database:'/DB/MYDB.FDB',
+            files: [
+                    {
+                     filename:'/DB/MYDB.FBK', 
+                     sizefile:'0'
+                    }
+                   ]
+        }, 
+        function(err, data) {
+            console.log(data);
+        });
+```
+
 ### Charset for database connection is always UTF-8
 
 node-firebird doesn't let you chose the charset connection, it will always use UTF8.
