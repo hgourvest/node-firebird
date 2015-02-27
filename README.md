@@ -12,7 +12,7 @@ __Firebird database on social networks__
 - [Firebird on Twitter](https://twitter.com/firebirdsql/)
 - [Firebird on Facebook](https://www.facebook.com/FirebirdSQL)
 
-__New version v0.2.0 supports__
+__Changelog for version v0.2.x __
 
 - added auto-reconnect
 - added [sequentially selects](https://github.com/hgourvest/node-firebird/wiki/What-is-sequentially-selects)
