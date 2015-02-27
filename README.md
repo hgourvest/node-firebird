@@ -1,6 +1,7 @@
 ![Firebird Logo](https://www.totaljs.com/exports/firebird-logo.png)
 
 [![NPM version][npm-version-image]][npm-url] [![NPM downloads][npm-downloads-image]][npm-url] [![Mozilla License][license-image]][license-url]
+[![Build Status](https://travis-ci.org/mariuz/node-firebird.svg?branch=master)](https://travis-ci.org/mariuz/node-firebird)
 # Pure JavaScript Firebird client for Node.js.
 
 Pure JavaScript and Asynchronous Firebird client for Node.js. [Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups. Please share and follow Firebird database, it's a very good open-source product.
