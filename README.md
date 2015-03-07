@@ -341,8 +341,60 @@ console.log(sql2);
 console.log(sql3);
 console.log(sql4);
 ```
+### Service Manager functions 
+- backup
+- restore
+- fixproperties
+- serverinfo
+- database validation
+- commit transaction
+- rollback transaction
+- recover transaction
+- database stats
+- users infos
+- user actions (add modify remove)
+- get firebird file log
+- tracing
 
-### Backup Service 
+```js
+// each row : fctname : [params], typeofreturn
+var fbsvc = {
+    "backup" : { [ "options"], "stream" },
+    "nbackup" : { [ "options"], "stream" },
+    "restore" : { [ "options"], "stream" },
+    "nrestore" : { [ "options"], "stream" },
+    "setDialect": { [ "database","dialect"], "stream" },
+    "setSweepinterval": { [ "database","sweepinterval"], "stream" },
+    "setCachebuffer" : { [ "database","nbpagebuffers"], "stream" },
+    "BringOnline" : { [ "database"], "stream" },
+    "Shutdown" : { [ "database","shutdown","shutdowndelay","shutdownmode"], "stream" },
+    "setShadow" : { [ "database","activateshadow"], "stream" },
+    "setForcewrite" : { [ "database","forcewrite"], "stream" },
+    "setReservespace" : { [ "database","reservespace"], "stream" },
+    "setReadonlyMode" : { [ "database"], "stream" },
+    "setReadwriteMode" : { [ "database"], "stream" },
+    "validate" : { [ "options"], "stream" },
+    "commit" : { [ "database", "transactid"], "stream" },
+    "rollback" : { [ "database", "transactid"], "stream" },
+    "recover" : { [ "database", "transactid"], "stream" },
+    "getStats" : { [ "options"], "stream" },
+    "getLog" : { [ "options"], "stream" },
+    "getUsers" : { [ "username"], "object" },
+    "addUser" : { [ "username", "password", "options"], "stream" },
+    "editUser" : { [ "username", "options"], "stream" },
+    "removeUser" : { [ "username","rolename"], "stream" },
+    "getFbserverInfos" : { [ "options", "options"], "object" },
+    "startTrace" : { [ "options"], "stream" },
+    "suspendTrace" : { [ "options"], "stream" },
+    "resumeTrace" : { [ "options"], "stream" },
+    "stopTrace" : { [ "options"], "stream" },
+    "getTraceList" : { [ "options"], "stream" },
+    "hasActionRunning" : { [ "options"], "object"}
+}
+
+```
+
+### Backup Service example
 
 ```js
 
@@ -362,6 +414,47 @@ Firebird.attach(options, function(err, svc) {
         function(err, data) {
             console.log(data);
         });
+```
+
+### getLog and getFbserverInfos Service examples with use of stream and object return
+```
+fb.attach(_connection, function(err, svc) { 
+    if (err)
+        return;
+    // all function that return a stream take two optional parameter
+    // optread => byline or buffer  byline use isc_info_svc_line and buffer use isc_info_svc_to_eof
+    // buffersize => is the buffer for service manager it can't exceed 8ko (i'm not sure)
+
+    svc.getLog({optread:'buffer', buffersize:2048}, function (err, data) {
+            // data is a readablestream that contain the firebird.log file
+            console.log(err);
+            data.on('data', function (data) {
+                console.log(data.toString());
+            });
+            data.on('end', function() {
+                console.log('finish');
+            });
+        });
+
+    // an other exemple to use function that return object
+    svc.getFbserverInfos(
+            {
+            "dbinfo" : true,
+            "fbconfig" : true,
+            "svcversion" : true,
+            "fbversion" : true,
+            "fbimplementation" : true,
+            "fbcapatibilities" : true,
+            "pathsecuritydb" : true,
+            "fbenv" : true,
+            "fbenvlock" : true,
+            "fbenvmsg" : true
+        }, {}, function (err, data) {
+            console.log(err);
+            console.log(data);
+        }); 
+});
+
 ```
 
 ### Charset for database connection is always UTF-8
