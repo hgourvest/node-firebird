@@ -1,5 +1,4 @@
 language: node_js
-osx_image: beta-xcode6.3
 node_js:
   - "stable"
   - "iojs"
