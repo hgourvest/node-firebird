@@ -27,5 +27,8 @@
       "type" : "MPL-2.0",
       "url": "https://raw.githubusercontent.com/hgourvest/node-firebird/master/LICENSE"
     }
-  ]
+  ],
+  "dependencies": {
+      "long": "^2.2.5"
+  }
 }
