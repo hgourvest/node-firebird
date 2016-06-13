@@ -64,6 +64,9 @@ options.port = 3050;
 options.database = 'database.fdb';
 options.user = 'SYSDBA';
 options.password = 'masterkey';
+options.role: null,            // default
+options.pageSize: 4096,        // default when creating database
+
 ```
 
 ### Classic
