@@ -64,6 +64,7 @@ options.port = 3050;
 options.database = 'database.fdb';
 options.user = 'SYSDBA';
 options.password = 'masterkey';
+options.lowercase_keys = false; // set to true to lowercase keys
 options.role = null;            // default
 options.pageSize = 4096;        // default when creating database
 
@@ -344,7 +345,7 @@ console.log(sql2);
 console.log(sql3);
 console.log(sql4);
 ```
-### Service Manager functions 
+### Service Manager functions
 - backup
 - restore
 - fixproperties
@@ -401,7 +402,7 @@ var fbsvc = {
 
 ```js
 
-Firebird.attach(options, function(err, svc) { 
+Firebird.attach(options, function(err, svc) {
     if (err)
         return;
     svc.backup(
@@ -409,11 +410,11 @@ Firebird.attach(options, function(err, svc) {
             database:'/DB/MYDB.FDB',
             files: [
                     {
-                     filename:'/DB/MYDB.FBK', 
+                     filename:'/DB/MYDB.FBK',
                      sizefile:'0'
                     }
                    ]
-        }, 
+        },
         function(err, data) {
             console.log(data);
         });
@@ -421,7 +422,7 @@ Firebird.attach(options, function(err, svc) {
 
 ### getLog and getFbserverInfos Service examples with use of stream and object return
 ```
-fb.attach(_connection, function(err, svc) { 
+fb.attach(_connection, function(err, svc) {
     if (err)
         return;
     // all function that return a stream take two optional parameter
@@ -455,7 +456,7 @@ fb.attach(_connection, function(err, svc) {
         }, {}, function (err, data) {
             console.log(err);
             console.log(data);
-        }); 
+        });
 });
 
 ```
