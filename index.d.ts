@@ -8,6 +8,7 @@ declare module 'node-firebird' {
     type TransactionCallback = (err: Options, transaction: Transaction) => void;
     type QueryCallback = (err: any, result: any[]) => void;
     type SimpleCallback = (err: any) => void;
+    type SequentialCallback = (row: any, index: number) => void;
 
     export const ISOLATION_READ_UNCOMMITTED: number[];
     export const ISOLATION_READ_COMMITED: number[];
@@ -20,6 +21,9 @@ declare module 'node-firebird' {
     export interface Database {
         detach(callback?: SimpleCallback): void;
         transaction(isolation: Isolation, callback: TransactionCallback): void;
+        query(query: string, params: any[], callback: QueryCallback): void;
+        execute(query: string, params: any[], callback: QueryCallback): void;
+        sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback): void;
     }
 
     export interface Transaction {
