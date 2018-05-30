@@ -52,7 +52,7 @@ var Firebird = require('node-firebird');
 - `Firebird.attachOrCreate(options, function(err, db))` attach or create database
 - `Firebird.pool(max, options, function(err, db)) -> return {Object}` create a connection pooling
 
-## Connection types
+## Connection types
 
 ### Connection options
 
@@ -131,7 +131,7 @@ pool.destroy();
 
 ### PARAMETRIZED QUERIES
 
-### Parameters
+### Parameters
 
 ```js
 Firebird.attach(options, function(err, db) {
