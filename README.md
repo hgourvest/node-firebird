@@ -476,7 +476,7 @@ for Firebird 3.0 you need to add the following in firebird.conf
 AuthServer = Legacy_Auth
 WireCrypt = Disabled
 ```
-## Contributors
+## Contributors
 
 - Henri Gourvest, <https://github.com/hgourvest>
 - Popa Marius Adrian, <https://github.com/mariuz>
