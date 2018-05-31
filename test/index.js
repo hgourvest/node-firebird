@@ -74,7 +74,7 @@ describe('Database', () => {
             
             db.query('SELECT COUNT(*) FROM test', (err, rows) => {
                 assert.ok(!err, err);
-                assert.ok(rows[0].count === 0);
+                assert.equal(rows[0].count, 0);
                 done();
             });
         });
@@ -91,7 +91,7 @@ describe('Database', () => {
         it('should insert with returning', done => {
             db.query('INSERT INTO test (ID, NAME, CREATED) VALUES(?, ?, ?) RETURNING ID', [2, 'Firebird 2', '2014-12-12 13:59'], (err, row) => {
                 assert.ok(!err, err);
-                assert.ok(row['id'] === 2);
+                assert.equal(row['id'], 2);
                 done();
             });
         });
@@ -99,7 +99,7 @@ describe('Database', () => {
         it('should insert with blob from stream', done => {
             db.query('INSERT INTO test (ID, NAME, FILE, CREATED) VALUES(?, ?, ?, ?) RETURNING ID', [3, 'Firebird 3', fs.createReadStream(blobPath), '14.12.2014 12:12:12'], (err, row) => {
                 assert.ok(!err, err);
-                assert.ok(row['id'] === 3);
+                assert.equal(row['id'], 3);
                 done();
             });
         });
@@ -107,7 +107,7 @@ describe('Database', () => {
         it('should insert with blob from buffer', done => {
             db.query('INSERT INTO test (ID, NAME, FILE, CREATED) VALUES(?, ?, ?, ?) RETURNING ID', [4, 'Firebird 4', fs.readFileSync(blobPath), '14.12.2014T12:12:12'], (err, row) => {
                 assert.ok(!err, err);
-                assert.ok(row['id'] === 4);
+                assert.equal(row['id'], 4);
                 done();
             });
         });
@@ -124,6 +124,65 @@ describe('Database', () => {
         it('should update with blob from buffer', done => {
             db.query('UPDATE test SET NAME = ?, FILE = ? WHERE Id = 2', ['Firebird 2 (UPD)', fs.readFileSync(blobPath)], err => {
                 assert.ok(!err, err);
+                done();
+            });
+        });
+    });
+    
+    describe('select', () => {
+        it('should select scalar values', done => {
+            db.query(`
+                SELECT 
+                    CAST(123 AS NUMERIC(10,2)) As a, 
+                    MAX(2) AS b, 
+                    COUNT(*) AS c 
+                FROM RDB$DATABASE
+            `, (err, rows) => {
+                assert.ok(!err, err);
+                const [row] = rows;
+                assert.equal(row.a, 123, 'CAST returned an unexpected value.');
+                assert.equal(row.b, 2, 'MAX returned an unexpected value.');
+                assert.notEqual(row.c, 0, 'COUNT returned an unexpected value.');
+                done();
+            });
+        });
+        
+        it('should select rows as arrays', done => {
+            db.execute('SELECT COUNT(*), SUM(ID) FROM test', (err, rows) => {
+                assert.ok(!err, err);
+                const [row] = rows;
+                assert.equal(row[0], 4);
+                assert.equal(row[1], 10);
+                done();
+            });    
+        });
+        
+        it('should select rows as objects', done => {
+            db.query('SELECT COUNT(*), SUM(ID) FROM test', (err, rows) => {
+                assert.ok(!err, err);
+                const [row] = rows;
+                assert.equal(row.count, 4);
+                assert.equal(row.sum, 10);
+                done();
+            });    
+        });
+        
+        it('should select rows sequentially as arrays', done => {
+            let sum = 0;
+            db.sequentially('SELECT Id FROM test', row => {
+                sum += row[0];
+            }, () => {
+                assert.equal(sum, 10);
+                done();
+            }, true);
+        });
+        
+        it('should select rows sequentially as objects', done => {
+            let sum = 0;
+            db.sequentially('SELECT Id FROM test', row => {
+                sum += row.id;
+            }, () => {
+                assert.equal(sum, 10);
                 done();
             });
         });
