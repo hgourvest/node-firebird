@@ -18,29 +18,63 @@ const config = {
 
 describe('Connection', () => {
 
-    let db;
-
-    afterEach(() => {
-        if (db) db.detach();
-    });
-
     it('should attach or create database', done => {
-        Firebird.attachOrCreate(config, (err, _db) => {
+        Firebird.attachOrCreate(config, (err, db) => {
             assert.ok(!err, err);
-            db = _db;
+            db.detach();
             done();
         });
     });
 
     it('should reconnect when socket is closed', done => {
-        Firebird.attach(config, (err, _db) => {
+        Firebird.attach(config, (err, db) => {
             assert.ok(!err, err);
-            db = _db;
-            db.on('reconnect', done);
+            db.on('reconnect', () => {
+                db.detach();
+                done();
+            });
             db.connection._socket.end();
         });
     });
 });
+
+describe('Pooling', () => {
+        
+    const poolSize = 2;
+    
+    let pool;
+    
+    before(() => {
+        pool = Firebird.pool(poolSize, config);
+    });
+    
+    after(() => {
+        pool.destroy();
+    });
+    
+    it('should wait when all connections are in use', done => {
+        for (let i = 0; i < poolSize; i++) {
+            pool.get((err, db) => {
+                assert.ok(!err, err);
+                setImmediate(() => db.detach());
+            });
+        }
+        
+        pool.get((err, db) => {
+            assert(!err, err);
+            
+            db.query('SELECT * FROM RDB$DATABASE', (err, rows) => {
+                assert(!err, err);
+                assert.equal(rows.length, 1);
+                db.detach();
+                done();
+            });
+        });
+        
+        assert.equal(pool.pending.length, 1);
+    });
+});
+
 
 describe('Database', () => {
     
@@ -49,7 +83,7 @@ describe('Database', () => {
     let db;
     
     before(done => {
-        Firebird.attachOrCreate(config, (err, _db) => {
+        Firebird.attach(config, (err, _db) => {
             if (err) throw err;
             db = _db;
             done();
