@@ -3,22 +3,27 @@ var fs = require('fs');
 var os = require('os');
 
 var assert = require('assert');
-var Path = require('path');
+var path = require('path');
 var now = new Date();
+
+var database;
+var dataPath = process.env.FIREBIRD_DATA || process.cwd();
+var blobPath = path.resolve(__dirname + '/image.png');
 
 var config = {
 
     //  Problem with privileges in OSX
-    //  database: Path.join(os.tmpdir(), 'test-' + new Date().getTime() + '.fdb'),
+    //  database: path.join(os.tmpdir(), 'test-' + new Date().getTime() + '.fdb'),
 
-    database: Path.join(process.cwd(), 'test-' + new Date().getTime() + '.fdb'),
+    database: path.join(dataPath, 'test-' + new Date().getTime() + '.fdb'),
     host: '127.0.0.1',     // default
     port: 3050,            // default
     user: 'SYSDBA',        // default
     password: 'masterkey', // default
     role: null,            // default
     pageSize: 4096,        // default when creating database
-    timeout: 3000          // default query timeout
+    timeout: 3000,         // default query timeout
+    lowercase_keys: true
 }
 
 Array.prototype.async = function(cb) {
@@ -110,7 +115,7 @@ function test_insert(next) {
 
     // Insert record with blob (STREAM)
     query.push(function(next) {
-        database.query('INSERT INTO test (ID, NAME, FILE, CREATED) VALUES(?, ?, ?, ?) RETURNING ID', [1, 'Firebird 1', fs.createReadStream('image.png'), '14.12.2014 12:12:12'], function(err, r) {
+        database.query('INSERT INTO test (ID, NAME, FILE, CREATED) VALUES(?, ?, ?, ?) RETURNING ID', [1, 'Firebird 1', fs.createReadStream(blobPath), '14.12.2014 12:12:12'], function(err, r) {
             assert.ok(!err, name + ': insert blob (stream) ' + err);
             assert.ok(r['id'] === 1, name + ': blob (stream) returning value');
             next();
@@ -119,7 +124,7 @@ function test_insert(next) {
 
     // Insert record with blob (BUFFER)
     query.push(function(next) {
-        database.query('INSERT INTO test (ID, NAME, FILE, CREATED) VALUES(?, ?, ?, ?) RETURNING ID', [2, 'Firebird 2', fs.readFileSync('image.png'), '14.12.2014T12:12:12'], function(err, r) {
+        database.query('INSERT INTO test (ID, NAME, FILE, CREATED) VALUES(?, ?, ?, ?) RETURNING ID', [2, 'Firebird 2', fs.readFileSync(blobPath), '14.12.2014T12:12:12'], function(err, r) {
             assert.ok(!err, name + ': insert blob (buffer) ' + err);
             assert.ok(r['id'] === 2, name + ': blob (buffer) returning value');
             next();
@@ -160,7 +165,7 @@ function test_update(next) {
 
     // Insert record with blob (STREAM)
     query.push(function(next) {
-        database.query('UPDATE test SET NAME=?, FILE=? WHERE Id=1', ['Firebird 1 (UPD)', fs.createReadStream('image.png')], function(err, r) {
+        database.query('UPDATE test SET NAME=?, FILE=? WHERE Id=1', ['Firebird 1 (UPD)', fs.createReadStream(blobPath)], function(err, r) {
             assert.ok(!err, name + ': update blob (stream) ' + err);
             next();
         });
@@ -168,7 +173,7 @@ function test_update(next) {
 
     // Insert record with blob (BUFFER)
     query.push(function(next) {
-        database.query('UPDATE test SET NAME=?, FILE=? WHERE Id=2', ['Firebird 2 (UPD)', fs.readFileSync('image.png')], function(err, r) {
+        database.query('UPDATE test SET NAME=?, FILE=? WHERE Id=2', ['Firebird 2 (UPD)', fs.readFileSync(blobPath)], function(err, r) {
             assert.ok(!err, name + ': update blob (buffer) ' + err);
             next();
         });
@@ -498,7 +503,7 @@ function test_pooling(next) {
 
     query.push(function(next) {
         setTimeout(function() {
-            assert.ok(pool.db === 0, 'pool detach');
+            assert.ok(pool.dbinuse === 0, 'pool detach');
             console.timeEnd(name);
             next();
         }, 1000);

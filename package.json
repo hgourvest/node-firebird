@@ -19,14 +19,23 @@
     },
     "contributors": [
         "Popa Marius Adrian <mapopa@gmail.com>",
-        "Peter \u0160irka <petersirka@gmail.com>"
+        "Peter Širka <petersirka@gmail.com>"
     ],
     "main": "./lib",
-    "licenses": [{
-        "type": "MPL-2.0",
-        "url": "https://raw.githubusercontent.com/hgourvest/node-firebird/master/LICENSE"
-    }],
+    "licenses": [
+        {
+            "type": "MPL-2.0",
+            "url": "https://raw.githubusercontent.com/hgourvest/node-firebird/master/LICENSE"
+        }
+    ],
+    "scripts": {
+        "test": "node ./test/run.js"  
+    },
     "dependencies": {
         "long": "^2.2.5"
+    },
+    "devDependencies": {
+        "coveralls": "^3.0.1",
+        "nyc": "^11.8.0"
     }
 }

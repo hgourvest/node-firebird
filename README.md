@@ -463,7 +463,7 @@ fb.attach(_connection, function(err, svc) {
 
 ### Charset for database connection is always UTF-8
 
-node-firebird doesn't let you chose the charset connection, it will always use UTF8.
+node-firebird doesn't let you choose the charset connection, it will always use UTF-8.
 Node is unicode, no matter if your database is using another charset to store string or blob, Firebird will transliterate automatically.
 
 This is why you should use **Firebird 2.5** server at least.
