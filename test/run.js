@@ -44,6 +44,8 @@ Array.prototype.async = function(cb) {
     });
 };
 
+return;
+
 fb.attachOrCreate(config, function (err, db) {
 
     if (err)

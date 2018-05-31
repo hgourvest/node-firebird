@@ -29,13 +29,14 @@
         }
     ],
     "scripts": {
-        "test": "node ./test/run.js"  
+        "test": "mocha"
     },
     "dependencies": {
         "long": "^2.2.5"
     },
     "devDependencies": {
         "coveralls": "^3.0.1",
+        "mocha": "^5.2.0",
         "nyc": "^11.8.0"
     }
 }
