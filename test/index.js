@@ -161,6 +161,62 @@ describe('Database', () => {
                 done();
             });
         });
+        
+        describe('verify', () => {
+            it('should select data from update with blob from stream', done => {
+                db.query('SELECT * FROM test WHERE ID = 1', (err, rows) => {
+                    assert.ok(!err, err);
+                    
+                    const [row] = rows;
+                    assert.notEqual(row, undefined);
+                    assert.equal(row.id, 1);
+                    assert.equal(row.name, 'Firebird 1 (UPD)');
+                    assert.equal(typeof(row.file), 'function');
+        
+                    row.file((err, name, emitter) => {
+                        assert.ok(!err, err);
+        
+                        let count = 0;
+        
+                        emitter.on('data', buffer => {
+                            count += buffer.length;
+                        });
+        
+                        emitter.on('end', () => {
+                            assert.equal(count, 5472);
+                            done();
+                        });
+                    });
+                });    
+            });
+            
+            it('should select data from update with blob from buffer', done => {
+                db.query('SELECT * FROM test WHERE ID = 2', (err, rows) => {
+                    assert.ok(!err, err);
+                    
+                    const [row] = rows;
+                    assert.notEqual(row, undefined);
+                    assert.equal(row.id, 2);
+                    assert.equal(row.name, 'Firebird 2 (UPD)');
+                    assert.equal(typeof(row.file), 'function');
+        
+                    row.file((err, name, emitter) => {
+                        assert.ok(!err, err);
+        
+                        let count = 0;
+        
+                        emitter.on('data', buffer => {
+                            count += buffer.length;
+                        });
+        
+                        emitter.on('end', () => {
+                            assert.equal(count, 5472);
+                            done();
+                        });
+                    });
+                });    
+            });
+        });
     });
     
     describe('select', () => {
