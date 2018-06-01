@@ -4,11 +4,11 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const currentTime = new Date().getTime();
+const currentDate = new Date();
 const testDir = path.resolve(__dirname);
 
 const config = {
-    database: path.join(process.env.FIREBIRD_DATA || testDir, `test-${currentTime}.fdb`),
+    database: path.join(process.env.FIREBIRD_DATA || testDir, `test-${currentDate.getTime()}.fdb`),
     host: '127.0.0.1',
     port: 3050,
     user: 'sysdba',
@@ -67,7 +67,10 @@ describe('Pooling', () => {
                 assert(!err, err);
                 assert.equal(rows.length, 1);
                 db.detach();
-                done();
+                setImmediate(() => {
+                    assert.equal(pool.dbinuse, 0);
+                    done(); 
+                });
             });
         });
         
@@ -116,14 +119,14 @@ describe('Database', () => {
     
     describe('insert', () => {
         it('should insert without returning', done => {
-            db.query('INSERT INTO test (ID, NAME, CREATED) VALUES(?, ?, ?)', [1, 'Firebird 1', '2014-12-12 13:59'], err => {
+            db.query('INSERT INTO test (ID, NAME, CREATED, PARENT) VALUES(?, ?, ?, ?)', [1, 'Firebird 1', '2014-12-12 13:59', 862304020112911], err => {
                 assert.ok(!err, err);
                 done();
             });
         });
         
         it('should insert with returning', done => {
-            db.query('INSERT INTO test (ID, NAME, CREATED) VALUES(?, ?, ?) RETURNING ID', [2, 'Firebird 2', '2014-12-12 13:59'], (err, row) => {
+            db.query('INSERT INTO test (ID, NAME, CREATED, PARENT) VALUES(?, ?, ?, ?) RETURNING ID', [2, 'Firebird 2', currentDate, 862304020112911], (err, row) => {
                 assert.ok(!err, err);
                 assert.equal(row['id'], 2);
                 done();
@@ -144,6 +147,49 @@ describe('Database', () => {
                 assert.equal(row['id'], 4);
                 done();
             });
+        });
+        
+        describe('verify', () => {
+            it('should select data from inserts', done => {
+                db.query('SELECT * FROM test', (err, rows) => {
+                    assert.ok(!err, err);
+                    
+                    const [first, second, third] = rows;
+        
+                    assert.equal(first.created.getMonth(), 11);
+                    assert.equal(first.created.getDate(), 12);
+                    assert.equal(first.created.getFullYear(), 2014);
+                    assert.equal(first.created.getHours(), 13);
+                    assert.equal(first.created.getMinutes(), 59);
+        
+                    assert.equal(second.created.getTime(), currentDate.getTime());
+        
+                    assert.notEqual(third, undefined);
+                    assert.equal(third.id, 3)
+                    assert.equal(third.name, 'Firebird 3');
+                    assert.equal(typeof(third.file), 'function');
+                    assert.equal(third.created.getMonth(), 11);
+                    assert.equal(third.created.getDate(), 14);
+                    assert.equal(third.created.getFullYear(), 2014);
+                    assert.equal(third.created.getHours(), 12);
+                    assert.equal(third.created.getMinutes(), 12);
+                    
+                    third.file((err, name, emitter) => {
+                        assert.ok(!err, err);
+        
+                        let count = 0;
+        
+                        emitter.on('data', buffer => {
+                            count += buffer.length;
+                        });
+        
+                        emitter.on('end', () => {
+                            assert.equal(count, 5472);
+                            done();
+                        });
+                    });
+                });
+            });  
         });
     });
        
