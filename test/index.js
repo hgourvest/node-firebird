@@ -221,4 +221,54 @@ describe('Database', () => {
             });
         });
     });
+    
+    describe('transaction', () => {
+       
+        it('should rollback', done => {
+            db.transaction((err, transaction) => {
+                assert(!err, err);
+                transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [5, 'Transaction 1'], err => {
+                    assert.ok(!err, err);
+                    transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [6, 'Transaction 2'], err => {
+                        assert.ok(!err, err);
+                        transaction.query('INSERT INTO test_fail (ID, NAME) VALUES(?, ?)', [7, 'Transaction 3'], err => {
+                            assert.ok(err);
+                            transaction.rollback(err => {
+                                assert.ok(!err, err);
+                                verify(done, 4);
+                            });
+                        });
+                    });
+                });
+            });
+        });
+
+        it('should commit', done => {
+            db.transaction((err, transaction) => {
+                assert(!err, err);
+                transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [5, 'Transaction 1'], err => {
+                    assert.ok(!err, err);
+                    transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [6, 'Transaction 2'], err => {
+                        assert.ok(!err, err);
+                        transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [7, 'Transaction 3'], err => {
+                            assert.ok(!err, err);
+                            transaction.commit(err => {
+                                assert.ok(!err, err);
+                                verify(done, 7);
+                            });
+                        });
+                    });
+                });
+            });
+        });
+        
+        function verify(callback, count) {
+            db.query('SELECT COUNT(*) FROM test', (err, rows) => {
+                assert.ok(!err, err);
+                const [row] = rows;
+                assert.equal(row.count, count);
+                callback();
+            });
+        }
+    });
 });
