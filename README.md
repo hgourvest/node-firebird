@@ -52,7 +52,7 @@ var Firebird = require('node-firebird');
 - `Firebird.attachOrCreate(options, function(err, db))` attach or create database
 - `Firebird.pool(max, options, function(err, db)) -> return {Object}` create a connection pooling
 
-## Connection types
+## Connection types
 
 ### Connection options
 
@@ -131,7 +131,7 @@ pool.destroy();
 
 ### PARAMETRIZED QUERIES
 
-### Parameters
+### Parameters
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -463,7 +463,7 @@ fb.attach(_connection, function(err, svc) {
 
 ### Charset for database connection is always UTF-8
 
-node-firebird doesn't let you chose the charset connection, it will always use UTF8.
+node-firebird doesn't let you choose the charset connection, it will always use UTF-8.
 Node is unicode, no matter if your database is using another charset to store string or blob, Firebird will transliterate automatically.
 
 This is why you should use **Firebird 2.5** server at least.
@@ -476,7 +476,7 @@ for Firebird 3.0 you need to add the following in firebird.conf
 AuthServer = Legacy_Auth
 WireCrypt = Disabled
 ```
-## Contributors
+## Contributors
 
 - Henri Gourvest, <https://github.com/hgourvest>
 - Popa Marius Adrian, <https://github.com/mariuz>
