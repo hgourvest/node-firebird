@@ -10,7 +10,6 @@ Pure JavaScript and Asynchronous Firebird client for Node.js. [Firebird forum](h
 
 __Firebird database on social networks__
 
-- [Firebird on Google+](https://plus.google.com/111558763769231855886/posts)
 - [Firebird on Twitter](https://twitter.com/firebirdsql/)
 - [Firebird on Facebook](https://www.facebook.com/FirebirdSQL)
 
