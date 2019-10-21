@@ -24,7 +24,7 @@ __Changelog for version v0.2.x__
 - pooling
 - `database.detach()` waits for last command
 - better unit-test
-- best of use with [total.js - web application framework for node.js](http://www.totaljs.com)
+
 
 ---
 
