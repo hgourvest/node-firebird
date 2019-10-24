@@ -2,7 +2,8 @@ language: node_js
 
 node_js:
   - lts/*
-  - node  
+  - lts/12
+  - lts/10  
 
 notifications:
   email:
