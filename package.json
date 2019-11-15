@@ -22,6 +22,7 @@
         "Peter Širka <petersirka@gmail.com>"
     ],
     "main": "./lib",
+    "types": "./lib/index.d.ts"
     "licenses": [
         {
             "type": "MPL-2.0",
