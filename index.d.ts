@@ -1,4 +1,4 @@
-// Type definitions for node-firebird 0.8.3
+// Type definitions for node-firebird
 // Project: node-firebird
 // Definitions by: Marco Warm <https://github.com/MarcusCalidus>
 
