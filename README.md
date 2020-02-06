@@ -139,7 +139,7 @@ Firebird.attach(options, function(err, db) {
         throw err;
 
     // db = DATABASE
-    db.query('INSERT INTO USERS (ID, ALIAS, CREATED) VALUES(?, ?, ?) RETURNING ID', [1, 'Pe\'ter', new Date()] function(err, result) {
+    db.query('INSERT INTO USERS (ID, ALIAS, CREATED) VALUES(?, ?, ?) RETURNING ID', [1, 'Pe\'ter', new Date()], function(err, result) {
         console.log(result[0].id);
         db.query('SELECT * FROM USERS WHERE Alias=?', ['Peter'], function(err, result) {
             console.log(result);
@@ -159,7 +159,7 @@ Firebird.attach(options, function(err, db) {
 
     // db = DATABASE
     // INSERT STREAM as BLOB
-    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.createReadStream('/users/image.jpg')] function(err, result) {
+    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.createReadStream('/users/image.jpg')], function(err, result) {
         // IMPORTANT: close the connection
         db.detach();
     });
@@ -176,7 +176,7 @@ Firebird.attach(options, function(err, db) {
 
     // db = DATABASE
     // INSERT BUFFER as BLOB
-    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.readFileSync('/users/image.jpg')] function(err, result) {
+    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.readFileSync('/users/image.jpg')], function(err, result) {
         // IMPORTANT: close the connection
         db.detach();
     });
