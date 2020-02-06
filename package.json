@@ -26,7 +26,7 @@
     "licenses": [
         {
             "type": "MPL-2.0",
-            "url": "https://raw.githubusercontent.com/hgourvest/node-firebird/master/LICENSE"
+            "url": "https://github.com/hgourvest/node-firebird/blob/master/LICENSE"
         }
     ],
     "scripts": {
