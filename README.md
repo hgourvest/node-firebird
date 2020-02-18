@@ -28,8 +28,8 @@ __Changelog for version v0.2.x__
 
 ---
 
-- [Firebird documentation](http://www.firebirdsql.org/en/documentation/)
-- [Firebird limits and data types](http://www.firebirdsql.org/en/firebird-technical-specifications/)
+- [Firebird documentation](https://www.firebirdsql.org/en/documentation/)
+- [Firebird limits and data types](https://www.firebirdsql.org/en/firebird-technical-specifications/)
 
 ## Installation
 
