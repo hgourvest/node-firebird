@@ -2,8 +2,7 @@ language: node_js
 
 node_js:
   - lts/*
-  - v10
-  - v8  
+  - v10  
 
 notifications:
   email:
