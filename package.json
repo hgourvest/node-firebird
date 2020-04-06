@@ -32,7 +32,7 @@
         "test": "mocha"
     },
     "dependencies": {
-        "long": "^2.2.5"
+        "long": "^4.0.0"
     },
     "devDependencies": {
         "coveralls": "^3.0.1",
