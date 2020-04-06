@@ -38,6 +38,6 @@
     "devDependencies": {
         "coveralls": "^3.0.1",
         "mocha": "^5.2.0",
-        "nyc": "^14.1.1"
+        "nyc": "^15.0.1"
     }
 }
