@@ -41,9 +41,10 @@ describe('Connection', function () {
             });
         });
     });
-    var testCreateDatabase = config.database.replace(/\.fdb/, '2.fdb');
+
+    var testCreateConfig = Object.assign({}, config, {database: config.database.replace(/\.fdb/, '2.fdb')});
     it('should create', function(done) {
-        Firebird.create(Object.assign({}, config, {database: testCreateDatabase}), function(err, db) {
+        Firebird.create(testCreateConfig, function(err, db) {
             assert.ok(!err, err);
 
             db.detach();
@@ -52,7 +53,7 @@ describe('Connection', function () {
     });
 
     it('should drop', function(done) {
-        Firebird.drop(Object.assign({}, config, {database: testCreateDatabase}), function(err) {
+        Firebird.drop(testCreateConfig, function(err) {
             assert.ok(!err, err);
 
             done();
