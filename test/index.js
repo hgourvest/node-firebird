@@ -41,6 +41,24 @@ describe('Connection', function () {
             });
         });
     });
+
+    var testCreateConfig = Object.assign({}, config, {database: config.database.replace(/\.fdb/, '2.fdb')});
+    it('should create', function(done) {
+        Firebird.create(testCreateConfig, function(err, db) {
+            assert.ok(!err, err);
+
+            db.detach();
+            done();
+        });
+    });
+
+    it('should drop', function(done) {
+        Firebird.drop(testCreateConfig, function(err) {
+            assert.ok(!err, err);
+
+            done();
+        });
+    });
 });
 
 describe('Pooling', function () {
