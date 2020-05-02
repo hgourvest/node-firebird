@@ -1,3 +1,7 @@
+# Project ignores
 node_modules/
 test/*.fdb
 *.fdb
+
+# Jetbrains IDE
+.idea
