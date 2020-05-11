@@ -1,30 +1,18 @@
 var Firebird = require('../lib');
+var Config = require('./config');
 
 var assert = require('assert');
 var fs = require('fs');
 var path = require('path');
 
-var currentDate = new Date();
-var testDir = path.resolve(__dirname);
-
-var config = {
-    database: path.join(process.env.FIREBIRD_DATA || testDir, 'test-' + currentDate.getTime() + '.fdb'),
-    host: '127.0.0.1',
-    port: 3050,
-    user: 'sysdba',
-    password: 'masterkey',
-    role: null,
-    pageSize: 4096,
-    timeout: 3000,
-    lowercase_keys: true
-};
+var config = Config.default;
 
 describe('Connection', function () {
 
     it('should attach or create database', function (done) {
         Firebird.attachOrCreate(config, function (err, db) {
             assert.ok(!err, err);
-            
+
             db.detach();
             done();
         });
@@ -62,54 +50,54 @@ describe('Connection', function () {
 });
 
 describe('Pooling', function () {
-        
+
     var poolSize = 2;
     var pool;
-    
+
     before(function () {
         pool = Firebird.pool(poolSize, config);
     });
-    
+
     after(function () {
         pool.destroy();
     });
-    
+
     it('should wait when all connections are in use', function (done) {
         for (var i = 0; i < poolSize; i++) {
             pool.get(function (err, db) {
                 assert.ok(!err, err);
-                
-                setImmediate(function () { 
+
+                setImmediate(function () {
                     db.detach();
                 });
             });
         }
-        
+
         pool.get(function (err, db) {
             assert(!err, err);
-            
+
             db.query('SELECT * FROM RDB$DATABASE', function (err, rows) {
                 assert(!err, err);
-                
+
                 assert.equal(rows.length, 1);
                 db.detach();
                 setImmediate(function () {
                     assert.equal(pool.dbinuse, 0);
-                    done(); 
+                    done();
                 });
             });
         });
-        
+
         assert.equal(pool.pending.length, 1);
     });
 });
 
 
 describe('Database', function () {
-    
-    var blobPath = path.join(testDir, 'image.png');
+
+    var blobPath = path.join(Config.testDir, 'image.png');
     var db;
-    
+
     before(function (done) {
         Firebird.attach(config, function (err, _db) {
             if (err) throw err;
@@ -141,15 +129,15 @@ describe('Database', function () {
                 done();
             });
         });
-        
+
         it('should insert with returning', function (done) {
-            db.query('INSERT INTO test (ID, NAME, CREATED, PARENT) VALUES(?, ?, ?, ?) RETURNING ID', [2, 'Firebird 2', currentDate, 862304020112911], function (err, row) {
+            db.query('INSERT INTO test (ID, NAME, CREATED, PARENT) VALUES(?, ?, ?, ?) RETURNING ID', [2, 'Firebird 2', Config.currentDate, 862304020112911], function (err, row) {
                 assert.ok(!err, err);
                 assert.equal(row['id'], 2);
                 done();
             });
         });
-        
+
         it('should insert with blob from stream', function (done) {
             db.query('INSERT INTO test (ID, NAME, FILE, CREATED) VALUES(?, ?, ?, ?) RETURNING ID', [3, 'Firebird 3', fs.createReadStream(blobPath), '14.12.2014 12:12:12'], function (err, row) {
                 assert.ok(!err, err);
@@ -165,24 +153,24 @@ describe('Database', function () {
                 done();
             });
         });
-        
+
         describe('verify', function () {
             it('should select data from inserts', function (done) {
                 db.query('SELECT * FROM test', function (err, rows) {
                     assert.ok(!err, err);
-                    
+
                     var first = rows[0];
                     var second = rows[1];
                     var third = rows[2];
-        
+
                     assert.equal(first.created.getMonth(), 11);
                     assert.equal(first.created.getDate(), 12);
                     assert.equal(first.created.getFullYear(), 2014);
                     assert.equal(first.created.getHours(), 13);
                     assert.equal(first.created.getMinutes(), 59);
-        
-                    assert.equal(second.created.getTime(), currentDate.getTime());
-        
+
+                    assert.equal(second.created.getTime(), Config.currentDate.getTime());
+
                     assert.notEqual(third, undefined);
                     assert.equal(third.id, 3)
                     assert.equal(third.name, 'Firebird 3');
