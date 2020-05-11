@@ -419,6 +419,25 @@ Firebird.attach(options, function(err, svc) {
         });
 ```
 
+### Restore Service example
+
+```js
+const config = {...}; // Clasic configuration with manager = true
+const RESTORE_OPTS = {
+    database: 'database.fdb",
+    files: ['backup.fbk']
+};
+
+Firebird.attach(config, (err, srv) => {
+    srv.restore(RESTORE_OPTS, (err, data) => {
+        data.on('data', () => {});
+        data.on('end', () =>
+            srv.detach();
+        });
+    });
+});
+```
+
 ### getLog and getFbserverInfos Service examples with use of stream and object return
 ```
 fb.attach(_connection, function(err, svc) {
