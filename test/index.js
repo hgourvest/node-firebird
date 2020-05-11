@@ -166,6 +166,15 @@ describe('Database', function () {
             });
         });
         
+        it('should insert with string from buffer', function (done) {
+            db.query('INSERT INTO test (ID, NAME, CREATED) VALUES(?, ?, ?) RETURNING ID', [5, Buffer.from('Firebird 5'), '14.12.2014T12:12:12'], function (err, row) {
+            //db.query('INSERT INTO test (ID, NAME, CREATED) VALUES(?, ?, ?) RETURNING ID', [5, 'Firebird 5', '14.12.2014T12:12:12'], function (err, row) {
+                assert.ok(!err, err);
+                assert.equal(row['id'], 5);
+                done();
+            });
+        });
+
         describe('verify', function () {
             it('should select data from inserts', function (done) {
                 db.query('SELECT * FROM test', function (err, rows) {
@@ -300,8 +309,8 @@ describe('Database', function () {
             db.execute('SELECT COUNT(*), SUM(ID) FROM test', function (err, rows) {
                 assert.ok(!err, err);
                 var row = rows[0];
-                assert.equal(row[0], 4);
-                assert.equal(row[1], 10);
+                assert.equal(row[0], 5);
+                assert.equal(row[1], 15);
                 done();
             });    
         });
@@ -310,8 +319,8 @@ describe('Database', function () {
             db.query('SELECT COUNT(*), SUM(ID) FROM test', function (err, rows) {
                 assert.ok(!err, err);
                 var row = rows[0];
-                assert.equal(row.count, 4);
-                assert.equal(row.sum, 10);
+                assert.equal(row.count, 5);
+                assert.equal(row.sum, 15);
                 done();
             });    
         });
@@ -321,7 +330,7 @@ describe('Database', function () {
             db.sequentially('SELECT Id FROM test', function (row) {
                 sum += row[0];
             }, function () {
-                assert.equal(sum, 10);
+                assert.equal(sum, 15);
                 done();
             }, true);
         });
@@ -331,7 +340,7 @@ describe('Database', function () {
             db.sequentially('SELECT Id FROM test', function (row) {
                 sum += row.id;
             }, function () {
-                assert.equal(sum, 10);
+                assert.equal(sum, 15);
                 done();
             });
         });
@@ -342,15 +351,15 @@ describe('Database', function () {
         it('should rollback', function (done) {
             db.transaction(function (err, transaction) {
                 assert(!err, err);
-                transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [5, 'Transaction 1'], function (err) {
+                transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [6, 'Transaction 1'], function (err) {
                     assert.ok(!err, err);
-                    transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [6, 'Transaction 2'], function (err) {
+                    transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [7, 'Transaction 2'], function (err) {
                         assert.ok(!err, err);
-                        transaction.query('INSERT INTO test_fail (ID, NAME) VALUES(?, ?)', [7, 'Transaction 3'], function (err) {
+                        transaction.query('INSERT INTO test_fail (ID, NAME) VALUES(?, ?)', [8, 'Transaction 3'], function (err) {
                             assert.ok(err);
                             transaction.rollback(function (err) {
                                 assert.ok(!err, err);
-                                verify(done, 4);
+                                verify(done, 5);
                             });
                         });
                     });
@@ -361,15 +370,15 @@ describe('Database', function () {
         it('should commit', function (done) {
             db.transaction(function (err, transaction) {
                 assert(!err, err);
-                transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [5, 'Transaction 1'], function (err) {
+                transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [6, 'Transaction 1'], function (err) {
                     assert.ok(!err, err);
-                    transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [6, 'Transaction 2'], function (err) {
+                    transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [7, 'Transaction 2'], function (err) {
                         assert.ok(!err, err);
-                        transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [7, 'Transaction 3'], function (err) {
+                        transaction.query('INSERT INTO test (ID, NAME) VALUES(?, ?)', [8, 'Transaction 3'], function (err) {
                             assert.ok(!err, err);
                             transaction.commit(function (err) {
                                 assert.ok(!err, err);
-                                verify(done, 7);
+                                verify(done, 8);
                             });
                         });
                     });
