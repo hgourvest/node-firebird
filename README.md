@@ -424,7 +424,7 @@ Firebird.attach(options, function(err, svc) {
 ```js
 const config = {...}; // Clasic configuration with manager = true
 const RESTORE_OPTS = {
-    database: 'database.fdb",
+    database: 'database.fdb',
     files: ['backup.fbk']
 };
 
