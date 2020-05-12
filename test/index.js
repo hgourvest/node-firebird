@@ -1,30 +1,18 @@
 var Firebird = require('../lib');
+var Config = require('./config');
 
 var assert = require('assert');
 var fs = require('fs');
 var path = require('path');
 
-var currentDate = new Date();
-var testDir = path.resolve(__dirname);
-
-var config = {
-    database: path.join(process.env.FIREBIRD_DATA || testDir, 'test-' + currentDate.getTime() + '.fdb'),
-    host: '127.0.0.1',
-    port: 3050,
-    user: 'sysdba',
-    password: 'masterkey',
-    role: null,
-    pageSize: 4096,
-    timeout: 3000,
-    lowercase_keys: true
-};
+var config = Config.default;
 
 describe('Connection', function () {
 
     it('should attach or create database', function (done) {
         Firebird.attachOrCreate(config, function (err, db) {
             assert.ok(!err, err);
-            
+
             db.detach();
             done();
         });
@@ -157,6 +145,7 @@ describe('Database', function() {
         it('should create table', function (done) {
             db.query('CREATE TABLE T (ID INT)', function (err, d) {
                 assert.ok(!err, err);
+                assert.equal(row['id'], 2);
 
                 done();
             });
@@ -233,7 +222,7 @@ describe('Database', function() {
                     assert.equal(first.created.getHours(), 13);
                     assert.equal(first.created.getMinutes(), 59);
 
-                    assert.equal(second.created.getTime(), currentDate.getTime());
+                    assert.equal(second.created.getTime(), Config.currentDate.getTime());
 
                     assert.notEqual(third, undefined);
                     assert.equal(third.id, 3)

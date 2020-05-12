@@ -1,6 +1,7 @@
 # Project ignores
 node_modules/
 test/*.fdb
+test/*.fbk
 *.fdb
 
 # Jetbrains IDE
