@@ -1,19 +1,20 @@
+# Pure JavaScript and Asynchronous Firebird client for Node.js
+
 ![Firebird Logo](https://firebirdsql.org/file/about/firebird-logo-90.png)
 
 [![NPM version][npm-version-image]][npm-url] [![NPM downloads][npm-downloads-image]][npm-url] [![Mozilla License][license-image]][license-url]
 [![Build Status](https://travis-ci.org/mariuz/node-firebird.svg?branch=master)](https://travis-ci.org/mariuz/node-firebird)
 
 [![NPM](https://nodei.co/npm/node-firebird.png?downloads=true&downloadRank=true)](https://nodei.co/npm/node-firebird/) [![NPM](https://nodei.co/npm-dl/node-firebird.png?months=6&height=3)](https://nodei.co/npm/node-firebird/)
-# Pure JavaScript Firebird client for Node.js.
 
-Pure JavaScript and Asynchronous Firebird client for Node.js. [Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups.
+[Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups.
 
-__Firebird database on social networks__
+## Firebird database on social networks__
 
 - [Firebird on Twitter](https://twitter.com/firebirdsql/)
 - [Firebird on Facebook](https://www.facebook.com/FirebirdSQL)
 
-__Changelog for version v0.2.x__
+## Changelog for version v0.2.x__
 
 - added auto-reconnect
 - added [sequentially selects](https://github.com/hgourvest/node-firebird/wiki/What-is-sequentially-selects)
@@ -24,7 +25,6 @@ __Changelog for version v0.2.x__
 - pooling
 - `database.detach()` waits for last command
 - better unit-test
-
 
 ---
 
@@ -344,7 +344,9 @@ console.log(sql2);
 console.log(sql3);
 console.log(sql4);
 ```
+
 ### Service Manager functions
+
 - backup
 - restore
 - fixproperties
@@ -439,7 +441,8 @@ Firebird.attach(config, (err, srv) => {
 ```
 
 ### getLog and getFbserverInfos Service examples with use of stream and object return
-```
+
+```js
 fb.attach(_connection, function(err, svc) {
     if (err)
         return;
@@ -490,10 +493,12 @@ This is why you should use **Firebird 2.5** server at least.
 
 Firebird new wire protocol is not supported yet so
 for Firebird 3.0 you need to add the following in firebird.conf
+
 ```
 AuthServer = Legacy_Auth
 WireCrypt = Disabled
 ```
+
 ## Contributors
 
 - Henri Gourvest, <https://github.com/hgourvest>
