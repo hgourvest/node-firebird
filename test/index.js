@@ -21,7 +21,7 @@ describe('Connection', function () {
     it('should reconnect when socket is closed', function (done) {
         Firebird.attach(config, function (err, db) {
             assert.ok(!err, err);
-            
+
             db.connection._socket.end();
             db.on('reconnect', function () {
                 db.detach();
@@ -93,7 +93,7 @@ describe('Pooling', function () {
 describe('Database', function() {
     const TEST_TABLE = 'CREATE TABLE test (ID INT, PARENT BIGINT, NAME VARCHAR(50), FILE BLOB, CREATED TIMESTAMP)';
 
-    var blobPath = path.join(testDir, 'image.png');
+    var blobPath = path.join(Config.testDir, 'image.png');
     var blobSize = fs.readFileSync(blobPath).length;
     var db;
 
@@ -145,7 +145,6 @@ describe('Database', function() {
         it('should create table', function (done) {
             db.query('CREATE TABLE T (ID INT)', function (err, d) {
                 assert.ok(!err, err);
-                assert.equal(row['id'], 2);
 
                 done();
             });
@@ -166,7 +165,7 @@ describe('Database', function() {
         it('should insert with returning', function(done) {
             db.query(
               'INSERT INTO test (ID, NAME, CREATED, PARENT) VALUES(?, ?, ?, ?) RETURNING ID',
-              [2, 'Firebird 2', currentDate, 862304020112911],
+              [2, 'Firebird 2', Config.currentDate, 862304020112911],
               function(err, row) {
                   assert.ok(!err, err);
                   assert.equal(row['id'], 2);
