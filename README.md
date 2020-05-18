@@ -128,7 +128,7 @@ pool.destroy();
 
 ## Examples
 
-### PARAMETRIZED QUERIES
+### Parametrized Queries
 
 ### Parameters
 
@@ -183,7 +183,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### READING BLOBS (ASYNCHRONOUS)
+### Reading Blobs (Aasynchronous)
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -222,7 +222,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### STREAMING A BIG DATA
+### Streaming a big data
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -244,7 +244,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### TRANSACTIONS
+### Transactions
 
 __Transaction types:__
 
@@ -280,7 +280,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### EVENTS
+### Events
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -329,7 +329,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### Escaping query values
+### Escaping Query values
 
 ```js
 var sql1 = 'SELECT * FROM TBL_USER WHERE ID>' + Firebird.escape(1);
