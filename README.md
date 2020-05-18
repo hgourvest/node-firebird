@@ -9,12 +9,12 @@
 
 [Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups.
 
-## Firebird database on social networks__
+## Firebird database on social networks
 
 - [Firebird on Twitter](https://twitter.com/firebirdsql/)
 - [Firebird on Facebook](https://www.facebook.com/FirebirdSQL)
 
-## Changelog for version v0.2.x__
+## Changelog for version v0.2.x
 
 - added auto-reconnect
 - added [sequentially selects](https://github.com/hgourvest/node-firebird/wiki/What-is-sequentially-selects)
