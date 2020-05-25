@@ -390,6 +390,35 @@ describe('Database', function() {
         });
     });
 
+    describe('Fetch', () => {
+        it('should fetch contains errors', done => {
+            db.query(`
+                create or alter procedure TEST_FETCH_FAIL
+                returns (RET integer)
+                as
+                begin
+                  RET = 10;
+                  suspend;
+                
+                  RET = 10 / 2;
+                  suspend;
+                
+                  RET = 0 / 0;
+                  suspend;
+                end
+            `, (err, data) => {
+                assert.ok(!err, err);
+
+                db.query('select RET from TEST_FETCH_FAIL', (err, d) => {
+                    assert.ok(err, err);
+                    assert.ok(err.message.indexOf('arithmetic exception, numeric overflow, or string truncation, Integer divide by zero.') === 0);
+
+                    done();
+                });
+            });
+        });
+    });
+
     describe('Transaction', function() {
         var db;
 
