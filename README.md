@@ -492,11 +492,13 @@ This is why you should use **Firebird 2.5** server at least.
 ### Firebird 3.0 Support
 
 Firebird new wire protocol is not supported yet so
-for Firebird 3.0 you need to add the following in firebird.conf
+for Firebird 3.0 you need to add the following in firebird.conf according to Firebird documentation
+<https://firebirdsql.org/file/documentation/release_notes/html/en/3_0/rnfb30-security-new-authentication.html>
 
-```
-AuthServer = Legacy_Auth
+```bash
+AuthServer = Srp, Legacy_Auth
 WireCrypt = Disabled
+UserManager = Legacy_UserManager
 ```
 
 ## Contributors
