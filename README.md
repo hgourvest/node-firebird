@@ -111,7 +111,7 @@ pool.destroy();
 
 ## Database object (db)
 
-### Methods
+### Database Methods
 
 - `db.query(query, [params], function(err, result))` - classic query, returns Array of Object
 - `db.execute(query, [params], function(err, result))` - classic query, returns Array of Array
