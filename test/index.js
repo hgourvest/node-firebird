@@ -224,7 +224,7 @@ describe('Database', function() {
                     assert.equal(second.created.getTime(), Config.currentDate.getTime());
 
                     assert.notEqual(third, undefined);
-                    assert.equal(third.id, 3)
+                    assert.equal(third.id, 3);
                     assert.equal(third.name, 'Firebird 3');
                     assert.equal(typeof(third.file), 'function');
                     assert.equal(third.created.getMonth(), 11);
