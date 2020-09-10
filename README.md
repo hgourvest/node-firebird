@@ -49,7 +49,7 @@ var Firebird = require('node-firebird');
 - `Firebird.attach(options, function(err, db))` attach a database
 - `Firebird.create(options, function(err, db))` create a database
 - `Firebird.attachOrCreate(options, function(err, db))` attach or create database
-- `Firebird.pool(max, options, function(err, db)) -> return {Object}` create a connection pooling
+- `Firebird.pool(max, options) -> return {Object}` create a connection pooling
 
 ## Connection types
 
@@ -402,7 +402,7 @@ var fbsvc = {
 ### Backup Service example
 
 ```js
-
+const options = {...}; // Classic configuration with manager = true
 Firebird.attach(options, function(err, svc) {
     if (err)
         return;
@@ -417,14 +417,17 @@ Firebird.attach(options, function(err, svc) {
                    ]
         },
         function(err, data) {
-            console.log(data);
-        });
+            data.on('data', line => console.log(line));
+            data.on('end', () => svc.detach());
+        }
+    );
+});
 ```
 
 ### Restore Service example
 
 ```js
-const config = {...}; // Clasic configuration with manager = true
+const config = {...}; // Classic configuration with manager = true
 const RESTORE_OPTS = {
     database: 'database.fdb',
     files: ['backup.fbk']
