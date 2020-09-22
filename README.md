@@ -345,6 +345,24 @@ console.log(sql3);
 console.log(sql4);
 ```
 
+### Using GDS codes
+
+```js
+var { GDSCode } = require('node-firebird/lib/gdscodes');
+/*...*/
+db.query('insert into my_table(id, name) values (?, ?)', [1, 'John Doe'],
+    function (err) {
+        if(err.gdscode == GDSCode.UNIQUE_KEY_VIOLATION){
+            console.log('constraint name:'+ err.gdsparams[0]);
+            console.log('table name:'+ err.gdsparams[0]);
+            /*...*/
+        }
+        /*...*/
+    });
+
+```
+
+
 ### Service Manager functions
 
 - backup
