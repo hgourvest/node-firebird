@@ -56,7 +56,7 @@ declare module 'node-firebird' {
 
     export function attach(options: Options, callback: DatabaseCallback): void;
     export function attach(options: SvcMgrOptions, callback: ServiceManagerCallback): void;
-    export function escape(value: any): string;
+    export function escape(value: any, protocolVersion: number = 0x800D /*PROTOCOL_VERSION13*/): string;
     export function create(options: Options, callback: DatabaseCallback): void;
     export function attachOrCreate(options: Options, callback: DatabaseCallback): void;
     export function pool(max: number, options: Options): ConnectionPool;
