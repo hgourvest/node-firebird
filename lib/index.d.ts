@@ -31,7 +31,9 @@ declare module 'node-firebird' {
         query(query: string, params: any[], callback: QueryCallback): void;
         execute(query: string, params: any[], callback: QueryCallback): void;
         commit(callback?: SimpleCallback): void;
+        commitRetaining(callback?: SimpleCallback): void;
         rollback(callback?: SimpleCallback): void;
+        rollbackRetaining(callback?: SimpleCallback): void;
     }
 
     export interface Options {
