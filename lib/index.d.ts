@@ -30,6 +30,7 @@ declare module 'node-firebird' {
     export interface Transaction {
         query(query: string, params: any[], callback: QueryCallback): void;
         execute(query: string, params: any[], callback: QueryCallback): void;
+        sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, asArray?: boolean): Database;
         commit(callback?: SimpleCallback): void;
         commitRetaining(callback?: SimpleCallback): void;
         rollback(callback?: SimpleCallback): void;
