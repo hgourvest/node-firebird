@@ -30,8 +30,11 @@ declare module 'node-firebird' {
     export interface Transaction {
         query(query: string, params: any[], callback: QueryCallback): void;
         execute(query: string, params: any[], callback: QueryCallback): void;
+        sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, asArray?: boolean): Database;
         commit(callback?: SimpleCallback): void;
+        commitRetaining(callback?: SimpleCallback): void;
         rollback(callback?: SimpleCallback): void;
+        rollbackRetaining(callback?: SimpleCallback): void;
     }
 
     export interface Options {
@@ -56,7 +59,7 @@ declare module 'node-firebird' {
 
     export function attach(options: Options, callback: DatabaseCallback): void;
     export function attach(options: SvcMgrOptions, callback: ServiceManagerCallback): void;
-    export function escape(value: any, protocolVersion: number = 0x800D /*PROTOCOL_VERSION13*/): string;
+    export function escape(value: any, protocolVersion: number /*PROTOCOL_VERSION13*/): string;
     export function create(options: Options, callback: DatabaseCallback): void;
     export function attachOrCreate(options: Options, callback: DatabaseCallback): void;
     export function pool(max: number, options: Options): ConnectionPool;
@@ -191,6 +194,7 @@ declare module 'node-firebird' {
     }
 
     type ServiceManagerCallback = (err: any, svc: ServiceManager) => void;
+    // @ts-ignore
     type ReadableCallback = (err: any, reader: NodeJS.ReadableStream) => void;
     type InfoCallback = (err: any, info: ServerInfo) => void;
     type LineCallback = (err: any, data: { result: number, line: string }) => void;
