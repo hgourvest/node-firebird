@@ -1,6 +1,6 @@
 {
     "name": "node-firebird",
-    "version": "0.8.10",
+    "version": "0.9.9",
     "description": "Pure JavaScript and Asynchronous Firebird client for Node.js.",
     "keywords": [
         "firebird",
@@ -37,7 +37,7 @@
     },
     "devDependencies": {
         "coveralls": "^3.0.1",
-        "mocha": "^7.1.1",
+        "mocha": "^8.0.1",
         "nyc": "^15.0.1"
     }
 }

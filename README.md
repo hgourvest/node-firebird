@@ -5,16 +5,16 @@
 [![NPM version][npm-version-image]][npm-url] [![NPM downloads][npm-downloads-image]][npm-url] [![Mozilla License][license-image]][license-url]
 [![Build Status](https://travis-ci.org/mariuz/node-firebird.svg?branch=master)](https://travis-ci.org/mariuz/node-firebird)
 
-[![NPM](https://nodei.co/npm/node-firebird.png?downloads=true&downloadRank=true)](https://nodei.co/npm/node-firebird/) [![NPM](https://nodei.co/npm-dl/node-firebird.png?months=6&height=3)](https://nodei.co/npm/node-firebird/)
+[![NPM](https://nodei.co/npm/node-firebird.png?downloads=true&downloadRank=true)](https://nodei.co/npm/node-firebird/)
 
 [Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups.
 
-## Firebird database on social networks__
+## Firebird database on social networks
 
 - [Firebird on Twitter](https://twitter.com/firebirdsql/)
 - [Firebird on Facebook](https://www.facebook.com/FirebirdSQL)
 
-## Changelog for version v0.2.x__
+## Changelog for version v0.2.x
 
 - added auto-reconnect
 - added [sequentially selects](https://github.com/hgourvest/node-firebird/wiki/What-is-sequentially-selects)
@@ -49,7 +49,7 @@ var Firebird = require('node-firebird');
 - `Firebird.attach(options, function(err, db))` attach a database
 - `Firebird.create(options, function(err, db))` create a database
 - `Firebird.attachOrCreate(options, function(err, db))` attach or create database
-- `Firebird.pool(max, options, function(err, db)) -> return {Object}` create a connection pooling
+- `Firebird.pool(max, options) -> return {Object}` create a connection pooling
 
 ## Connection types
 
@@ -111,7 +111,7 @@ pool.destroy();
 
 ## Database object (db)
 
-### Methods
+### Database Methods
 
 - `db.query(query, [params], function(err, result))` - classic query, returns Array of Object
 - `db.execute(query, [params], function(err, result))` - classic query, returns Array of Array
@@ -128,7 +128,7 @@ pool.destroy();
 
 ## Examples
 
-### PARAMETRIZED QUERIES
+### Parametrized Queries
 
 ### Parameters
 
@@ -183,7 +183,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### READING BLOBS (ASYNCHRONOUS)
+### Reading Blobs (Aasynchronous)
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -222,7 +222,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### STREAMING A BIG DATA
+### Streaming a big data
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -244,7 +244,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### TRANSACTIONS
+### Transactions
 
 __Transaction types:__
 
@@ -280,7 +280,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### EVENTS
+### Events
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -329,7 +329,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### Escaping query values
+### Escaping Query values
 
 ```js
 var sql1 = 'SELECT * FROM TBL_USER WHERE ID>' + Firebird.escape(1);
@@ -344,6 +344,24 @@ console.log(sql2);
 console.log(sql3);
 console.log(sql4);
 ```
+
+### Using GDS codes
+
+```js
+var { GDSCode } = require('node-firebird/lib/gdscodes');
+/*...*/
+db.query('insert into my_table(id, name) values (?, ?)', [1, 'John Doe'],
+    function (err) {
+        if(err.gdscode == GDSCode.UNIQUE_KEY_VIOLATION){
+            console.log('constraint name:'+ err.gdsparams[0]);
+            console.log('table name:'+ err.gdsparams[0]);
+            /*...*/
+        }
+        /*...*/
+    });
+
+```
+
 
 ### Service Manager functions
 
@@ -402,7 +420,7 @@ var fbsvc = {
 ### Backup Service example
 
 ```js
-
+const options = {...}; // Classic configuration with manager = true
 Firebird.attach(options, function(err, svc) {
     if (err)
         return;
@@ -417,14 +435,17 @@ Firebird.attach(options, function(err, svc) {
                    ]
         },
         function(err, data) {
-            console.log(data);
-        });
+            data.on('data', line => console.log(line));
+            data.on('end', () => svc.detach());
+        }
+    );
+});
 ```
 
 ### Restore Service example
 
 ```js
-const config = {...}; // Clasic configuration with manager = true
+const config = {...}; // Classic configuration with manager = true
 const RESTORE_OPTS = {
     database: 'database.fdb',
     files: ['backup.fbk']
@@ -492,11 +513,13 @@ This is why you should use **Firebird 2.5** server at least.
 ### Firebird 3.0 Support
 
 Firebird new wire protocol is not supported yet so
-for Firebird 3.0 you need to add the following in firebird.conf
+for Firebird 3.0 you need to add the following in firebird.conf according to Firebird documentation
+<https://firebirdsql.org/file/documentation/release_notes/html/en/3_0/rnfb30-security-new-authentication.html>
 
-```
-AuthServer = Legacy_Auth
+```bash
+AuthServer = Srp, Legacy_Auth
 WireCrypt = Disabled
+UserManager = Legacy_UserManager
 ```
 
 ## Contributors
