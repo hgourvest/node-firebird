@@ -183,7 +183,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### Reading Blobs (Aasynchronous)
+### Reading Blobs (Asynchronous)
 
 ```js
 Firebird.attach(options, function(err, db) {
