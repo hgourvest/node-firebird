@@ -9,6 +9,10 @@ declare module 'node-firebird' {
     type SimpleCallback = (err: any) => void;
     type SequentialCallback = (row: any, index: number) => void;
 
+    export const AUTH_PLUGIN_LEGACY: string;
+    export const AUTH_PLUGIN_SRP: string;
+    export const AUTH_PLUGIN_SRP256: string;
+
     export const ISOLATION_READ_UNCOMMITTED: number[];
     export const ISOLATION_READ_COMMITED: number[];
     export const ISOLATION_REPEATABLE_READ: number[];
@@ -217,8 +221,8 @@ declare module 'node-firebird' {
         setShadow(db: string, val: boolean, callback: ReadableCallback): void;
         setForcewrite(db: string, val: boolean, callback: ReadableCallback): void; // gfix -write
         setReservespace(db: string, val: boolean, callback: ReadableCallback): void; // true: gfix -use reserve, false: gfix -use full
-        setReadonlyMode(db: string, callback: ReadableCallback): void; //  gfix -mode read_only 
-        setReadwriteMode(db: string, callback: ReadableCallback): void; //  gfix -mode read_write 
+        setReadonlyMode(db: string, callback: ReadableCallback): void; //  gfix -mode read_only
+        setReadwriteMode(db: string, callback: ReadableCallback): void; //  gfix -mode read_write
         validate(options: ValidateOptions, callback: ReadableCallback): void; // gfix -validate
         commit(db: string, transactid: number, callback: ReadableCallback): void; // gfix -commit
         rollback(db: string, transactid: number, callback: ReadableCallback): void;

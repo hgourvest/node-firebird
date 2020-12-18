@@ -19,3 +19,7 @@ exports.default = {
 exports.currentDate = currentDate;
 exports.testDir = testDir;
 
+exports.extends = function(base, args) {
+    return Object.assign({}, base, args);
+}
+
