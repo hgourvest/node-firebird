@@ -53,12 +53,12 @@ jobs:
     - name: Build
       shell: bash
       run: |
-        npx npm ci         
+        npm ci         
 
     - name: Test (Linux)
       if: matrix.os == 'ubuntu-16.04' || matrix.os == 'ubuntu-18.04'
       run: |
-        sg firebird -c "nyc npm test"
+        sg firebird -c "npx nyc npm test"
 
     - name: Test (MacOS)
       if: matrix.os == 'macos-10.15'
@@ -68,11 +68,11 @@ jobs:
         export ISC_USER=sysdba
         export ISC_PASSWORD=masterkey
         export NODE_FB_TEST_TMP_DIR=`pwd`/tmp-node-fb
-        nyc npm test
+        npx nyc npm test
 
     - name: Test (Windows)
       if: matrix.os == 'windows-2019'
       shell: cmd
       run: |
         set PATH=C:\Firebird;%PATH%
-        call nyc npm test
+        call npx nyc npm test
