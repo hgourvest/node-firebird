@@ -53,7 +53,7 @@ jobs:
     - name: Build
       shell: bash
       run: |
-        npm install         
+        npm ci         
 
     - name: Test (Linux)
       if: matrix.os == 'ubuntu-16.04' || matrix.os == 'ubuntu-18.04'
