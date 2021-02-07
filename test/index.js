@@ -116,8 +116,11 @@ describe('Pooling', function () {
         pool = Firebird.pool(poolSize, config);
     });
 
-    after(function () {
-        pool.destroy();
+    after(function (done) {
+        pool.destroy(function (err) {
+            assert.ok(!err, err);
+            done();
+        });
     });
 
     it('should wait when all connections are in use', function (done) {
