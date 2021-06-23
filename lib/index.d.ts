@@ -214,10 +214,10 @@ declare module 'node-firebird' {
         backup(options: BackupOptions, callback: ReadableCallback): void;
         nbackup(options: BackupOptions, callback: ReadableCallback): void;
         restore(options: NRestoreOptions, callback: ReadableCallback): void;
-        nrestore(options, callback): void;
+        nrestore(options: any, callback: Function): void;
         setDialect(db: string, dialect: 1 | 3, callback: ReadableCallback): void;
-        setSweepinterval(db: string, interval: number, callback): void; // gfix -h INTERVAL
-        setCachebuffer(db: string, nbpages, callback: ReadableCallback): void; // gfix -b NBPAGES
+        setSweepinterval(db: string, interval: number, callback: Function): void; // gfix -h INTERVAL
+        setCachebuffer(db: string, nbpages: any, callback: ReadableCallback): void; // gfix -b NBPAGES
         BringOnline(db: string, callback: ReadableCallback): void; // gfix -o
         Shutdown(db: string, kind: ShutdownKind, delay: number, mode: ShutdownMode, callback: ReadableCallback): void; // server version >= 2.0
         Shutdown(db: string, kind: ShutdownKind, delay: number, callback: ReadableCallback): void; // server version < 2.0
