@@ -513,7 +513,7 @@ This is why you should use **Firebird 2.5** server at least.
 ### Firebird 3.0 Support
 
 Firebird new wire protocol is not supported yet so
-for Firebird 3.0 you need to add the following in firebird.conf according to Firebird documentation
+for Firebird 3.0 you need to add the following in firebird.conf according to Firebird 3 release notes
 <https://firebirdsql.org/file/documentation/release_notes/html/en/3_0/rnfb30-security-new-authentication.html>
 
 ```bash
@@ -521,6 +521,21 @@ AuthServer = Srp, Legacy_Auth
 WireCrypt = Disabled
 UserManager = Legacy_UserManager
 ```
+
+Firebird 4 wire protocol is not supported yet so
+for Firebird 4.0 you need to add the following in firebird.conf according to Firebird release notes
+<https://firebirdsql.org/file/documentation/release_notes/html/en/4_0/rlsnotes40.html#rnfb40-config-srp256>
+
+```bash
+AuthServer = Srp256, Srp, Legacy_Auth
+WireCrypt = Disabled
+UserManager = Legacy_UserManager
+```
+
+Please read also Authorization with Firebird 2.5 client library from Firebird 4 migration guide
+<https://ib-aid.com/download/docs/fb4migrationguide.html#_authorization_with_firebird_2_5_client_library_fbclient_dll>
+
+
 
 ## Contributors
 
