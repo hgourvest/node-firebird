@@ -8,6 +8,7 @@ declare module 'node-firebird' {
     type QueryCallback = (err: any, result: any[]) => void;
     type SimpleCallback = (err: any) => void;
     type SequentialCallback = (row: any, index: number) => void;
+    type BufferEncoding = "ascii" | "utf8" | "utf-8" | "utf16le" | "ucs2" | "ucs-2" | "base64" | "latin1" | "binary" | "hex";
 
     export const AUTH_PLUGIN_LEGACY: string;
     export const AUTH_PLUGIN_SRP: string;
@@ -47,6 +48,7 @@ declare module 'node-firebird' {
     export interface Options {
         host?: string;
         port?: number;
+        encoding?: BufferEncoding;
         database?: string;
         user?: string;
         password?: string;
