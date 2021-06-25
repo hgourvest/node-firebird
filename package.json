@@ -1,5 +1,5 @@
 {
-    "name": "node-firebird",
+    "name": "nfb-enc",
     "version": "0.9.9",
     "description": "Pure JavaScript and Asynchronous Firebird client for Node.js.",
     "keywords": [
