@@ -6,6 +6,6 @@ test/*.fbk
 .nyc_output
 .vscode
 coverage
-
+package-lock.json
 # Jetbrains IDE
 .idea

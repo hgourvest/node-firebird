@@ -1,18 +1,26 @@
 {
-    "name": "n-fb-encoding",
-    "version": "1.0.0",
-    "description": "A copy from node-firebird to me",
-    "keywords": [],
-    "homepage": "https://github.com/mbotherside/node-firebird",
+    "name": "node-firebird",
+    "version": "0.9.9",
+    "description": "Pure JavaScript and Asynchronous Firebird client for Node.js.",
+    "keywords": [
+        "firebird",
+        "database",
+        "rdbms",
+        "sql"
+    ],
+    "homepage": "https://github.com/hgourvest/node-firebird",
     "repository": {
         "type": "git",
-        "url": "https://github.com/mbotherside/node-firebird"
+        "url": "https://github.com/hgourvest/node-firebird"
     },
     "author": {
-        "name": "",
-        "email": "mb.otherside@gmail.com"
+        "name": "Henri Gourvest",
+        "email": "hgourvest@gmail.com"
     },
-    "contributors": [],
+    "contributors": [
+        "Popa Marius Adrian <mapopa@gmail.com>",
+        "Peter Širka <petersirka@gmail.com>"
+    ],
     "main": "./lib",
     "types": "./lib/index.d.ts",
     "licenses": [
