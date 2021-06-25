@@ -2,7 +2,7 @@
  * GDS Error codes
  * Extracted from https://www.firebirdsql.org/pdfrefdocs/Firebird-2.1-ErrorCodes.pdf
  */
-declare module 'node-firebird/lib/gdscodes' {
+declare module 'nfb-enc/lib/gdscodes' {
     export enum GDSCode {
         /** Arithmetic exception, numeric overflow, or string */
         ARITH_EXCEPT = 335544321,
