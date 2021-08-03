@@ -53,6 +53,7 @@ declare module 'node-firebird' {
         lowercase_keys?: boolean;
         role?: string;
         pageSize?: number;
+        retryConnectionInterval?: number;
     }
 
     export interface SvcMgrOptions extends Options {

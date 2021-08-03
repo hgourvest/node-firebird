@@ -13,7 +13,8 @@ exports.default = {
     role: null,
     pageSize: 4096,
     timeout: 3000,
-    lowercase_keys: true
+    lowercase_keys: true,
+    retryConnectionInterval: 100
 };
 
 exports.currentDate = currentDate;
