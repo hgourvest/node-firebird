@@ -23,7 +23,8 @@ describe('Connection', function () {
         Firebird.attach(config, function (err, db) {
             assert.ok(!err, err);
 
-            db.connection._socket.end();
+            db.connection._socket.destroy();
+
             db.on('reconnect', function () {
                 db.detach();
                 done();
