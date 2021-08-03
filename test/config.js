@@ -8,12 +8,13 @@ exports.default = {
     database: path.join(process.env.FIREBIRD_DATA || testDir, dbName),
     host: '127.0.0.1',
     port: 3050,
-    user: 'sysdba',
+    user: 'SYSDBA',
     password: 'masterkey',
     role: null,
     pageSize: 4096,
     timeout: 3000,
-    lowercase_keys: true
+    lowercase_keys: true,
+    retryConnectionInterval: 100
 };
 
 exports.currentDate = currentDate;
