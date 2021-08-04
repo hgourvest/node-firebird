@@ -1,12 +1,12 @@
-var Firebird = require('../lib');
-var { GDSCode } = require('../lib/gdscodes');
-var Config = require('./config');
+const Firebird = require('../lib');
+const { GDSCode } = require('../lib/gdscodes');
+const Config = require('./config');
 
-var assert = require('assert');
-var fs = require('fs');
-var path = require('path');
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
-var config = Config.default;
+const config = Config.default;
 
 describe('Connection', function () {
 
@@ -51,7 +51,7 @@ describe('Connection', function () {
 describe('Auth plugin connection', function () {
 
     // Must be test with firebird 2.5 or higher with Legacy_Auth enabled on server
-    it('should attach with lagacy plugin', function (done) {
+    it('should attach with legacy plugin', function (done) {
         Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_LEGACY }), function (err, db) {
             assert.ok(!err, 'Maybe firebird 3.0 Legacy_Auth plugin not enabled, message : ' + (err ? err.message : ''));
 
