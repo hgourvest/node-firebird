@@ -13,9 +13,7 @@ describe('Connection', function () {
     it('should attach or create database', function (done) {
         Firebird.attachOrCreate(config, function (err, db) {
             assert.ok(!err, err);
-
-            db.detach();
-            done();
+            db.detach(done);
         });
     });
 
@@ -26,8 +24,7 @@ describe('Connection', function () {
             db.connection._socket.destroy();
 
             db.on('reconnect', function () {
-                db.detach();
-                done();
+                db.detach(done);
             });
         });
     });
@@ -37,8 +34,7 @@ describe('Connection', function () {
         Firebird.create(testCreateConfig, function(err, db) {
             assert.ok(!err, err);
 
-            db.detach();
-            done();
+            db.detach(done);
         });
     });
 
@@ -59,8 +55,7 @@ describe('Auth plugin connection', function () {
         Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_LEGACY }), function (err, db) {
             assert.ok(!err, 'Maybe firebird 3.0 Legacy_Auth plugin not enabled, message : ' + (err ? err.message : ''));
 
-            db.detach();
-            done();
+            db.detach(done);
         });
     });
 
@@ -69,8 +64,7 @@ describe('Auth plugin connection', function () {
         Firebird.attachOrCreate(Config.extends(config), function (err, db) {
             assert.ok(!err, err);
 
-            db.detach();
-            done();
+            db.detach(done);
         });
     });
 
@@ -91,8 +85,7 @@ describe('Auth plugin connection', function () {
             Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP }), function (err, db) {
                 assert.ok(!err, err);
 
-                db.detach();
-                done();
+                db.detach(done);
             });
         });
 
@@ -101,8 +94,7 @@ describe('Auth plugin connection', function () {
             Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP256 }), function (err, db) {
                 assert.ok(!err, err);
 
-                db.detach();
-                done();
+                db.detach(done);
             });
         });*/
     });
