@@ -16,9 +16,16 @@ declare module 'node-firebird' {
     export const WIRE_CRYPT_ENABLE: number;
     export const WIRE_CRYPT_DISABLE: number;
 
+    /** A transaction sees changes done by uncommitted transactions. */
     export const ISOLATION_READ_UNCOMMITTED: number[];
+    /** A transaction sees only data committed before the statement has been executed. */
     export const ISOLATION_READ_COMMITED: number[];
+    /** A transaction sees during its lifetime only data committed before the transaction has been started. */
     export const ISOLATION_REPEATABLE_READ: number[];
+    /**
+     * This is the strictest isolation level, which enforces transaction serialization.
+     * Data accessed in the context of a serializable transaction cannot be accessed by any other transaction.
+     */
     export const ISOLATION_SERIALIZABLE: number[];
     export const ISOLATION_READ_COMMITED_READ_ONLY: number[];
 
