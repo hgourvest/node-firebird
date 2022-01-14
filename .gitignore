@@ -1,3 +1,11 @@
+# Project ignores
 node_modules/
 test/*.fdb
+test/*.fbk
 *.fdb
+.nyc_output
+.vscode
+coverage
+
+# Jetbrains IDE
+.idea

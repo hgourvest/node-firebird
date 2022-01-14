@@ -1,20 +1,20 @@
-![Firebird Logo](https://www.totaljs.com/exports/firebird-logo.png)
+# Pure JavaScript and Asynchronous Firebird client for Node.js
+
+![Firebird Logo](https://firebirdsql.org/file/about/firebird-logo-90.png)
 
 [![NPM version][npm-version-image]][npm-url] [![NPM downloads][npm-downloads-image]][npm-url] [![Mozilla License][license-image]][license-url]
 [![Build Status](https://travis-ci.org/mariuz/node-firebird.svg?branch=master)](https://travis-ci.org/mariuz/node-firebird)
 
-[![NPM](https://nodei.co/npm/node-firebird.png?downloads=true&downloadRank=true)](https://nodei.co/npm/node-firebird/) [![NPM](https://nodei.co/npm-dl/node-firebird.png?months=6&height=3)](https://nodei.co/npm/node-firebird/)
-# Pure JavaScript Firebird client for Node.js.
+[![NPM](https://nodei.co/npm/node-firebird.png?downloads=true&downloadRank=true)](https://nodei.co/npm/node-firebird/)
 
-Pure JavaScript and Asynchronous Firebird client for Node.js. [Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups.
+[Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups.
 
-__Firebird database on social networks__
+## Firebird database on social networks
 
-- [Firebird on Google+](https://plus.google.com/111558763769231855886/posts)
 - [Firebird on Twitter](https://twitter.com/firebirdsql/)
 - [Firebird on Facebook](https://www.facebook.com/FirebirdSQL)
 
-__Changelog for version v0.2.x__
+## Changelog for version v0.2.x
 
 - added auto-reconnect
 - added [sequentially selects](https://github.com/hgourvest/node-firebird/wiki/What-is-sequentially-selects)
@@ -25,12 +25,11 @@ __Changelog for version v0.2.x__
 - pooling
 - `database.detach()` waits for last command
 - better unit-test
-- best of use with [total.js - web application framework for node.js](http://www.totaljs.com)
 
 ---
 
-- [Firebird documentation](http://www.firebirdsql.org/en/documentation/)
-- [Firebird limits and data types](http://www.firebirdsql.org/en/firebird-technical-specifications/)
+- [Firebird documentation](https://firebirdsql.org/en/documentation/)
+- [Firebird limits and data types](https://firebirdsql.org/en/firebird-technical-specifications/)
 
 ## Installation
 
@@ -50,7 +49,7 @@ var Firebird = require('node-firebird');
 - `Firebird.attach(options, function(err, db))` attach a database
 - `Firebird.create(options, function(err, db))` create a database
 - `Firebird.attachOrCreate(options, function(err, db))` attach or create database
-- `Firebird.pool(max, options, function(err, db)) -> return {Object}` create a connection pooling
+- `Firebird.pool(max, options) -> return {Object}` create a connection pooling
 
 ## Connection types
 
@@ -67,7 +66,8 @@ options.password = 'masterkey';
 options.lowercase_keys = false; // set to true to lowercase keys
 options.role = null;            // default
 options.pageSize = 4096;        // default when creating database
-
+options.pageSize = 4096;        // default when creating database
+options.retryConnectionInterval = 1000; // reconnect interval in case of connection drop
 ```
 
 ### Classic
@@ -112,7 +112,7 @@ pool.destroy();
 
 ## Database object (db)
 
-### Methods
+### Database Methods
 
 - `db.query(query, [params], function(err, result))` - classic query, returns Array of Object
 - `db.execute(query, [params], function(err, result))` - classic query, returns Array of Array
@@ -129,7 +129,7 @@ pool.destroy();
 
 ## Examples
 
-### PARAMETRIZED QUERIES
+### Parametrized Queries
 
 ### Parameters
 
@@ -140,7 +140,7 @@ Firebird.attach(options, function(err, db) {
         throw err;
 
     // db = DATABASE
-    db.query('INSERT INTO USERS (ID, ALIAS, CREATED) VALUES(?, ?, ?) RETURNING ID', [1, 'Pe\'ter', new Date()] function(err, result) {
+    db.query('INSERT INTO USERS (ID, ALIAS, CREATED) VALUES(?, ?, ?) RETURNING ID', [1, 'Pe\'ter', new Date()], function(err, result) {
         console.log(result[0].id);
         db.query('SELECT * FROM USERS WHERE Alias=?', ['Peter'], function(err, result) {
             console.log(result);
@@ -160,7 +160,7 @@ Firebird.attach(options, function(err, db) {
 
     // db = DATABASE
     // INSERT STREAM as BLOB
-    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.createReadStream('/users/image.jpg')] function(err, result) {
+    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.createReadStream('/users/image.jpg')], function(err, result) {
         // IMPORTANT: close the connection
         db.detach();
     });
@@ -177,14 +177,14 @@ Firebird.attach(options, function(err, db) {
 
     // db = DATABASE
     // INSERT BUFFER as BLOB
-    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.readFileSync('/users/image.jpg')] function(err, result) {
+    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.readFileSync('/users/image.jpg')], function(err, result) {
         // IMPORTANT: close the connection
         db.detach();
     });
 });
 ```
 
-### READING BLOBS (ASYNCHRONOUS)
+### Reading Blobs (Asynchronous)
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -223,7 +223,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### STREAMING A BIG DATA
+### Streaming a big data
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -245,7 +245,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### TRANSACTIONS
+### Transactions
 
 __Transaction types:__
 
@@ -281,7 +281,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### EVENTS
+### Events
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -330,7 +330,7 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
-### Escaping query values
+### Escaping Query values
 
 ```js
 var sql1 = 'SELECT * FROM TBL_USER WHERE ID>' + Firebird.escape(1);
@@ -345,7 +345,27 @@ console.log(sql2);
 console.log(sql3);
 console.log(sql4);
 ```
+
+### Using GDS codes
+
+```js
+var { GDSCode } = require('node-firebird/lib/gdscodes');
+/*...*/
+db.query('insert into my_table(id, name) values (?, ?)', [1, 'John Doe'],
+    function (err) {
+        if(err.gdscode == GDSCode.UNIQUE_KEY_VIOLATION){
+            console.log('constraint name:'+ err.gdsparams[0]);
+            console.log('table name:'+ err.gdsparams[0]);
+            /*...*/
+        }
+        /*...*/
+    });
+
+```
+
+
 ### Service Manager functions
+
 - backup
 - restore
 - fixproperties
@@ -401,7 +421,7 @@ var fbsvc = {
 ### Backup Service example
 
 ```js
-
+const options = {...}; // Classic configuration with manager = true
 Firebird.attach(options, function(err, svc) {
     if (err)
         return;
@@ -416,12 +436,35 @@ Firebird.attach(options, function(err, svc) {
                    ]
         },
         function(err, data) {
-            console.log(data);
+            data.on('data', line => console.log(line));
+            data.on('end', () => svc.detach());
+        }
+    );
+});
+```
+
+### Restore Service example
+
+```js
+const config = {...}; // Classic configuration with manager = true
+const RESTORE_OPTS = {
+    database: 'database.fdb',
+    files: ['backup.fbk']
+};
+
+Firebird.attach(config, (err, srv) => {
+    srv.restore(RESTORE_OPTS, (err, data) => {
+        data.on('data', () => {});
+        data.on('end', () =>
+            srv.detach();
         });
+    });
+});
 ```
 
 ### getLog and getFbserverInfos Service examples with use of stream and object return
-```
+
+```js
 fb.attach(_connection, function(err, svc) {
     if (err)
         return;
@@ -471,11 +514,30 @@ This is why you should use **Firebird 2.5** server at least.
 ### Firebird 3.0 Support
 
 Firebird new wire protocol is not supported yet so
-for Firebird 3.0 you need to add the following in firebird.conf
-```
-AuthServer = Legacy_Auth
+for Firebird 3.0 you need to add the following in firebird.conf according to Firebird 3 release notes
+<https://firebirdsql.org/file/documentation/release_notes/html/en/3_0/rnfb30-security-new-authentication.html>
+
+```bash
+AuthServer = Srp, Legacy_Auth
 WireCrypt = Disabled
+UserManager = Legacy_UserManager
 ```
+
+Firebird 4 wire protocol is not supported yet so
+for Firebird 4.0 you need to add the following in firebird.conf according to Firebird release notes
+<https://firebirdsql.org/file/documentation/release_notes/html/en/4_0/rlsnotes40.html#rnfb40-config-srp256>
+
+```bash
+AuthServer = Srp256, Srp, Legacy_Auth
+WireCrypt = Disabled
+UserManager = Legacy_UserManager
+```
+
+Please read also Authorization with Firebird 2.5 client library from Firebird 4 migration guide
+<https://ib-aid.com/download/docs/fb4migrationguide.html#_authorization_with_firebird_2_5_client_library_fbclient_dll>
+
+
+
 ## Contributors
 
 - Henri Gourvest, <https://github.com/hgourvest>

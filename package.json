@@ -1,6 +1,6 @@
 {
     "name": "node-firebird",
-    "version": "0.8.7",
+    "version": "1.0.0",
     "description": "Pure JavaScript and Asynchronous Firebird client for Node.js.",
     "keywords": [
         "firebird",
@@ -22,21 +22,23 @@
         "Peter Širka <petersirka@gmail.com>"
     ],
     "main": "./lib",
+    "types": "./lib/index.d.ts",
     "licenses": [
         {
             "type": "MPL-2.0",
-            "url": "https://raw.githubusercontent.com/hgourvest/node-firebird/master/LICENSE"
+            "url": "https://github.com/hgourvest/node-firebird/blob/master/LICENSE"
         }
     ],
     "scripts": {
         "test": "mocha"
     },
     "dependencies": {
-        "long": "^2.2.5"
+        "big-integer": "^1.6.48",
+        "long": "^4.0.0"
     },
     "devDependencies": {
         "coveralls": "^3.0.1",
-        "mocha": "^5.2.0",
-        "nyc": "^11.8.0"
+        "mocha": "^8.0.1",
+        "nyc": "^15.0.1"
     }
 }

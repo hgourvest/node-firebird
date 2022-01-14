@@ -1,0 +1,78 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-16.04, ubuntu-18.04, windows-2019, macos-10.15]
+        node-version: [10.x, 12.x, 14.x, 15.x]
+
+    steps:
+    - uses: actions/checkout@v1
+      with:
+        fetch-depth: 10
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v1
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Firebird install (Linux)
+      if: matrix.os == 'ubuntu-16.04' || matrix.os == 'ubuntu-18.04'
+      run: |
+        if [ `lsb_release -rs` = '16.04' ]
+        then
+            sudo apt-get install libtommath0
+        else
+            sudo apt-get install libtommath1
+            sudo ln -s /usr/lib/x86_64-linux-gnu/libtommath.so.1 /usr/lib/x86_64-linux-gnu/libtommath.so.0
+        fi
+        wget -nv -O Firebird-3.0.7.33374-0.amd64.tar.gz "https://github.com/FirebirdSQL/firebird/releases/download/R3_0_7/Firebird-3.0.7.33374-0.amd64.tar.gz"
+        tar xzvf Firebird-3.0.7.33374-0.amd64.tar.gz
+        (cd Firebird-3.0.7.33374-0.amd64; sudo ./install.sh -silent)
+        sudo usermod -a -G firebird `whoami`
+
+    - name: Firebird install (MacOS)
+      if: matrix.os == 'macos-10.15'
+      run: |
+        wget -nv -O Firebird-3.0.7-33374-x86_64.pkg "https://github.com/FirebirdSQL/firebird/releases/download/R3_0_7/Firebird-3.0.7-33374-x86_64.pkg"
+        sudo installer -verbose -pkg "Firebird-3.0.7-33374-x86_64.pkg" -target /
+        
+    - name: Firebird install (Windows)
+      if: matrix.os == 'windows-2019'
+      shell: cmd
+      run: |
+        set FB_ZIP=Firebird-3.0.7.33374-1_x64.zip
+        powershell Invoke-WebRequest "https://github.com/FirebirdSQL/firebird/releases/download/R3_0_7/$env:FB_ZIP" -OutFile "$env:FB_ZIP"
+        7z x -oC:\Firebird %FB_ZIP%
+
+    - name: Build
+      shell: bash
+      run: |
+        npm ci         
+
+    - name: Test (Linux)
+      if: matrix.os == 'ubuntu-16.04' || matrix.os == 'ubuntu-18.04'
+      run: |
+        sg firebird -c "npx nyc npm test"
+
+    - name: Test (MacOS)
+      if: matrix.os == 'macos-10.15'
+      run: |
+        sudo mkdir `pwd`/tmp-node-fb
+        sudo chmod 777 `pwd`/tmp-node-fb
+        export ISC_USER=sysdba
+        export ISC_PASSWORD=masterkey
+        export NODE_FB_TEST_TMP_DIR=`pwd`/tmp-node-fb
+        npx nyc npm test
+
+    - name: Test (Windows)
+      if: matrix.os == 'windows-2019'
+      shell: cmd
+      run: |
+        set PATH=C:\Firebird;%PATH%
+        call npx nyc npm test
