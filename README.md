@@ -68,6 +68,7 @@ options.role = null;            // default
 options.pageSize = 4096;        // default when creating database
 options.pageSize = 4096;        // default when creating database
 options.retryConnectionInterval = 1000; // reconnect interval in case of connection drop
+options.blobAsText = false; // set to true to get blob as text, only affects blob subtype 1
 ```
 
 ### Classic

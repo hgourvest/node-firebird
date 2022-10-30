@@ -93,6 +93,7 @@ declare module 'node-firebird' {
         pageSize?: number;
         retryConnectionInterval?: number;
         encoding?: SupportedCharacterSet;
+        blobAsText?: boolean; // only affects for blob subtype 1
     }
 
     export interface SvcMgrOptions extends Options {
