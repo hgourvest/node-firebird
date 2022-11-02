@@ -226,7 +226,7 @@ Firebird.attach(options, function(err, db) {
 
 ### Reading Multiples Blobs (Asynchronous)
 ```js
-Firebird.attach(config, (err, db) => {
+Firebird.attach(options, (err, db) => {
     if (err)
         throw err;
 
