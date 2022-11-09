@@ -230,7 +230,7 @@ Firebird.attach(options, (err, db) => {
     if (err)
         throw err;
 
-    db.transaction(Firebird.ISOLATION_READ_COMMITED, (err, transaction) => {
+    db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, transaction) => {
         if (err) {
             throw err;
         }
@@ -318,10 +318,10 @@ Firebird.attach(options, function(err, db) {
 __Transaction types:__
 
 - `Firebird.ISOLATION_READ_UNCOMMITTED`
-- `Firebird.ISOLATION_READ_COMMITED`
+- `Firebird.ISOLATION_READ_COMMITTED`
 - `Firebird.ISOLATION_REPEATABLE_READ`
 - `Firebird.ISOLATION_SERIALIZABLE`
-- `Firebird.ISOLATION_READ_COMMITED_READ_ONLY`
+- `Firebird.ISOLATION_READ_COMMITTED_READ_ONLY`
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -330,7 +330,7 @@ Firebird.attach(options, function(err, db) {
         throw err;
 
     // db = DATABASE
-    db.transaction(Firebird.ISOLATION_READ_COMMITED, function(err, transaction) {
+    db.transaction(Firebird.ISOLATION_READ_COMMITTED, function(err, transaction) {
         transaction.query('INSERT INTO users VALUE(?,?)', [1, 'Janko'], function(err, result) {
 
             if (err) {

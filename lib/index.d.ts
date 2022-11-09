@@ -19,7 +19,7 @@ declare module 'node-firebird' {
     /** A transaction sees changes done by uncommitted transactions. */
     export const ISOLATION_READ_UNCOMMITTED: number[];
     /** A transaction sees only data committed before the statement has been executed. */
-    export const ISOLATION_READ_COMMITED: number[];
+    export const ISOLATION_READ_COMMITTED: number[];
     /** A transaction sees during its lifetime only data committed before the transaction has been started. */
     export const ISOLATION_REPEATABLE_READ: number[];
     /**
@@ -27,7 +27,7 @@ declare module 'node-firebird' {
      * Data accessed in the context of a serializable transaction cannot be accessed by any other transaction.
      */
     export const ISOLATION_SERIALIZABLE: number[];
-    export const ISOLATION_READ_COMMITED_READ_ONLY: number[];
+    export const ISOLATION_READ_COMMITTED_READ_ONLY: number[];
 
     export type Isolation = number[];
 
