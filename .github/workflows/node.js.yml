@@ -36,5 +36,5 @@ jobs:
 
     - name: Test (Linux)      
       run: |
-        export FIREBIRD_DATA=/tmp
+        export FIREBIRD_DATA=/firebird/data
         npx nyc npm test
