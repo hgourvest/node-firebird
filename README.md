@@ -69,6 +69,7 @@ options.pageSize = 4096;        // default when creating database
 options.pageSize = 4096;        // default when creating database
 options.retryConnectionInterval = 1000; // reconnect interval in case of connection drop
 options.blobAsText = false; // set to true to get blob as text, only affects blob subtype 1
+options.encoding = 'UTF-8' // default encoding for connection is UTF-8
 ```
 
 ### Classic
