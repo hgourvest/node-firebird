@@ -63,6 +63,7 @@ declare module 'node-firebird' {
         'DOS869' |
         'GB18030' |
         'GBK' |
+        'ISO8859_1' |
         'ISO8859_2' |
         'ISO8859_3' |
         'ISO8859_4' |
@@ -76,6 +77,10 @@ declare module 'node-firebird' {
         'KOI8U' |
         'TIS620' |
         'UTF8' |
+        'WIN1251' |
+        'WIN1252' |
+        'WIN1253' |
+        'WIN1254' |        
         'WIN1255' |
         'WIN1256' |
         'WIN1257' |
