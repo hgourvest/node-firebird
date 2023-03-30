@@ -19,7 +19,7 @@ declare module 'node-firebird' {
     /** A transaction sees changes done by uncommitted transactions. */
     export const ISOLATION_READ_UNCOMMITTED: number[];
     /** A transaction sees only data committed before the statement has been executed. */
-    export const ISOLATION_READ_COMMITED: number[];
+    export const ISOLATION_READ_COMMITTED: number[];
     /** A transaction sees during its lifetime only data committed before the transaction has been started. */
     export const ISOLATION_REPEATABLE_READ: number[];
     /**
@@ -27,7 +27,7 @@ declare module 'node-firebird' {
      * Data accessed in the context of a serializable transaction cannot be accessed by any other transaction.
      */
     export const ISOLATION_SERIALIZABLE: number[];
-    export const ISOLATION_READ_COMMITED_READ_ONLY: number[];
+    export const ISOLATION_READ_COMMITTED_READ_ONLY: number[];
 
     export type Isolation = number[];
 
@@ -51,6 +51,42 @@ declare module 'node-firebird' {
         rollbackRetaining(callback?: SimpleCallback): void;
     }
 
+    export type SupportedCharacterSet = |
+        'NONE' |
+        'CP943C' |
+        'DOS737' |
+        'DOS775' |
+        'DOS858' |
+        'DOS862' |
+        'DOS864' |
+        'DOS866' |
+        'DOS869' |
+        'GB18030' |
+        'GBK' |
+        'ISO8859_1' |
+        'ISO8859_2' |
+        'ISO8859_3' |
+        'ISO8859_4' |
+        'ISO8859_5' |
+        'ISO8859_6' |
+        'ISO8859_7' |
+        'ISO8859_8' |
+        'ISO8859_9' |
+        'ISO8859_13' |
+        'KOI8R' |
+        'KOI8U' |
+        'TIS620' |
+        'UTF8' |
+        'WIN1251' |
+        'WIN1252' |
+        'WIN1253' |
+        'WIN1254' |        
+        'WIN1255' |
+        'WIN1256' |
+        'WIN1257' |
+        'WIN1258' |
+        'WIN_1258';
+
     export interface Options {
         host?: string;
         port?: number;
@@ -61,6 +97,8 @@ declare module 'node-firebird' {
         role?: string;
         pageSize?: number;
         retryConnectionInterval?: number;
+        encoding?: SupportedCharacterSet;
+        blobAsText?: boolean; // only affects for blob subtype 1
     }
 
     export interface SvcMgrOptions extends Options {
