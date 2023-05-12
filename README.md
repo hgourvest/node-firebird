@@ -68,6 +68,8 @@ options.role = null;            // default
 options.pageSize = 4096;        // default when creating database
 options.pageSize = 4096;        // default when creating database
 options.retryConnectionInterval = 1000; // reconnect interval in case of connection drop
+options.blobAsText = false; // set to true to get blob as text, only affects blob subtype 1
+options.encoding = 'UTF-8'; // default encoding for connection is UTF-8
 ```
 
 ### Classic
@@ -223,6 +225,73 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
+### Reading Multiples Blobs (Asynchronous)
+```js
+Firebird.attach(options, (err, db) => {
+    if (err)
+        throw err;
+
+    db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, transaction) => {
+        if (err) {
+            throw err;
+        }
+
+        transaction.query('SELECT FIRST 10 * FROM JOB', (err, result) => {
+            if (err) {
+                transaction.rollback();
+                return;
+            }
+
+            const arrBlob = [];
+            for (const item of result) {
+                const fields = Object.keys(item);
+                for (const key of fields) {
+                    if (typeof item[key] === 'function') {
+                        item[key] = new Promise((resolve, reject) => {
+                            // the same transaction is used (better performance)
+                            // this is optional
+                            item[key](transaction, (error, name, event, row) => {
+                                if (error) {
+                                    return reject(error);
+                                }
+
+                                // reading data
+                                let value = '';
+                                event.on('data', (chunk) => {
+                                    value += chunk.toString('binary');
+                                });
+                                event.on('end', () => {
+                                    resolve({ value, column: name, row });
+                                });
+                            });
+                        });
+                        arrBlob.push(item[key]);
+                    }
+                }
+            }
+
+            Promise.all(arrBlob).then((blobs) => {
+                for (const blob of blobs) {
+                    result[blob.row][blob.column] = blob.value;
+                }
+
+                transaction.commit((err) => {
+                    if (err) {
+                        transaction.rollback();
+                        return;
+                    }
+
+                    db.detach();
+                    console.log(result);
+                });
+            }).catch((err) => {
+                transaction.rollback();
+            });
+        });
+    });
+});
+```
+
 ### Streaming a big data
 
 ```js
@@ -250,10 +319,10 @@ Firebird.attach(options, function(err, db) {
 __Transaction types:__
 
 - `Firebird.ISOLATION_READ_UNCOMMITTED`
-- `Firebird.ISOLATION_READ_COMMITED`
+- `Firebird.ISOLATION_READ_COMMITTED`
 - `Firebird.ISOLATION_REPEATABLE_READ`
 - `Firebird.ISOLATION_SERIALIZABLE`
-- `Firebird.ISOLATION_READ_COMMITED_READ_ONLY`
+- `Firebird.ISOLATION_READ_COMMITTED_READ_ONLY`
 
 ```js
 Firebird.attach(options, function(err, db) {
@@ -262,7 +331,7 @@ Firebird.attach(options, function(err, db) {
         throw err;
 
     // db = DATABASE
-    db.transaction(Firebird.ISOLATION_READ_COMMITED, function(err, transaction) {
+    db.transaction(Firebird.ISOLATION_READ_COMMITTED, function(err, transaction) {
         transaction.query('INSERT INTO users VALUE(?,?)', [1, 'Janko'], function(err, result) {
 
             if (err) {
