@@ -28,7 +28,7 @@
         "test": "mocha"
     },
     "dependencies": {
-        "big-integer": "^1.6.48",
+        "big-integer": "^1.6.51",
         "long": "^4.0.0"
     },
     "devDependencies": {
