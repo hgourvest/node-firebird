@@ -105,8 +105,18 @@ describe('Pooling', function () {
     var poolSize = 2;
     var pool;
 
-    before(function () {
-        pool = Firebird.pool(poolSize, config);
+    before(function (done) {
+        // create database if not exists (case of run only this test sequence)
+        Firebird.attachOrCreate(config, (err, db) => {
+            assert.ok(!err, err);
+
+            db.detach((err) => {
+                assert.ok(!err, err);
+
+                pool = Firebird.pool(poolSize, config);
+                done();
+            });
+        });
     });
 
     after(function (done) {
