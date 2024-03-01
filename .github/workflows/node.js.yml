@@ -23,7 +23,7 @@ jobs:
         isc_password: "masterkey"
         enable_legacy_client_auth: "true"        
 
-    - name: Use Node.js ${{ matrix.node-version }}
+    - name: Use Node.js ${{ matrix.node }}
       uses: actions/setup-node@v3
       with:
         node-version: ${{ matrix.node }}
