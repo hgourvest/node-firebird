@@ -48,6 +48,77 @@ describe('Connection', function () {
     });
 });
 
+describe('Events', function () {
+    const table_sql = 'CREATE TABLE TEST_EVENTS (ID INT NOT NULL CONSTRAINT PK_EVENTS PRIMARY KEY, NAME VARCHAR(50))';
+
+    let db;
+
+    before(function (done) {
+        Firebird.attachOrCreate(config, function (err, _db) {
+            if (err) throw err;
+            db = _db;
+
+            db.query(table_sql, [], function (err) {
+                assert.ok(!err, err);
+
+                db.query(`CREATE TRIGGER TRG_TEST_TRIGGER FOR TEST_EVENTS AFTER INSERT OR UPDATE AS BEGIN POST_EVENT('TRG_TEST_EVENTS'); END`, [], function (err) {
+                    assert.ok(!err, err);
+
+                    db.query('SELECT RDB$TRIGGER_NAME FROM RDB$TRIGGERS WHERE RDB$TRIGGER_NAME = ?', ['TRG_TEST_TRIGGER'], function (err, rows) {
+                        assert.ok(!err, err);
+                        assert.ok(rows.length > 0);
+                        done();
+                    });
+                });
+            });
+        });
+    });
+
+    after(function () {
+        if (db) {
+            db.detach();
+        }
+    });
+
+    it("should create a connection", function (done) {
+        db.attachEvent((err, evtmgr) => {
+            assert.ok(!err, err);
+            done();
+        })
+    });
+
+    it("should register an event", function (done) {
+        db.attachEvent((err, evtmgr) => {
+            assert.ok(!err, err);
+
+            evtmgr.registerEvent(["TRG_TEST_EVENTS"], (err) => {
+                assert.ok(!err, err);
+                done();
+            });
+        })
+    });
+
+    it("should receive an event", function (done) {
+        db.attachEvent((err, evtmgr) => {
+            assert.ok(!err, err);
+
+            evtmgr.registerEvent(["TRG_TEST_EVENTS"], (err) => {
+                assert.ok(!err, err);
+
+                evtmgr.on('post_event', (name, count) => {
+                    assert.equal(name, 'TRG_TEST_EVENTS');
+                    assert.equal(count, 1);
+                    done();
+                });
+
+                db.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [1, 'xpto'], (err) => {
+                    assert.ok(!err, err);
+                });
+            });
+        })
+    });
+});
+
 describe('Auth plugin connection', function () {
 
     // Must be test with firebird 2.5 or higher with Legacy_Auth enabled on server
