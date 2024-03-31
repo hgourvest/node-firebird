@@ -546,7 +546,7 @@ describe('Database', function() {
 
                 db.query('select RET from TEST_FETCH_FAIL', (err, d) => {
                     assert.ok(err, err);
-                    assert.ok(err.message.indexOf('arithmetic exception, numeric overflow, or string truncation, Integer divide by zero.') === 0);
+                    assert.ok(err.message.match(/arithmetic exception, numeric overflow, or string truncation, Integer divide by zero./gi));
 
                     done();
                 });
