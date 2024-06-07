@@ -63,28 +63,24 @@ options.database = 'database.fdb';
 options.user = 'SYSDBA';
 options.password = 'masterkey';
 options.lowercase_keys = false; // set to true to lowercase keys
-options.role = null;            // default
-options.pageSize = 4096;        // default when creating database
-options.pageSize = 4096;        // default when creating database
+options.role = null; // default
+options.pageSize = 4096; // default when creating database
 options.retryConnectionInterval = 1000; // reconnect interval in case of connection drop
 options.blobAsText = false; // set to true to get blob as text, only affects blob subtype 1
-options.encoding = 'UTF-8'; // default encoding for connection is UTF-8
+options.encoding = 'UTF8'; // default encoding for connection is UTF-8
 ```
 
 ### Classic
 
 ```js
-Firebird.attach(options, function(err, db) {
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
 
-    if (err)
-        throw err;
-
-    // db = DATABASE
-    db.query('SELECT * FROM TABLE', function(err, result) {
-        // IMPORTANT: close the connection
-        db.detach();
-    });
-
+  // db = DATABASE
+  db.query('SELECT * FROM TABLE', function (err, result) {
+    // IMPORTANT: close the connection
+    db.detach();
+  });
 });
 ```
 
@@ -95,16 +91,14 @@ Firebird.attach(options, function(err, db) {
 var pool = Firebird.pool(5, options);
 
 // Get a free pool
-pool.get(function(err, db) {
+pool.get(function (err, db) {
+  if (err) throw err;
 
-    if (err)
-        throw err;
-
-    // db = DATABASE
-    db.query('SELECT * FROM TABLE', function(err, result) {
-        // IMPORTANT: release the pool connection
-        db.detach();
-    });
+  // db = DATABASE
+  db.query('SELECT * FROM TABLE', function (err, result) {
+    // IMPORTANT: release the pool connection
+    db.detach();
+  });
 });
 
 // Destroy pool
@@ -135,187 +129,192 @@ pool.destroy();
 ### Parameters
 
 ```js
-Firebird.attach(options, function(err, db) {
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
 
-    if (err)
-        throw err;
-
-    // db = DATABASE
-    db.query('INSERT INTO USERS (ID, ALIAS, CREATED) VALUES(?, ?, ?) RETURNING ID', [1, 'Pe\'ter', new Date()], function(err, result) {
-        console.log(result[0].id);
-        db.query('SELECT * FROM USERS WHERE Alias=?', ['Peter'], function(err, result) {
-            console.log(result);
-            db.detach();
-        });
-    });
+  // db = DATABASE
+  db.query(
+    'INSERT INTO USERS (ID, ALIAS, CREATED) VALUES(?, ?, ?) RETURNING ID',
+    [1, "Pe'ter", new Date()],
+    function (err, result) {
+      console.log(result[0].id);
+      db.query(
+        'SELECT * FROM USERS WHERE Alias=?',
+        ['Peter'],
+        function (err, result) {
+          console.log(result);
+          db.detach();
+        }
+      );
+    }
+  );
 });
 ```
 
 ### BLOB (stream)
 
 ```js
-Firebird.attach(options, function(err, db) {
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
 
-    if (err)
-        throw err;
-
-    // db = DATABASE
-    // INSERT STREAM as BLOB
-    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.createReadStream('/users/image.jpg')], function(err, result) {
-        // IMPORTANT: close the connection
-        db.detach();
-    });
+  // db = DATABASE
+  // INSERT STREAM as BLOB
+  db.query(
+    'INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)',
+    [1, 'Peter', fs.createReadStream('/users/image.jpg')],
+    function (err, result) {
+      // IMPORTANT: close the connection
+      db.detach();
+    }
+  );
 });
 ```
 
 ### BLOB (buffer)
 
 ```js
-Firebird.attach(options, function(err, db) {
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
 
-    if (err)
-        throw err;
-
-    // db = DATABASE
-    // INSERT BUFFER as BLOB
-    db.query('INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)', [1, 'Peter', fs.readFileSync('/users/image.jpg')], function(err, result) {
-        // IMPORTANT: close the connection
-        db.detach();
-    });
+  // db = DATABASE
+  // INSERT BUFFER as BLOB
+  db.query(
+    'INSERT INTO USERS (ID, ALIAS, FILE) VALUES(?, ?, ?)',
+    [1, 'Peter', fs.readFileSync('/users/image.jpg')],
+    function (err, result) {
+      // IMPORTANT: close the connection
+      db.detach();
+    }
+  );
 });
 ```
 
 ### Reading Blobs (Asynchronous)
 
 ```js
-Firebird.attach(options, function(err, db) {
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
 
-    if (err)
-        throw err;
+  // db = DATABASE
+  db.query('SELECT ID, ALIAS, USERPICTURE FROM USER', function (err, rows) {
+    if (err) throw err;
 
-    // db = DATABASE
-    db.query('SELECT ID, ALIAS, USERPICTURE FROM USER', function(err, rows) {
+    // first row
+    rows[0].userpicture(function (err, name, e) {
+      if (err) throw err;
 
-        if (err)
-            throw err;
+      // +v0.2.4
+      // e.pipe(writeStream/Response);
 
-        // first row
-        rows[0].userpicture(function(err, name, e) {
+      // e === EventEmitter
+      e.on('data', function (chunk) {
+        // reading data
+      });
 
-            if (err)
-                throw err;
-
-            // +v0.2.4
-            // e.pipe(writeStream/Response);
-
-            // e === EventEmitter
-            e.on('data', function(chunk) {
-                // reading data
-            });
-
-            e.on('end', function() {
-                // end reading
-                // IMPORTANT: close the connection
-                db.detach();
-            });
-        });
-
+      e.on('end', function () {
+        // end reading
+        // IMPORTANT: close the connection
+        db.detach();
+      });
     });
+  });
 });
 ```
 
 ### Reading Multiples Blobs (Asynchronous)
+
 ```js
 Firebird.attach(options, (err, db) => {
-    if (err)
-        throw err;
+  if (err) throw err;
 
-    db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, transaction) => {
-        if (err) {
-            throw err;
-        }
+  db.transaction(Firebird.ISOLATION_READ_COMMITTED, (err, transaction) => {
+    if (err) {
+      throw err;
+    }
 
-        transaction.query('SELECT FIRST 10 * FROM JOB', (err, result) => {
-            if (err) {
-                transaction.rollback();
-                return;
-            }
+    transaction.query('SELECT FIRST 10 * FROM JOB', (err, result) => {
+      if (err) {
+        transaction.rollback();
+        return;
+      }
 
-            const arrBlob = [];
-            for (const item of result) {
-                const fields = Object.keys(item);
-                for (const key of fields) {
-                    if (typeof item[key] === 'function') {
-                        item[key] = new Promise((resolve, reject) => {
-                            // the same transaction is used (better performance)
-                            // this is optional
-                            item[key](transaction, (error, name, event, row) => {
-                                if (error) {
-                                    return reject(error);
-                                }
-
-                                // reading data
-                                let value = '';
-                                event.on('data', (chunk) => {
-                                    value += chunk.toString('binary');
-                                });
-                                event.on('end', () => {
-                                    resolve({ value, column: name, row });
-                                });
-                            });
-                        });
-                        arrBlob.push(item[key]);
-                    }
-                }
-            }
-
-            Promise.all(arrBlob).then((blobs) => {
-                for (const blob of blobs) {
-                    result[blob.row][blob.column] = blob.value;
+      const arrBlob = [];
+      for (const item of result) {
+        const fields = Object.keys(item);
+        for (const key of fields) {
+          if (typeof item[key] === 'function') {
+            item[key] = new Promise((resolve, reject) => {
+              // the same transaction is used (better performance)
+              // this is optional
+              item[key](transaction, (error, name, event, row) => {
+                if (error) {
+                  return reject(error);
                 }
 
-                transaction.commit((err) => {
-                    if (err) {
-                        transaction.rollback();
-                        return;
-                    }
-
-                    db.detach();
-                    console.log(result);
+                // reading data
+                let value = '';
+                event.on('data', (chunk) => {
+                  value += chunk.toString('binary');
                 });
-            }).catch((err) => {
-                transaction.rollback();
+                event.on('end', () => {
+                  resolve({ value, column: name, row });
+                });
+              });
             });
+            arrBlob.push(item[key]);
+          }
+        }
+      }
+
+      Promise.all(arrBlob)
+        .then((blobs) => {
+          for (const blob of blobs) {
+            result[blob.row][blob.column] = blob.value;
+          }
+
+          transaction.commit((err) => {
+            if (err) {
+              transaction.rollback();
+              return;
+            }
+
+            db.detach();
+            console.log(result);
+          });
+        })
+        .catch((err) => {
+          transaction.rollback();
         });
     });
+  });
 });
 ```
 
 ### Streaming a big data
 
 ```js
-Firebird.attach(options, function(err, db) {
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
 
-    if (err)
-        throw err;
-
-    // db = DATABASE
-    db.sequentially('SELECT * FROM BIGTABLE', function(row, index) {
-
-        // EXAMPLE
-        stream.write(JSON.stringify(row));
-
-    }, function(err) {
-        // END
-        // IMPORTANT: close the connection
-        db.detach();
-    });
+  // db = DATABASE
+  db.sequentially(
+    'SELECT * FROM BIGTABLE',
+    function (row, index) {
+      // EXAMPLE
+      stream.write(JSON.stringify(row));
+    },
+    function (err) {
+      // END
+      // IMPORTANT: close the connection
+      db.detach();
+    }
+  );
 });
 ```
 
 ### Transactions
 
-__Transaction types:__
+**Transaction types:**
 
 - `Firebird.ISOLATION_READ_UNCOMMITTED`
 - `Firebird.ISOLATION_READ_COMMITTED`
@@ -324,77 +323,67 @@ __Transaction types:__
 - `Firebird.ISOLATION_READ_COMMITTED_READ_ONLY`
 
 ```js
-Firebird.attach(options, function(err, db) {
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
 
-    if (err)
-        throw err;
+  // db = DATABASE
+  db.transaction(
+    Firebird.ISOLATION_READ_COMMITTED,
+    function (err, transaction) {
+      transaction.query(
+        'INSERT INTO users VALUE(?,?)',
+        [1, 'Janko'],
+        function (err, result) {
+          if (err) {
+            transaction.rollback();
+            return;
+          }
 
-    // db = DATABASE
-    db.transaction(Firebird.ISOLATION_READ_COMMITTED, function(err, transaction) {
-        transaction.query('INSERT INTO users VALUE(?,?)', [1, 'Janko'], function(err, result) {
-
-            if (err) {
-                transaction.rollback();
-                return;
-            }
-
-            transaction.commit(function(err) {
-                if (err)
-                    transaction.rollback();
-                else
-                    db.detach();
-            });
-        });
-    });
+          transaction.commit(function (err) {
+            if (err) transaction.rollback();
+            else db.detach();
+          });
+        }
+      );
+    }
+  );
 });
 ```
 
 ### Events
 
 ```js
-Firebird.attach(options, function(err, db) {
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
 
-    if (err)
-        throw err;
+  db.on('row', function (row, index, isObject) {
+    // index === Number
+    // isObject === is row object or array?
+  });
 
-    db.on('row', function(row, index, isObject) {
-        // index === Number
-        // isObject === is row object or array?
-    });
+  db.on('result', function (result) {
+    // result === Array
+  });
 
-    db.on('result', function(result) {
-        // result === Array
-    });
+  db.on('attach', function () {});
 
-    db.on('attach', function() {
+  db.on('detach', function (isPoolConnection) {
+    // isPoolConnection == Boolean
+  });
 
-    });
+  db.on('reconnect', function () {});
 
-    db.on('detach', function(isPoolConnection) {
-        // isPoolConnection == Boolean
-    });
+  db.on('error', function (err) {});
 
-    db.on('reconnect', function() {
+  db.on('transaction', function (isolation) {
+    // isolation === Number
+  });
 
-    });
+  db.on('commit', function () {});
 
-    db.on('error', function(err) {
+  db.on('rollback', function () {});
 
-    });
-
-    db.on('transaction', function(isolation) {
-        // isolation === Number
-    });
-
-    db.on('commit', function() {
-
-    });
-
-    db.on('rollback', function() {
-
-    });
-
-    db.detach();
+  db.detach();
 });
 ```
 
@@ -402,8 +391,9 @@ Firebird.attach(options, function(err, db) {
 
 ```js
 var sql1 = 'SELECT * FROM TBL_USER WHERE ID>' + Firebird.escape(1);
-var sql2 = 'SELECT * FROM TBL_USER WHERE NAME=' + Firebird.escape('Pe\'er');
-var sql3 = 'SELECT * FROM TBL_USER WHERE CREATED<=' + Firebird.escape(new Date());
+var sql2 = 'SELECT * FROM TBL_USER WHERE NAME=' + Firebird.escape("Pe'er");
+var sql3 =
+  'SELECT * FROM TBL_USER WHERE CREATED<=' + Firebird.escape(new Date());
 var sql4 = 'SELECT * FROM TBL_USER WHERE NEWSLETTER=' + Firebird.escape(true);
 
 // or db.escape()
@@ -419,18 +409,19 @@ console.log(sql4);
 ```js
 var { GDSCode } = require('node-firebird/lib/gdscodes');
 /*...*/
-db.query('insert into my_table(id, name) values (?, ?)', [1, 'John Doe'],
-    function (err) {
-        if(err.gdscode == GDSCode.UNIQUE_KEY_VIOLATION){
-            console.log('constraint name:'+ err.gdsparams[0]);
-            console.log('table name:'+ err.gdsparams[0]);
-            /*...*/
-        }
-        /*...*/
-    });
-
+db.query(
+  'insert into my_table(id, name) values (?, ?)',
+  [1, 'John Doe'],
+  function (err) {
+    if (err.gdscode == GDSCode.UNIQUE_KEY_VIOLATION) {
+      console.log('constraint name:' + err.gdsparams[0]);
+      console.log('table name:' + err.gdsparams[0]);
+      /*...*/
+    }
+    /*...*/
+  }
+);
 ```
-
 
 ### Service Manager functions
 
@@ -523,59 +514,62 @@ const RESTORE_OPTS = {
 Firebird.attach(config, (err, srv) => {
     srv.restore(RESTORE_OPTS, (err, data) => {
         data.on('data', () => {});
-        data.on('end', () =>
-            srv.detach();
+        data.on('end', () =>{
+            srv.detach();})
         });
     });
-});
 ```
 
 ### getLog and getFbserverInfos Service examples with use of stream and object return
 
 ```js
-fb.attach(_connection, function(err, svc) {
-    if (err)
-        return;
-    // all function that return a stream take two optional parameter
-    // optread => byline or buffer  byline use isc_info_svc_line and buffer use isc_info_svc_to_eof
-    // buffersize => is the buffer for service manager it can't exceed 8ko (i'm not sure)
+fb.attach(_connection, function (err, svc) {
+  if (err) return;
+  // all function that return a stream take two optional parameter
+  // optread => byline or buffer  byline use isc_info_svc_line and buffer use isc_info_svc_to_eof
+  // buffersize => is the buffer for service manager it can't exceed 8ko (i'm not sure)
 
-    svc.getLog({optread:'buffer', buffersize:2048}, function (err, data) {
-            // data is a readablestream that contain the firebird.log file
-            console.log(err);
-            data.on('data', function (data) {
-                console.log(data.toString());
-            });
-            data.on('end', function() {
-                console.log('finish');
-            });
-        });
+  svc.getLog({ optread: 'buffer', buffersize: 2048 }, function (err, data) {
+    // data is a readablestream that contain the firebird.log file
+    console.log(err);
+    data.on('data', function (data) {
+      console.log(data.toString());
+    });
+    data.on('end', function () {
+      console.log('finish');
+    });
+  });
 
-    // an other exemple to use function that return object
-    svc.getFbserverInfos(
-            {
-            "dbinfo" : true,
-            "fbconfig" : true,
-            "svcversion" : true,
-            "fbversion" : true,
-            "fbimplementation" : true,
-            "fbcapatibilities" : true,
-            "pathsecuritydb" : true,
-            "fbenv" : true,
-            "fbenvlock" : true,
-            "fbenvmsg" : true
-        }, {}, function (err, data) {
-            console.log(err);
-            console.log(data);
-        });
+  // an other exemple to use function that return object
+  svc.getFbserverInfos(
+    {
+      dbinfo: true,
+      fbconfig: true,
+      svcversion: true,
+      fbversion: true,
+      fbimplementation: true,
+      fbcapatibilities: true,
+      pathsecuritydb: true,
+      fbenv: true,
+      fbenvlock: true,
+      fbenvmsg: true,
+    },
+    {},
+    function (err, data) {
+      console.log(err);
+      console.log(data);
+    }
+  );
 });
-
 ```
 
 ### Charset for database connection is always UTF-8
 
-node-firebird doesn't let you choose the charset connection, it will always use UTF-8.
-Node is unicode, no matter if your database is using another charset to store string or blob, Firebird will transliterate automatically.
+Node Firebird uses UTF-8 as the default charset. If you want a different one, such as Latin1, you will need to go into the library and modify the default_encoding in the index.js file
+
+```js
+const default_encoding = 'latin1';
+```
 
 This is why you should use **Firebird 2.5** server at least.
 
@@ -604,8 +598,6 @@ UserManager = Legacy_UserManager
 Please read also Authorization with Firebird 2.5 client library from Firebird 4 migration guide
 <https://ib-aid.com/download/docs/fb4migrationguide.html#_authorization_with_firebird_2_5_client_library_fbclient_dll>
 
-
-
 ## Contributors
 
 - Henri Gourvest, <https://github.com/hgourvest>
@@ -614,7 +606,6 @@ Please read also Authorization with Firebird 2.5 client library from Firebird 4 
 
 [license-image]: http://img.shields.io/badge/license-MOZILLA-blue.svg?style=flat
 [license-url]: LICENSE
-
 [npm-url]: https://npmjs.org/package/node-firebird
 [npm-version-image]: http://img.shields.io/npm/v/node-firebird.svg?style=flat
 [npm-downloads-image]: http://img.shields.io/npm/dm/node-firebird.svg?style=flat
