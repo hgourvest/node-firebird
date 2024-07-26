@@ -11,7 +11,7 @@
     "homepage": "https://github.com/hgourvest/node-firebird",
     "repository": {
         "type": "git",
-        "url": "https://github.com/hgourvest/node-firebird"
+        "url": "git+https://github.com/hgourvest/node-firebird.git"
     },
     "author": {
         "name": "Henri Gourvest",
