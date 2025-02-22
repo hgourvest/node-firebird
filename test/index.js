@@ -75,13 +75,25 @@ describe('Events', function () {
     });
 
     after(function () {
-        if (db) {
-            db.detach();
+        const remove_database_file = () => {
+            if (fs.existsSync(config.database)) {
+                fs.unlinkSync(config.database);
+            }
         }
+
+        if (db) {
+            db.detach(() => {
+                remove_database_file();
+            });
+        } else {
+            remove_database_file();
+        }
+
     });
 
     it("should create a connection", function (done) {
         db.attachEvent((err, evtmgr) => {
+            assert.equal(evtmgr.eventid, 1);
             assert.ok(!err, err);
             done();
         })
@@ -90,10 +102,30 @@ describe('Events', function () {
     it("should register an event", function (done) {
         db.attachEvent((err, evtmgr) => {
             assert.ok(!err, err);
+            assert.equal(evtmgr.eventid, 2);
 
-            evtmgr.registerEvent(["TRG_TEST_EVENTS"], (err) => {
+            evtmgr.registerEvent(["TRG_TEST_EVENTS_FIRST"], (err) => {
                 assert.ok(!err, err);
                 done();
+            });
+        })
+    });
+
+    it("should unregister an event", function (done) {
+        db.attachEvent((err, evtmgr) => {
+            assert.ok(!err, err);
+            assert.equal(evtmgr.eventid, 3);
+
+            evtmgr.on('events_registered', () => {
+                evtmgr.unregisterEvent(["TRG_TEST_EVENTS_SECOND"], (err) => {
+                    assert.ok(!err, err);
+                    assert.equal(evtmgr.events["TRG_TEST_EVENTS_SECOND"], undefined);
+                    done();
+                });
+            });
+
+            evtmgr.registerEvent(["TRG_TEST_EVENTS_SECOND"], (err) => {
+                assert.ok(!err, err);
             });
         })
     });
@@ -102,14 +134,16 @@ describe('Events', function () {
         db.attachEvent((err, evtmgr) => {
             assert.ok(!err, err);
 
+            assert.equal(evtmgr.eventid, 4);
+
+            evtmgr.on('post_event', (name, count) => {
+                assert.equal(name, 'TRG_TEST_EVENTS');
+                assert.equal(count, 2);
+                done();
+            });
+
             evtmgr.registerEvent(["TRG_TEST_EVENTS"], (err) => {
                 assert.ok(!err, err);
-
-                evtmgr.on('post_event', (name, count) => {
-                    assert.equal(name, 'TRG_TEST_EVENTS');
-                    assert.equal(count, 1);
-                    done();
-                });
 
                 db.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [1, 'xpto'], (err) => {
                     assert.ok(!err, err);
@@ -117,6 +151,22 @@ describe('Events', function () {
             });
         })
     });
+
+    it("should receive an event when the event is registered", function (done) {
+        db.attachEvent((err, evtmgr) => {
+            assert.ok(!err, err);
+            assert.equal(evtmgr.eventid, 5);
+
+            evtmgr.on('events_registered', (events) => {
+                assert.ok(events["TRG_TEST_EVENTS_SECOND"]);
+                done();
+            });
+
+            evtmgr.registerEvent(["TRG_TEST_EVENTS_SECOND"], (err) => {
+                assert.ok(!err, err);
+            });
+        })
+    })
 });
 
 describe('Auth plugin connection', function () {
