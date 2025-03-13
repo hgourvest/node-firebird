@@ -14,7 +14,8 @@ exports.default = {
     pageSize: 4096,
     timeout: 3000,
     lowercase_keys: true,
-    retryConnectionInterval: 100
+    retryConnectionInterval: 100,
+    wireCompression: false,
 };
 
 exports.currentDate = currentDate;
