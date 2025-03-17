@@ -46,6 +46,19 @@ describe('Connection', function () {
             done();
         });
     });
+
+    // Work only with firebird 3+ for wire compression and firebird 3.0.4+ for context variable WIRE_COMPRESSED
+    it.skip('should attachOrCreate with wireCompression', function(done) {
+        Firebird.attachOrCreate(Config.extends(config, { wireCompression: true }), function(err, db) {
+            assert.ok(!err, err);
+            db.query('select rdb$get_context(\'SYSTEM\', \'WIRE_COMPRESSED\') = \'TRUE\' as compressed from rdb$database', (err, r) => {
+                assert.ok(!err, err);
+                assert.ok(r[0].compressed);
+
+                db.detach(done);
+            });
+        });
+    });
 });
 
 describe('Events', function () {
@@ -84,7 +97,7 @@ describe('Events', function () {
         db.attachEvent((err, evtmgr) => {
             assert.ok(!err, err);
             done();
-        })
+        });
     });
 
     it("should register an event", function (done) {
