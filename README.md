@@ -582,7 +582,7 @@ for Firebird 3.0 you need to add the following in firebird.conf according to Fir
 
 ```bash
 AuthServer = Srp, Legacy_Auth
-WireCrypt = Disabled
+WireCrypt = Enabled
 UserManager = Legacy_UserManager
 ```
 
@@ -592,7 +592,7 @@ for Firebird 4.0 you need to add the following in firebird.conf according to Fir
 
 ```bash
 AuthServer = Srp256, Srp, Legacy_Auth
-WireCrypt = Disabled
+WireCrypt = Enabled
 UserManager = Legacy_UserManager
 ```
 
