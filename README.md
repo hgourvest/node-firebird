@@ -599,6 +599,20 @@ UserManager = Legacy_UserManager
 Please read also Authorization with Firebird 2.5 client library from Firebird 4 migration guide
 <https://ib-aid.com/download/docs/fb4migrationguide.html#_authorization_with_firebird_2_5_client_library_fbclient_dll>
 
+Firebird 5 wire protocol is not supported yet so
+for Firebird 5.0 you need to add the following in firebird.conf according to Firebird release notes
+<https://firebirdsql.org/file/documentation/release_notes/html/en/4_0/rlsnotes40.html#rnfb40-config-srp256>
+
+```bash
+AuthServer = Srp256, Srp, Legacy_Auth
+WireCrypt = Enabled
+UserManager = Legacy_UserManager
+```
+
+Please read also Authorization with Firebird 2.5 client library from Firebird 5 migration guide
+<https://ib-aid.com/download/docs/fb5migrationguide.html#_authorization_from_firebird_2_5_client_libraries>
+
+
 ## Contributors
 
 - Henri Gourvest, <https://github.com/hgourvest>
