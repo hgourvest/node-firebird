@@ -68,6 +68,7 @@ options.pageSize = 4096; // default when creating database
 options.retryConnectionInterval = 1000; // reconnect interval in case of connection drop
 options.blobAsText = false; // set to true to get blob as text, only affects blob subtype 1
 options.encoding = 'UTF8'; // default encoding for connection is UTF-8
+options.wireCompression = false; // set to true for enable firebird compression on the wire (Work only on FB >= 3 and compression is enable on server (WireCompression = true in firebird.conf))  
 ```
 
 ### Classic
@@ -595,7 +596,7 @@ for Firebird 3.0 you need to add the following in firebird.conf according to Fir
 
 ```bash
 AuthServer = Srp, Legacy_Auth
-WireCrypt = Disabled
+WireCrypt = Enabled
 UserManager = Legacy_UserManager
 ```
 
@@ -605,12 +606,26 @@ for Firebird 4.0 you need to add the following in firebird.conf according to Fir
 
 ```bash
 AuthServer = Srp256, Srp, Legacy_Auth
-WireCrypt = Disabled
+WireCrypt = Enabled
 UserManager = Legacy_UserManager
 ```
 
 Please read also Authorization with Firebird 2.5 client library from Firebird 4 migration guide
 <https://ib-aid.com/download/docs/fb4migrationguide.html#_authorization_with_firebird_2_5_client_library_fbclient_dll>
+
+Firebird 5 wire protocol is not supported yet so
+for Firebird 5.0 you need to add the following in firebird.conf according to Firebird release notes
+<https://firebirdsql.org/file/documentation/release_notes/html/en/4_0/rlsnotes40.html#rnfb40-config-srp256>
+
+```bash
+AuthServer = Srp256, Srp, Legacy_Auth
+WireCrypt = Enabled
+UserManager = Legacy_UserManager
+```
+
+Please read also Authorization with Firebird 2.5 client library from Firebird 5 migration guide
+<https://ib-aid.com/download/docs/fb5migrationguide.html#_authorization_from_firebird_2_5_client_libraries>
+
 
 ## Contributors
 
