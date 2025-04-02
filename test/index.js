@@ -582,7 +582,7 @@ describe('Database', function() {
 
         it('should rollback', function(done) {
             db.transaction(function(err, transaction) {
-                assert(!err, err);
+                assert.ok(!err, err);
                 transaction.query(
                   'INSERT INTO test2 (ID, NAME) VALUES(?, ?)',
                   [1, 'Transaction 1'], function(err) {
@@ -609,7 +609,7 @@ describe('Database', function() {
 
         it('should commit', function(done) {
             db.transaction(function(err, transaction) {
-                assert(!err, err);
+                assert.ok(!err, err);
                 transaction.query(
                   'INSERT INTO test2 (ID, NAME) VALUES(?, ?)',
                   [4, 'Transaction 1'], function(err) {
@@ -631,6 +631,114 @@ describe('Database', function() {
                               });
                         });
                   });
+            });
+        });
+
+        it('should start transaction with isolation array', function (done) {
+            db.transaction(Firebird.ISOLATION_READ_COMMITTED, function(err, transaction) {
+                assert.ok(!err, err);
+
+                transaction.commit((err) => {
+                    assert.ok(!err, err);
+                    done();
+                })
+            });
+        });
+
+        // For check auto_commit in mon$transactions need to perform a modification in database
+        it('should autocommit', function (done) {
+            db.transaction({ autoCommit: true }, function(err, transaction) {
+                assert(!err, err);
+                transaction.query(
+                    'INSERT INTO test2 (ID, NAME) VALUES(?, ?)',
+                    [7, 'Transaction 1'], function (err) {
+                        assert.ok(!err, err);
+
+                        transaction.query(
+                            'SELECT MON$AUTO_COMMIT AS AUTO_COMMIT FROM MON$TRANSACTIONS WHERE MON$TRANSACTION_ID = CURRENT_TRANSACTION',
+                            function (err, r) {
+                                assert.ok(!err, err);
+                                assert.equal(r[0].auto_commit, 1);
+
+                                transaction.commit((err) => {
+                                    assert.ok(!err, err);
+                                    verify(done, 4);
+                                });
+                            }
+                        );
+                    }
+                );
+            });
+        });
+
+        it('should autoundo', function (done) {
+            db.transaction({ autoUndo: false }, function(err, transaction) {
+                assert(!err, err);
+                transaction.query(
+                    'SELECT MON$AUTO_UNDO AS AUTO_UNDO FROM MON$TRANSACTIONS WHERE MON$TRANSACTION_ID = CURRENT_TRANSACTION',
+                    function (err, r) {
+                        assert.ok(!err, err);
+                        assert.equal(r[0].auto_undo, 0);
+
+                        transaction.commit((err) => {
+                            assert.ok(!err, err);
+                            done();
+                        });
+                    }
+                );
+            });
+        });
+
+        it('should wait', function (done) {
+            db.transaction({ wait: true }, function(err, transaction) {
+                assert(!err, err);
+                transaction.query(
+                    'SELECT MON$LOCK_TIMEOUT AS LOCK_TIMEOUT FROM MON$TRANSACTIONS WHERE MON$TRANSACTION_ID = CURRENT_TRANSACTION',
+                    function (err, r) {
+                        assert(!err, err);
+                        assert.equal(r[0].lock_timeout, -1);
+
+                        transaction.commit((err) => {
+                            assert.ok(!err, err);
+                            done();
+                        });
+                    }
+                );
+            });
+        });
+
+        it('should nowait', function (done) {
+            db.transaction({ wait: false }, function(err, transaction) {
+                assert(!err, err);
+                transaction.query(
+                    'SELECT MON$LOCK_TIMEOUT AS LOCK_TIMEOUT FROM MON$TRANSACTIONS WHERE MON$TRANSACTION_ID = CURRENT_TRANSACTION',
+                    function (err, r) {
+                    assert(!err, err);
+                    assert.equal(r[0].lock_timeout, 0);
+
+                    transaction.commit((err) => {
+                        assert.ok(!err, err);
+                        done();
+                    });
+                });
+            });
+        });
+
+        it('should wait with timeout', function (done) {
+            db.transaction({ waitTimeout: 10 }, function(err, transaction) {
+                assert(!err, err);
+                transaction.query(
+                    'SELECT MON$LOCK_TIMEOUT AS LOCK_TIMEOUT FROM MON$TRANSACTIONS WHERE MON$TRANSACTION_ID = CURRENT_TRANSACTION',
+                    function (err, r) {
+                        assert(!err, err);
+                        assert.equal(r[0].lock_timeout, 10);
+
+                        transaction.commit((err) => {
+                            assert.ok(!err, err);
+                            done();
+                        });
+                    }
+                );
             });
         });
 
