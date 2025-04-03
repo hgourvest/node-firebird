@@ -31,9 +31,19 @@ declare module 'node-firebird' {
 
     export type Isolation = number[];
 
+    export type TransactionOptions = {
+        autoCommit?: boolean;
+        autoUndo?: boolean;
+        isolation?: Isolation;
+        ignoreLimbo?: boolean;
+        readOnly?: boolean;
+        wait?: boolean;
+        waitTimeout?: number;
+    };
+
     export interface Database {
         detach(callback?: SimpleCallback): Database;
-        transaction(isolation: Isolation, callback: TransactionCallback): Database;
+        transaction(options: TransactionOptions|Isolation|TransactionCallback, callback?: TransactionCallback): Database;
         query(query: string, params: any[], callback: QueryCallback): Database;
         execute(query: string, params: any[], callback: QueryCallback): Database;
         sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, asArray?: boolean): Database;

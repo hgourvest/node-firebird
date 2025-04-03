@@ -114,7 +114,21 @@ pool.destroy();
 - `db.execute(query, [params], function(err, result))` - classic query, returns Array of Array
 - `db.sequentially(query, [params], function(row, index), function(err))` - sequentially query
 - `db.detach(function(err))` detach a database
-- `db.transaction(isolation, function(err, transaction))` create transaction
+- `db.transaction(options, function(err, transaction))` create transaction
+
+### Transaction options
+
+```js
+const options = {
+    autoCommit: false,
+    autoUndo: true,
+    isolation: Firebird.ISOLATION_READ_COMMITTED,
+    ignoreLimbo: false,
+    readOnly: false,
+    wait: true,
+    waitTimeout: 0,
+};
+```
 
 ### Transaction methods
 
