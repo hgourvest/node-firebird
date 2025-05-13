@@ -23,6 +23,7 @@
     ],
     "main": "./lib",
     "types": "./lib/index.d.ts",
+    "type": "commonjs",
     "license": "MPL-2.0",
     "scripts": {
         "test": "mocha"
