@@ -17,7 +17,7 @@ jobs:
         fetch-depth: 10
 
     - name: Setup FirebirdSQL container
-      uses: juarezr/firebirdsql-github-action@v1.2.0
+      uses: juarezr/firebirdsql-github-action@v2
       with:
         version: ${{ matrix.firebird-version }}
         isc_password: "masterkey"
