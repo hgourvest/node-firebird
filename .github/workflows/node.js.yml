@@ -20,8 +20,8 @@ jobs:
       uses: juarezr/firebirdsql-github-action@v2.0.1
       with:
         version: ${{ matrix.firebird-version }}
-        isc_password: "masterkey"
-        enable_legacy_client_auth: "true"        
+        firebird_root_password: "masterkey"
+        firebird_conf: "WireCrypt = Enabled\nAuthServer = Legacy_Auth, Srp, Win_Sspi"
 
     - name: Use Node.js ${{ matrix.node }}
       uses: actions/setup-node@v3
