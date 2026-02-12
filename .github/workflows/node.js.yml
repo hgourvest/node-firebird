@@ -17,11 +17,11 @@ jobs:
         fetch-depth: 10
 
     - name: Setup FirebirdSQL container
-      uses: juarezr/firebirdsql-github-action@v2.0.3
+      uses: juarezr/firebirdsql-github-action@v2.0.1
       with:
         version: ${{ matrix.firebird-version }}
-        firebird_root_password: "masterkey"
-        firebird_conf: "WireCrypt = Enabled\nAuthServer = Legacy_Auth, Srp, Win_Sspi"        
+        isc_password: "masterkey"
+        enable_legacy_client_auth: "true"        
 
     - name: Use Node.js ${{ matrix.node }}
       uses: actions/setup-node@v3
