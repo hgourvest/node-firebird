@@ -21,9 +21,9 @@ jobs:
       with:
         version: ${{ matrix.firebird-version }}
         firebird_root_password: "masterkey"
-        firebird_conf: |
-          WireCrypt = Enabled
-          AuthServer = Legacy_Auth,Srp,Win_Sspi
+      env:
+        FIREBIRD_CONF_WireCrypt: "Enabled"
+        FIREBIRD_CONF_AuthServer: "Legacy_Auth, Srp, Win_Sspi"
 
     - name: Use Node.js ${{ matrix.node }}
       uses: actions/setup-node@v3
