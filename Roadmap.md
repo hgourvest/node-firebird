@@ -16,11 +16,14 @@ The following table summarizes the current and planned implementation status of 
 
 ## Firebird 3 Support
 
-Firebird 3 introduced significant changes to the wire protocol, focusing on security and performance. To fully support Firebird 3, we need to implement the following:
+Firebird 3 introduced Protocol 13, which brought significant changes focusing on security and performance. While the base protocol is implemented, several key features are still missing. To fully support Firebird 3, we need to implement the following:
 
-- **Protocol Versions 14 and 15:** Implement the newer wire protocol versions to take advantage of performance and security enhancements.
-- **Enhanced Authentication:** Support the new authentication mechanisms and plugin architecture.
-- **Wire Protocol Encryption:** Implement support for encrypting all network traffic between the client and server.
+- **Protocol Versions 14 and 15:** Implement the newer wire protocol versions.
+- **Enhanced Authentication:** Fully support the new authentication mechanisms and plugin architecture.
+- **Wire Protocol Encryption:** Implement support for encrypting all network traffic.
+- **Wire Protocol Compression:** Add support for data compression.
+- **Database Encryption Callback:** Support the new callback mechanism for handling database encryption keys.
+- **Packed (NULL-aware) Row Data:** Implement support for the optimized row format.
 - **Performance Optimizations:**
   - Implement support for the denser data stream and improved prefetch logic.
   - Utilize the new bitmap for transmitting NULL flags to reduce network traffic.
@@ -28,12 +31,9 @@ Firebird 3 introduced significant changes to the wire protocol, focusing on secu
 
 ## Firebird 4 Support
 
-Firebird 4 continued to build upon the foundation of Firebird 3, adding more advanced features. Key features to implement include:
+Firebird 4 introduced Protocol versions 16 and 17, continuing to build upon the foundation of Firebird 3. Key features to implement include:
 
-- **Protocol Versions 16 and 17:** Implement the latest protocol versions.
-- **Wire Protocol Compression:** Add support for compressing data to improve performance on slower networks.
-- **Packed Row Data:** Implement support for the NULL-aware packed row data format.
-- **Database Encryption Callback:** Support the new callback mechanism for handling database encryption keys.
+- **Protocol Versions 16 and 17:** Implement the latest protocol versions to support Firebird 4 features.
 
 ## Firebird 5 Support
 
