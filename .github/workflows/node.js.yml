@@ -17,13 +17,46 @@ jobs:
         fetch-depth: 10
 
     - name: Setup FirebirdSQL container
-      uses: juarezr/firebirdsql-github-action@v2.0.1
-      with:
-        version: ${{ matrix.firebird-version }}
-        firebird_root_password: "masterkey"
-      env:
-        FIREBIRD_CONF_WireCrypt: "Enabled"
-        FIREBIRD_CONF_AuthServer: "Legacy_Auth, Srp, Win_Sspi"
+      run: |
+        # Create data directory
+        sudo mkdir -p /firebird/data
+        sudo chmod 755 /firebird/data
+        
+        # Start Firebird container
+        docker run -d \
+          --name firebird \
+          -e FIREBIRD_ROOT_PASSWORD="masterkey" \
+          -e FIREBIRD_CONF_WireCrypt="Enabled" \
+          -e FIREBIRD_CONF_AuthServer="Legacy_Auth, Srp, Win_Sspi" \
+          -p 3050:3050 \
+          -v /firebird/data:/firebird/data \
+          firebirdsql/firebird:3
+        
+        # Wait for Firebird to be ready
+        MAX_RETRIES=30
+        RETRY_INTERVAL=2
+        echo "Waiting for Firebird to start..."
+        FIREBIRD_READY=false
+        for i in $(seq 1 $MAX_RETRIES); do
+          if docker exec firebird /opt/firebird/bin/isql -user SYSDBA -password masterkey -z 2>&1 | grep -q "ISQL Version"; then
+            echo "Firebird is ready!"
+            FIREBIRD_READY=true
+            break
+          fi
+          echo "Waiting... ($i/$MAX_RETRIES)"
+          sleep $RETRY_INTERVAL
+        done
+        
+        if [ "$FIREBIRD_READY" = false ]; then
+          echo "ERROR: Firebird failed to start within the timeout period"
+          docker ps -a
+          docker logs firebird
+          exit 1
+        fi
+        
+        # Verify Firebird is running
+        docker ps -a
+        docker logs firebird
 
     - name: Use Node.js ${{ matrix.node }}
       uses: actions/setup-node@v3
