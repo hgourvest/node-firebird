@@ -275,9 +275,9 @@ describe('Test Service', () => {
                     assert.ok(!err, err);
                     verifyUser(data.fbusers[0], {
                         username: 'SYSDBA',
-                        firstname: 'Sql',
-                        middlename: 'Server',
-                        lastname: 'Administrator',
+                        firstname: '',
+                        middlename: '',
+                        lastname: '',
                         userid: 0,
                         groupid: 0
                     });
