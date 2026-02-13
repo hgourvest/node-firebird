@@ -18,14 +18,24 @@ describe('Connection', function () {
     });
 
     it('should reconnect when socket is closed', function (done) {
+        this.timeout(5000);
         Firebird.attach(config, function (err, db) {
             assert.ok(!err, err);
 
             db.connection._socket.destroy();
 
-            db.on('reconnect', function () {
+            var reconnectHandler = function () {
+                db.removeListener('error', errorHandler);
                 db.detach(done);
-            });
+            };
+
+            var errorHandler = function (err) {
+                db.removeListener('reconnect', reconnectHandler);
+                done(err);
+            };
+
+            db.on('reconnect', reconnectHandler);
+            db.on('error', errorHandler);
         });
     });
 
@@ -87,9 +97,11 @@ describe('Events', function () {
         });
     });
 
-    after(function () {
+    after(function (done) {
         if (db) {
-            db.detach();
+            db.detach(done);
+        } else {
+            done();
         }
     });
 
@@ -261,8 +273,12 @@ describe('Database', function() {
         });
     });
 
-    after(function() {
-        if (db) db.detach();
+    after(function(done) {
+        if (db) {
+            db.detach(done);
+        } else {
+            done();
+        }
     });
 
     describe('Select', function() {
@@ -582,8 +598,12 @@ describe('Database', function() {
             });
         });
 
-        after(function() {
-            if (db) db.detach();
+        after(function(done) {
+            if (db) {
+                db.detach(done);
+            } else {
+                done();
+            }
         });
 
         it('should create table2', function(done) {
@@ -792,8 +812,12 @@ describe('GDSCode in errors', function () {
         });
     });
 
-    after(function () {
-        if (db) db.detach();
+    after(function (done) {
+        if (db) {
+            db.detach(done);
+        } else {
+            done();
+        }
     });
 
     it('should return gdscode', function (done) {
