@@ -162,7 +162,7 @@ describe('Test Service', () => {
         it('should bring online', done => {
             testProperty(
               'BringOnline', [DATABASE.database],
-              (data) => !data.indexOf('maintenance') > -1, done
+              (data) => data.indexOf('maintenance') === -1, done
             )
         });
 
@@ -183,7 +183,7 @@ describe('Test Service', () => {
                   RegExp.prototype.test.bind(possibility.test), () => {
                       testProperty(
                         'BringOnline', [DATABASE.database],
-                        (data) => !data.indexOf('maintenance') > -1, done
+                        (data) => data.indexOf('maintenance') === -1, done
                       );
                   }
                 );
@@ -216,7 +216,7 @@ describe('Test Service', () => {
         it('should enable reverse space', done => {
             testProperty(
               'setReservespace', [DATABASE.database, true],
-              data => !data.indexOf('no reverse') > -1, done
+              data => data.indexOf('no reserve') === -1, done
             );
         });
 
@@ -246,11 +246,14 @@ describe('Test Service', () => {
             Firebird.attach(config, (err, srv) => {
                 assert.ok(!err, err);
 
+                // Get the database path from args (it's the first argument for most property functions)
+                const dbPath = args[0];
+
                 // Push callback into args
                 args.push((err, data) => {
                     assert.ok(!err, err);
 
-                    srv.getStats({}, (err, data) => {
+                    srv.getStats({database: dbPath}, (err, data) => {
                         assert.ok(!err, err);
 
                         readStream(data, result => {
