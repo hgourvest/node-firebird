@@ -20,7 +20,7 @@ jobs:
       run: |
         # Create data directory
         sudo mkdir -p /firebird/data
-        sudo chmod 777 /firebird/data
+        sudo chmod 755 /firebird/data
         
         # Start Firebird container
         docker run -d \
@@ -33,15 +33,26 @@ jobs:
           firebirdsql/firebird:3
         
         # Wait for Firebird to be ready
+        MAX_RETRIES=30
+        RETRY_INTERVAL=2
         echo "Waiting for Firebird to start..."
-        for i in {1..30}; do
+        FIREBIRD_READY=false
+        for i in $(seq 1 $MAX_RETRIES); do
           if docker exec firebird /opt/firebird/bin/isql -user SYSDBA -password masterkey -z 2>&1 | grep -q "ISQL Version"; then
             echo "Firebird is ready!"
+            FIREBIRD_READY=true
             break
           fi
-          echo "Waiting... ($i/30)"
-          sleep 2
+          echo "Waiting... ($i/$MAX_RETRIES)"
+          sleep $RETRY_INTERVAL
         done
+        
+        if [ "$FIREBIRD_READY" = false ]; then
+          echo "ERROR: Firebird failed to start within the timeout period"
+          docker ps -a
+          docker logs firebird
+          exit 1
+        fi
         
         # Verify Firebird is running
         docker ps -a
