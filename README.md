@@ -68,7 +68,7 @@ options.pageSize = 4096; // default when creating database
 options.retryConnectionInterval = 1000; // reconnect interval in case of connection drop
 options.blobAsText = false; // set to true to get blob as text, only affects blob subtype 1
 options.encoding = 'UTF8'; // default encoding for connection is UTF-8
-options.wireCompression = false; // set to true for enable firebird compression on the wire (Work only on FB >= 3 and compression is enable on server (WireCompression = true in firebird.conf))
+options.wireCompression = false; // set to true to enable firebird compression on the wire (works only on FB >= 3 and compression is enabled on server (WireCompression = true in firebird.conf))
 options.wireCrypt = Firebird.WIRE_CRYPT_ENABLE; // default; set to Firebird.WIRE_CRYPT_DISABLE to disable wire encryption (FB >= 3)
 options.pluginName = undefined; // optional, auto-negotiated; can be set to Firebird.AUTH_PLUGIN_SRP256, Firebird.AUTH_PLUGIN_SRP, or Firebird.AUTH_PLUGIN_LEGACY
 ```
