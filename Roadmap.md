@@ -9,24 +9,25 @@ The following table summarizes the current and planned implementation status of 
 | Firebird Version | Protocol Versions | Status |
 | :--- | :--- | :--- |
 | 2.5 | 10, 11, 12, 13 | ✅ Implemented |
-| 3.0 | 14, 15 | ❌ Not Implemented |
+| 3.0 | 14, 15 | ✅ Implemented |
 | 4.0 | 16, 17 | ❌ Not Implemented |
 | 5.0 | N/A | ❌ Not Implemented |
 | 6.0 | N/A | ❌ Not Implemented |
 
 ## Firebird 3 Support
 
-Firebird 3 introduced Protocol 13, which brought significant changes focusing on security and performance. While the base protocol is implemented, several key features are still missing. To fully support Firebird 3, we need to implement the following:
+Firebird 3 introduced Protocol 13, which brought significant changes focusing on security and performance. The following features have been implemented:
 
-- **Protocol Versions 14 and 15:** Implement the newer wire protocol versions.
-- **Enhanced Authentication:** Fully support the new authentication mechanisms and plugin architecture.
-- **Wire Protocol Encryption:** Implement support for encrypting all network traffic.
-- **Wire Protocol Compression:** Add support for data compression.
+- **Protocol Versions 14 and 15:** ✅ Implemented - newer wire protocol versions are now supported.
+- **Enhanced Authentication:** ✅ Implemented - Srp256 (SHA-256) authentication plugin is now supported alongside Srp (SHA-1) and Legacy_Auth.
+- **Wire Protocol Encryption:** ✅ Implemented - Arc4 (RC4) stream cipher encryption for all network traffic using SRP session keys.
+- **Wire Protocol Compression:** ✅ Implemented - zlib compression support for protocol version 13+.
+- **Packed (NULL-aware) Row Data:** ✅ Implemented - null bitmap support for protocol version 13+.
+- **op_cond_accept Handling:** ✅ Implemented - proper handling of conditional accept with authentication continuation.
+
+The following features are planned for future implementation:
+
 - **Database Encryption Callback:** Support the new callback mechanism for handling database encryption keys.
-- **Packed (NULL-aware) Row Data:** Implement support for the optimized row format.
-- **Performance Optimizations:**
-  - Implement support for the denser data stream and improved prefetch logic.
-  - Utilize the new bitmap for transmitting NULL flags to reduce network traffic.
 - **UTF-8 User Identification:** Ensure all user identification is properly handled with UTF-8 encoding.
 
 ## Firebird 4 Support

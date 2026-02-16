@@ -110,6 +110,9 @@ declare module 'node-firebird' {
         retryConnectionInterval?: number;
         encoding?: SupportedCharacterSet;
         blobAsText?: boolean; // only affects for blob subtype 1
+        wireCrypt?: number; // WIRE_CRYPT_DISABLE or WIRE_CRYPT_ENABLE
+        wireCompression?: boolean;
+        pluginName?: string;
     }
 
     export interface SvcMgrOptions extends Options {
