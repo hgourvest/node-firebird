@@ -109,9 +109,9 @@ describe('Test Service', () => {
         });
     });
 
-    describe('Server properties', () => {
+    describe('Server properties', { timeout: 15000 }, () => {
         // Add delay for skip error : Service is currently busy // TODO better srv.detach ?
-        beforeEach(() => new Promise(resolve => setTimeout(resolve, 100)));
+        beforeEach(() => new Promise(resolve => setTimeout(resolve, 1000)));
 
         async function testProperty(func, args, verifier) {
             const srv = await fromCallback(cb => Firebird.attach(config, cb));
