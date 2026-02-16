@@ -17,29 +17,28 @@ const TEST_SALT_2 = 'd91323a5298f3b9f814db29efaa271f24fbdccedfdd062491b8abc8e07b
 const TEST_CLIENT_2 = BigInt('f435f2420b50c70ec80865cf8e20b169874165fb8576b48633caf2a8176d2e4a', 16);
 
 describe('Test Srp client', function () {
-    it('should generate client keys', function(done) {
+    it('should generate client keys', function() {
         var keys = Srp.clientSeed(DEBUG_PRIVATE_KEY);
 
         assert.ok(keys.public.equals(EXPECT_CLIENT_KEY));
-        done();
     });
 
-    it('should generate server keys with debug input value', function(done) {
-        testSrp(done, 'sha1', DEBUG_SALT, DEBUG_PRIVATE_KEY);
+    it('should generate server keys with debug input value', function() {
+        testSrp('sha1', DEBUG_SALT, DEBUG_PRIVATE_KEY);
     });
 
-    it('should generate sha1 server keys with fixed test vector 1', function(done) {
-        testSrp(done, 'sha1', TEST_SALT_1, TEST_CLIENT_1);
+    it('should generate sha1 server keys with fixed test vector 1', function() {
+        testSrp('sha1', TEST_SALT_1, TEST_CLIENT_1);
     });
 
-    it('should generate sha256 server keys with fixed test vector 2', function(done) {
-        testSrp(done, 'sha256', TEST_SALT_2, TEST_CLIENT_2);
+    it('should generate sha256 server keys with fixed test vector 2', function() {
+        testSrp('sha256', TEST_SALT_2, TEST_CLIENT_2);
     });
 
     /**
      * Test function
      */
-    function testSrp(done, algo, salt, client, server) {
+    function testSrp(algo, salt, client, server) {
         var clientKeys = client ? Srp.clientSeed(client) : Srp.clientSeed();
         var serverKeys = Srp.serverSeed(USER, PASSWORD, salt);
 
@@ -55,6 +54,5 @@ describe('Test Srp client', function () {
         );
 
         assert.ok(proof.clientSessionKey.equals(serverSessionKey), 'Session key mismatch');
-        done();
     }
 });

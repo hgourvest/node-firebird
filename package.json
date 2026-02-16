@@ -25,7 +25,7 @@
     "types": "./lib/index.d.ts",
     "license": "MPL-2.0",
     "scripts": {
-        "test": "mocha"
+        "test": "vitest run"
     },
     "dependencies": {
         "big-integer": "^1.6.51",
@@ -33,7 +33,7 @@
     },
     "devDependencies": {
         "coveralls-next": "^4.2.0",
-        "mocha": "^10.2.0",
-        "nyc": "^15.0.1"
+        "nyc": "^15.0.1",
+        "vitest": "^4.0.18"
     }
 }

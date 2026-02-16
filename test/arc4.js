@@ -2,7 +2,7 @@ var assert = require('assert');
 var { Arc4 } = require('../lib/wire/socket');
 
 describe('Test Arc4 cipher', function () {
-    it('should encrypt and decrypt symmetrically', function (done) {
+    it('should encrypt and decrypt symmetrically', function () {
         var key = Buffer.from('TestKey123');
         var plaintext = Buffer.from('Hello, World! This is a test message.');
 
@@ -14,10 +14,9 @@ describe('Test Arc4 cipher', function () {
 
         assert.ok(!plaintext.equals(encrypted), 'Encrypted data should differ from plaintext');
         assert.ok(plaintext.equals(decrypted), 'Decrypted data should match plaintext');
-        done();
     });
 
-    it('should produce correct keystream for known test vector', function (done) {
+    it('should produce correct keystream for known test vector', function () {
         // RFC 6229 test vector: Key = 0x0102030405
         var key = Buffer.from([0x01, 0x02, 0x03, 0x04, 0x05]);
         var cipher = new Arc4(key);
@@ -29,10 +28,9 @@ describe('Test Arc4 cipher', function () {
             'b2396305f03dc027ccc3524a0a1118a8',
             'RC4 keystream should match RFC 6229 expected output'
         );
-        done();
     });
 
-    it('should maintain state across multiple transforms', function (done) {
+    it('should maintain state across multiple transforms', function () {
         var key = Buffer.from('StateTest');
 
         // Encrypt in two chunks
@@ -47,19 +45,17 @@ describe('Test Arc4 cipher', function () {
         // Concatenated parts should equal full encryption
         var combined = Buffer.concat([part1, part2]);
         assert.ok(combined.equals(full), 'Chunked encryption should match full encryption');
-        done();
     });
 
-    it('should handle empty buffer', function (done) {
+    it('should handle empty buffer', function () {
         var key = Buffer.from('EmptyTest');
         var cipher = new Arc4(key);
         var result = cipher.transform(Buffer.alloc(0));
 
         assert.strictEqual(result.length, 0, 'Empty input should produce empty output');
-        done();
     });
 
-    it('should work with SRP-like session key', function (done) {
+    it('should work with SRP-like session key', function () {
         // Simulate a session key similar to what SRP would produce
         var sessionKey = Buffer.from('a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', 'hex');
         var data = Buffer.from('SELECT * FROM RDB$DATABASE');
@@ -71,6 +67,5 @@ describe('Test Arc4 cipher', function () {
         var decrypted = decCipher.transform(encrypted);
 
         assert.ok(data.equals(decrypted), 'Should work with hex session key');
-        done();
     });
 });
