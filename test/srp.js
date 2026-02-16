@@ -13,8 +13,8 @@ const EXPECT_CLIENT_KEY = BigInt('712c5f8a2db82464c4d640ae971025aa50ab64906d4f04
 // Fixed test vectors for deterministic tests (instead of random keys which are flaky)
 const TEST_SALT_1 = 'a8ae6e6ee929abea3afcfc5258c8ccd6f85273e0d4626d26c7279f3250f77c8e';
 const TEST_CLIENT_1 = BigInt('3138bb9bc78df27c473ecfd1410f7bd45ebac1f59cf3ff9cfe4db77aab7aedd3', 16);
-const TEST_SALT_2 = 'a8ae6e6ee929abea3afcfc5258c8ccd6f85273e0d4626d26c7279f3250f77c8e';
-const TEST_CLIENT_2 = BigInt('4f2e8d65483c641648cdb374ae9d8abd368d269e4ddffe092a8237b8162cddd6', 16);
+const TEST_SALT_2 = 'd91323a5298f3b9f814db29efaa271f24fbdccedfdd062491b8abc8e07b7fb69';
+const TEST_CLIENT_2 = BigInt('f435f2420b50c70ec80865cf8e20b169874165fb8576b48633caf2a8176d2e4a', 16);
 
 describe('Test Srp client', function () {
     it('should generate client keys', function(done) {
