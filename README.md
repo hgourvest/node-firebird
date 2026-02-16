@@ -68,7 +68,9 @@ options.pageSize = 4096; // default when creating database
 options.retryConnectionInterval = 1000; // reconnect interval in case of connection drop
 options.blobAsText = false; // set to true to get blob as text, only affects blob subtype 1
 options.encoding = 'UTF8'; // default encoding for connection is UTF-8
-options.wireCompression = false; // set to true for enable firebird compression on the wire (Work only on FB >= 3 and compression is enable on server (WireCompression = true in firebird.conf))  
+options.wireCompression = false; // set to true for enable firebird compression on the wire (Work only on FB >= 3 and compression is enable on server (WireCompression = true in firebird.conf))
+options.wireCrypt = Firebird.WIRE_CRYPT_ENABLE; // default; set to Firebird.WIRE_CRYPT_DISABLE to disable wire encryption (FB >= 3)
+options.pluginName = undefined; // optional, auto-negotiated; can be set to Firebird.AUTH_PLUGIN_SRP256, Firebird.AUTH_PLUGIN_SRP, or Firebird.AUTH_PLUGIN_LEGACY
 ```
 
 ### Classic
@@ -588,43 +590,48 @@ const default_encoding = 'latin1';
 
 This is why you should use **Firebird 2.5** server at least.
 
-### Firebird 3.0 Support
+### Firebird 3.0+ Support
 
-Firebird new wire protocol is not supported yet so
-for Firebird 3.0 you need to add the following in firebird.conf according to Firebird 3 release notes
-<https://firebirdsql.org/file/documentation/release_notes/html/en/3_0/rnfb30-security-new-authentication.html>
+Firebird 3.0 wire protocol versions 14 and 15 are now supported, including:
 
-```bash
-AuthServer = Srp, Legacy_Auth
-WireCrypt = Enabled
-UserManager = Legacy_UserManager
+- **Srp256 authentication** (SHA-256) — preferred by default, alongside Srp (SHA-1) and Legacy_Auth
+- **Wire encryption** (Arc4/RC4) — enabled by default via `wireCrypt`
+- **Wire compression** — supported for protocol version 13+ (set `wireCompression: true`)
+
+No server-side configuration changes are required for Firebird 3.0 with default settings.
+
+```js
+Firebird.attach({
+  host: '127.0.0.1',
+  port: 3050,
+  database: '/path/to/db.fdb',
+  user: 'SYSDBA',
+  password: 'masterkey',
+  wireCrypt: Firebird.WIRE_CRYPT_ENABLE,  // default, can set WIRE_CRYPT_DISABLE
+  pluginName: Firebird.AUTH_PLUGIN_SRP256, // optional, auto-negotiated
+}, function(err, db) {
+  if (err) throw err;
+  // ...
+  db.detach();
+});
 ```
 
-Firebird 4 wire protocol is not supported yet so
-for Firebird 4.0 you need to add the following in firebird.conf according to Firebird release notes
-<https://firebirdsql.org/file/documentation/release_notes/html/en/4_0/rlsnotes40.html#rnfb40-config-srp256>
+### Firebird 4.0 and 5.0
+
+Firebird 4 wire protocol (versions 16 and 17) is not supported yet.
+However, Srp256 authentication and wire encryption are now supported natively,
+so you only need the following minimal configuration in `firebird.conf`:
 
 ```bash
-AuthServer = Srp256, Srp, Legacy_Auth
+AuthServer = Srp256, Srp
 WireCrypt = Enabled
-UserManager = Legacy_UserManager
 ```
 
-Please read also Authorization with Firebird 2.5 client library from Firebird 4 migration guide
-<https://ib-aid.com/download/docs/fb4migrationguide.html#_authorization_with_firebird_2_5_client_library_fbclient_dll>
-
-Firebird 5 wire protocol is not supported yet so
-for Firebird 5.0 you need to add the following in firebird.conf according to Firebird release notes
-<https://firebirdsql.org/file/documentation/release_notes/html/en/4_0/rlsnotes40.html#rnfb40-config-srp256>
-
-```bash
-AuthServer = Srp256, Srp, Legacy_Auth
-WireCrypt = Enabled
-UserManager = Legacy_UserManager
-```
-
-Please read also Authorization with Firebird 2.5 client library from Firebird 5 migration guide
-<https://ib-aid.com/download/docs/fb5migrationguide.html#_authorization_from_firebird_2_5_client_libraries>
+For more details see:
+- [Firebird 3 release notes — new authentication](https://firebirdsql.org/file/documentation/release_notes/html/en/3_0/rnfb30-security-new-authentication.html)
+- [Firebird 4 release notes — Srp256](https://firebirdsql.org/file/documentation/release_notes/html/en/4_0/rlsnotes40.html#rnfb40-config-srp256)
+- [Firebird 4 migration guide — authorization](https://ib-aid.com/download/docs/fb4migrationguide.html#_authorization_with_firebird_2_5_client_library_fbclient_dll)
+- [Firebird 5 migration guide — authorization](https://ib-aid.com/download/docs/fb5migrationguide.html#_authorization_from_firebird_2_5_client_libraries)
 
 
 ## Contributors
