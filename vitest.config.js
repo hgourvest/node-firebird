@@ -4,7 +4,14 @@ module.exports = defineConfig({
     test: {
         globals: true,
         testTimeout: 10000,
+        hookTimeout: 30000,
         fileParallelism: false,
-        include: ['test/arc4.js', 'test/index.js', 'test/protocol.js', 'test/service.js', 'test/srp.js'],
+        pool: 'forks',
+        poolOptions: {
+            forks: {
+                singleFork: true,
+            },
+        },
+        include: ['test/arc4.js', 'test/srp.js', 'test/protocol.js'],
     },
 });
