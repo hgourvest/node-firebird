@@ -85,12 +85,14 @@ describe('Events', function () {
     });
 
     it("should create a connection", async function () {
-        await fromCallback(cb => db.attachEvent(cb));
+        const evtmgr = await fromCallback(cb => db.attachEvent(cb));
+        await fromCallback(cb => evtmgr.close(cb));
     });
 
     it("should register an event", async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
         await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
+        await fromCallback(cb => evtmgr.close(cb));
     });
 
     it.skip("should receive an event", async function () {
@@ -116,6 +118,7 @@ describe('Events', function () {
         await fromCallback(cb => db.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [uniqueId, 'xpto'], cb));
 
         await eventPromise;
+        await fromCallback(cb => evtmgr.close(cb));
     });
 });
 
