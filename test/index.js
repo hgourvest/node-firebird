@@ -614,7 +614,7 @@ describe('GDSCode in errors', function () {
     var db;
 
     beforeAll(async function () {
-        var lconfig = Object.assign(config);
+        var lconfig = Object.assign({}, config);
         lconfig.database = path.join(path.dirname(config.database), 'test.fdb');
         db = await fromCallback(cb => Firebird.attachOrCreate(lconfig, cb));
         // Create table and insert record id=1
