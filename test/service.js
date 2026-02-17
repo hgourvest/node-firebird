@@ -217,15 +217,25 @@ describe('Test Service', () => {
         });
 
         it('should set read only', async () => {
+            // Use a separate database for readonly test to avoid conflicts
+            const readonlyDb = DATABASE.database.replace(/\.fdb$/, '-readonly.fdb');
+            const db = await fromCallback(cb => Firebird.attachOrCreate(Config.extends(DATABASE, {database: readonlyDb}), cb));
+            await fromCallback(cb => db.detach(cb));
+            
             await testProperty(
-              'setReadonlyMode', [DATABASE.database],
+              'setReadonlyMode', [readonlyDb],
               RegExp.prototype.test.bind(/Attributes\s*.*?read only/)
             );
         });
 
         it('should set read write', async () => {
+            // Use a separate database for readwrite test to avoid conflicts
+            const readwriteDb = DATABASE.database.replace(/\.fdb$/, '-readwrite.fdb');
+            const db = await fromCallback(cb => Firebird.attachOrCreate(Config.extends(DATABASE, {database: readwriteDb}), cb));
+            await fromCallback(cb => db.detach(cb));
+            
             await testProperty(
-              'setReadwriteMode', [DATABASE.database],
+              'setReadwriteMode', [readwriteDb],
               RegExp.prototype.test.bind(/^\s*Attributes((?!read only).)*$/m)
             );
         });
