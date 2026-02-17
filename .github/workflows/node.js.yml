@@ -9,13 +9,14 @@ jobs:
     strategy:
       matrix:        
         node: [20, 22]
+        firebird: [3, 4, 5, 6]
 
     steps:
     - uses: actions/checkout@v6
       with:
         fetch-depth: 10
 
-    - name: Setup FirebirdSQL container
+    - name: Setup FirebirdSQL ${{ matrix.firebird }} container
       run: |
         # Create data directory
         sudo mkdir -p /firebird/data
@@ -29,7 +30,7 @@ jobs:
           -e FIREBIRD_CONF_AuthServer="Legacy_Auth;Srp;Win_Sspi" \
           -p 3050:3050 \
           -v /firebird/data:/firebird/data \
-          firebirdsql/firebird:3
+          firebirdsql/firebird:${{ matrix.firebird }}
         
         # Wait for Firebird to be ready
         MAX_RETRIES=30
