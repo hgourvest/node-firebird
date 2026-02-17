@@ -7,6 +7,7 @@ module.exports = defineConfig({
         hookTimeout: 30000,
         fileParallelism: false,
         maxWorkers: 1,
-        include: ['test/arc4.js', 'test/index.js', 'test/protocol.js', 'test/service.js', 'test/srp.js'],
+        isolate: false,
+        include: ['test/arc4.js', 'test/protocol.js', 'test/srp.js', 'test/service.js', 'test/index.js'],
     },
 });
