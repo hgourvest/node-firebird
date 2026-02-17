@@ -97,9 +97,20 @@ describe('Events', function () {
     });
 
     it("should register an event", async function () {
-        const evtmgr = await fromCallback(cb => db.attachEvent(cb));
+        console.log('[Test] Starting "should register an event" test');
+        const evtmgr = await fromCallback(cb => {
+            console.log('[Test] Calling db.attachEvent');
+            return db.attachEvent(cb);
+        });
+        console.log('[Test] Event manager attached, evtmgr:', !!evtmgr, 'eventid:', evtmgr.eventid);
+        
+        console.log('[Test] Calling registerEvent with TRG_TEST_EVENTS');
         await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
+        console.log('[Test] registerEvent completed successfully');
+        
+        console.log('[Test] Calling evtmgr.close');
         await fromCallback(cb => evtmgr.close(cb));
+        console.log('[Test] Test completed successfully');
     });
 
     it.skip("should receive an event", async function () {
