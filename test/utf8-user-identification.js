@@ -38,10 +38,9 @@ describe('UTF-8 User Identification (PR #377)', function () {
             
             // If Firebird 3+ is being used, verify protocol version
             if (db.connection.accept && db.connection.accept.protocolVersion >= Const.PROTOCOL_VERSION13) {
-                assert.ok(db.connection.accept.protocolVersion >= Const.PROTOCOL_VERSION13,
-                    'Protocol version should be 13 or higher for Firebird 3+');
                 // The isc_dpb_utf8_filename flag should have been set during attachment
                 // This ensures proper UTF-8 handling for usernames and other DPB strings
+                assert.ok(true, 'Connection established with Firebird 3+ UTF-8 support');
             }
             
             await fromCallback(cb => db.detach(cb));
@@ -60,10 +59,9 @@ describe('UTF-8 User Identification (PR #377)', function () {
             
             // If Firebird 3+ is being used, verify protocol version
             if (db.connection.accept && db.connection.accept.protocolVersion >= Const.PROTOCOL_VERSION13) {
-                assert.ok(db.connection.accept.protocolVersion >= Const.PROTOCOL_VERSION13,
-                    'Protocol version should be 13 or higher for Firebird 3+');
                 // The isc_dpb_utf8_filename flag should have been set during database creation
                 // This ensures proper UTF-8 handling for usernames and other DPB strings
+                assert.ok(true, 'Database created with Firebird 3+ UTF-8 support');
             }
             
             await fromCallback(cb => db.detach(cb));
@@ -153,8 +151,8 @@ describe('UTF-8 User Identification (PR #377)', function () {
             const originalTitle = process.title;
             
             try {
-                // Set a process title with UTF-8 characters
-                process.title = 'node-firebird-test-UTF8';
+                // Set a process title with UTF-8 characters (including non-ASCII)
+                process.title = 'node-firebird-test-测试-тест';
                 
                 const db = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
                 
