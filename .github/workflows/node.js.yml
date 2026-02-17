@@ -9,7 +9,6 @@ jobs:
     strategy:
       matrix:        
         node: [20, 22]
-        firebird-version: ['v3']
 
     steps:
     - uses: actions/checkout@v6
@@ -27,7 +26,7 @@ jobs:
           --name firebird \
           -e FIREBIRD_ROOT_PASSWORD="masterkey" \
           -e FIREBIRD_CONF_WireCrypt="Enabled" \
-          -e FIREBIRD_CONF_AuthServer="Legacy_Auth, Srp, Win_Sspi" \
+          -e FIREBIRD_CONF_AuthServer="Legacy_Auth;Srp;Win_Sspi" \
           -p 3050:3050 \
           -v /firebird/data:/firebird/data \
           firebirdsql/firebird:3
