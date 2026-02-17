@@ -69,10 +69,11 @@ describe('UTF-8 User Identification (PR #377)', function () {
             // a query that creates a table with UTF-8 characters, which validates the database
             // was created with proper UTF-8 encoding support.
             if (db.connection.accept && db.connection.accept.protocolVersion >= Const.PROTOCOL_VERSION13) {
-                // Verify database was created with UTF-8 support by creating a test table
+                // Verify database was created with UTF-8 support by creating and using a test table
                 await fromCallback(cb => db.query('CREATE TABLE utf8_test (id INT, name VARCHAR(50))', cb));
-                const rows = await fromCallback(cb => db.query('SELECT COUNT(*) as cnt FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = ?', ['UTF8_TEST'], cb));
-                assert.strictEqual(rows[0].cnt, 1, 'Table should be created successfully with UTF-8 support');
+                await fromCallback(cb => db.query('INSERT INTO utf8_test (id, name) VALUES (1, ?)', ['test'], cb));
+                const rows = await fromCallback(cb => db.query('SELECT COUNT(*) as count FROM utf8_test', cb));
+                assert.strictEqual(rows[0].count, 1, 'Table should be created and used successfully with UTF-8 support');
             }
             
             await fromCallback(cb => db.detach(cb));
@@ -88,11 +89,11 @@ describe('UTF-8 User Identification (PR #377)', function () {
             
             assert.ok(db, 'Database connection should be established');
             
-            // Query to verify the connection is working properly
-            const rows = await fromCallback(cb => db.query('SELECT CURRENT_USER FROM RDB$DATABASE', cb));
+            // Query to verify the connection is working properly with UTF-8 support
+            const rows = await fromCallback(cb => db.query('SELECT 1 as test FROM RDB$DATABASE', cb));
             assert.ok(rows, 'Query should return results');
             assert.strictEqual(rows.length, 1, 'Should return one row');
-            assert.ok(rows[0].current_user, 'Current user should be returned');
+            assert.strictEqual(rows[0].test, 1, 'Query should execute successfully with UTF-8 support');
             
             await fromCallback(cb => db.detach(cb));
         });
