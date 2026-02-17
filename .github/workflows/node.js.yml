@@ -19,7 +19,7 @@ jobs:
       run: |
         # Create data directory
         sudo mkdir -p /firebird/data
-        sudo chmod 777 /firebird/data
+        sudo chmod 755 /firebird/data
         
         # Start Firebird container
         docker run -d \
