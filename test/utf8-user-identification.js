@@ -72,8 +72,8 @@ describe('UTF-8 User Identification (PR #377)', function () {
                 // Verify database was created with UTF-8 support by creating and using a test table
                 await fromCallback(cb => db.query('CREATE TABLE utf8_test (id INT, name VARCHAR(50))', cb));
                 await fromCallback(cb => db.query('INSERT INTO utf8_test (id, name) VALUES (1, ?)', ['test'], cb));
-                const rows = await fromCallback(cb => db.query('SELECT COUNT(*) as count FROM utf8_test', cb));
-                assert.strictEqual(rows[0].count, 1, 'Table should be created and used successfully with UTF-8 support');
+                const rows = await fromCallback(cb => db.query('SELECT COUNT(*) as cnt FROM utf8_test', cb));
+                assert.strictEqual(rows[0].cnt, 1, 'Table should be created and used successfully with UTF-8 support');
             }
             
             await fromCallback(cb => db.detach(cb));
