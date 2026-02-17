@@ -25,10 +25,9 @@ Firebird 3 introduced Protocol 13, which brought significant changes focusing on
 - **Packed (NULL-aware) Row Data:** ✅ Implemented - null bitmap support for protocol version 13+.
 - **op_cond_accept Handling:** ✅ Implemented - proper handling of conditional accept with authentication continuation.
 - **UTF-8 User Identification:** ✅ Implemented - all user identification is properly handled with UTF-8 encoding via `isc_dpb_utf8_filename` flag for Firebird 3+.
+- **Database Encryption Callback:** ✅ Implemented - support for database encryption key callback (`op_crypt_key_callback`) during the connect phase, allowing connections to encrypted databases. The `dbCryptConfig` connection option supports both plain text and base64-encoded encryption keys.
 
 The following features are planned for future implementation:
-
-- **Database Encryption Callback:** Support the new callback mechanism for handling database encryption keys.
 
 ## Firebird 4 Support
 
