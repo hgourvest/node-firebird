@@ -71,6 +71,7 @@ options.encoding = 'UTF8'; // default encoding for connection is UTF-8
 options.wireCompression = false; // set to true to enable firebird compression on the wire (works only on FB >= 3 and compression is enabled on server (WireCompression = true in firebird.conf))
 options.wireCrypt = Firebird.WIRE_CRYPT_ENABLE; // default; set to Firebird.WIRE_CRYPT_DISABLE to disable wire encryption (FB >= 3)
 options.pluginName = undefined; // optional, auto-negotiated; can be set to Firebird.AUTH_PLUGIN_SRP256, Firebird.AUTH_PLUGIN_SRP, or Firebird.AUTH_PLUGIN_LEGACY
+options.dbCryptConfig = undefined; // optional; database encryption key for encrypted databases. Use 'base64:<value>' for base64-encoded keys or plain text
 ```
 
 ### Classic
@@ -597,6 +598,7 @@ Firebird 3.0 wire protocol versions 14 and 15 are now supported, including:
 - **Srp256 authentication** (SHA-256) — preferred by default, alongside Srp (SHA-1) and Legacy_Auth
 - **Wire encryption** (Arc4/RC4) — enabled by default via `wireCrypt`
 - **Wire compression** — supported for protocol version 13+ (set `wireCompression: true`)
+- **Database encryption callback** — support for encrypted databases via `dbCryptConfig` option
 
 No server-side configuration changes are required for Firebird 3.0 with default settings.
 
@@ -615,6 +617,31 @@ Firebird.attach({
   db.detach();
 });
 ```
+
+#### Database Encryption Support
+
+For encrypted databases, provide the encryption key via the `dbCryptConfig` option:
+
+```js
+Firebird.attach({
+  host: '127.0.0.1',
+  database: '/path/to/encrypted.fdb',
+  user: 'SYSDBA',
+  password: 'masterkey',
+  dbCryptConfig: 'base64:bXlTZWNyZXRLZXkxMjM0NTY=',  // base64-encoded key
+  // or dbCryptConfig: 'myPlainTextKey'  // plain text key (UTF-8 encoded)
+}, function(err, db) {
+  if (err) throw err;
+  // ...
+  db.detach();
+});
+```
+
+**Notes:**
+- The `dbCryptConfig` value can be prefixed with `base64:` for base64-encoded keys
+- Plain text values are encoded as UTF-8
+- Empty or undefined values send an empty response to the callback
+- This feature requires Firebird 3.0.1+ (protocol 14/15) for encrypted databases
 
 ### Firebird 4.0 and 5.0
 

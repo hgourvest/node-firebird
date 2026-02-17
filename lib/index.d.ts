@@ -113,6 +113,7 @@ declare module 'node-firebird' {
         wireCrypt?: number; // WIRE_CRYPT_DISABLE or WIRE_CRYPT_ENABLE
         wireCompression?: boolean;
         pluginName?: string;
+        dbCryptConfig?: string; // Database encryption key callback config (base64: prefix for base64, or plain string)
     }
 
     export interface SvcMgrOptions extends Options {

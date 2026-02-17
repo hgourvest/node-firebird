@@ -43,4 +43,8 @@ describe('Test Firebird 3.0 protocol support', function () {
     it('should define op_crypt opcode', function () {
         assert.strictEqual(Const.op_crypt, 96);
     });
+
+    it('should define op_crypt_key_callback opcode', function () {
+        assert.strictEqual(Const.op_crypt_key_callback, 97);
+    });
 });
