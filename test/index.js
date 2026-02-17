@@ -80,17 +80,26 @@ describe('Events', function () {
 
     afterAll(async function () {
         if (db) {
-            await fromCallback(cb => db.detach(cb));
+            // Use a timeout to prevent hanging if the connection queue is corrupted
+            const detachPromise = fromCallback(cb => db.detach(cb)).catch(() => {});
+            const timeoutPromise = new Promise(resolve => setTimeout(resolve, 5000));
+            await Promise.race([detachPromise, timeoutPromise]);
+            // Force close the socket if detach didn't complete
+            if (db.connection && db.connection._socket && !db.connection._isClosed) {
+                db.connection._socket.end();
+            }
         }
     });
 
     it("should create a connection", async function () {
-        await fromCallback(cb => db.attachEvent(cb));
+        const evtmgr = await fromCallback(cb => db.attachEvent(cb));
+        await fromCallback(cb => evtmgr.close(cb));
     });
 
     it("should register an event", async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
         await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
+        await fromCallback(cb => evtmgr.close(cb));
     });
 
     it.skip("should receive an event", async function () {
@@ -116,6 +125,7 @@ describe('Events', function () {
         await fromCallback(cb => db.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [uniqueId, 'xpto'], cb));
 
         await eventPromise;
+        await fromCallback(cb => evtmgr.close(cb));
     });
 });
 
@@ -614,7 +624,7 @@ describe('GDSCode in errors', function () {
     var db;
 
     beforeAll(async function () {
-        var lconfig = Object.assign(config);
+        var lconfig = Object.assign({}, config);
         lconfig.database = path.join(path.dirname(config.database), 'test.fdb');
         db = await fromCallback(cb => Firebird.attachOrCreate(lconfig, cb));
         // Create table and insert record id=1

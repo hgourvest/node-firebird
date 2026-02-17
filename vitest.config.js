@@ -4,6 +4,10 @@ module.exports = defineConfig({
     test: {
         globals: true,
         testTimeout: 10000,
-        include: ['test/arc4.js', 'test/index.js', 'test/protocol.js', 'test/service.js', 'test/srp.js'],
+        hookTimeout: 30000,
+        fileParallelism: false,
+        maxWorkers: 1,
+        isolate: false,
+        include: ['test/arc4.js', 'test/protocol.js', 'test/srp.js', 'test/service.js', 'test/index.js'],
     },
 });

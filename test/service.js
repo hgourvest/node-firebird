@@ -116,7 +116,10 @@ describe('Test Service', () => {
         async function testProperty(func, args, verifier) {
             const srv = await fromCallback(cb => Firebird.attach(config, cb));
             const dbPath = args[0];
-            await fromCallback(cb => { args.push(cb); srv[func].apply(srv, args); });
+            const svcStream = await fromCallback(cb => { args.push(cb); srv[func].apply(srv, args); });
+            // Drain the service output stream to ensure the operation completes
+            // and releases any internal locks on the database
+            await readStreamAsync(svcStream);
             const data = await fromCallback(cb => srv.getStats({database: dbPath}, cb));
             const result = await readStreamAsync(data);
             assert.ok(verifier(result), result);
