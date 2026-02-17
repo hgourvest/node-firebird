@@ -80,7 +80,14 @@ describe('Events', function () {
 
     afterAll(async function () {
         if (db) {
-            await fromCallback(cb => db.detach(cb));
+            // Use a timeout to prevent hanging if the connection queue is corrupted
+            const detachPromise = fromCallback(cb => db.detach(cb)).catch(() => {});
+            const timeoutPromise = new Promise(resolve => setTimeout(resolve, 5000));
+            await Promise.race([detachPromise, timeoutPromise]);
+            // Force close the socket if detach didn't complete
+            if (db.connection && db.connection._socket && !db.connection._isClosed) {
+                db.connection._socket.end();
+            }
         }
     });
 
