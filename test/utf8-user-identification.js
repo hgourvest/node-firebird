@@ -68,9 +68,10 @@ describe('UTF-8 User Identification (PR #377)', function () {
             // flag is automatically added to the DPB buffer. Successfully creating and attaching
             // to the database verifies that UTF-8 encoding support is working correctly.
             if (db.connection.accept && db.connection.accept.protocolVersion >= Const.PROTOCOL_VERSION13) {
-                // Just verify the database was created successfully - the database creation
-                // itself validates the UTF-8 flag is working
-                assert.ok(true, 'Database created successfully with UTF-8 support');
+                // Verify the database is functional by executing a simple query
+                // Using execute() which returns array results to avoid column name issues
+                const rows = await fromCallback(cb => db.execute('SELECT 1 FROM RDB$DATABASE', cb));
+                assert.ok(rows && rows.length > 0 && rows[0][0] === 1, 'Database created successfully with UTF-8 support');
             }
             
             await fromCallback(cb => db.detach(cb));
