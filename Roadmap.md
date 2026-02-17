@@ -24,11 +24,11 @@ Firebird 3 introduced Protocol 13, which brought significant changes focusing on
 - **Wire Protocol Compression:** ✅ Implemented - zlib compression support for protocol version 13+.
 - **Packed (NULL-aware) Row Data:** ✅ Implemented - null bitmap support for protocol version 13+.
 - **op_cond_accept Handling:** ✅ Implemented - proper handling of conditional accept with authentication continuation.
+- **UTF-8 User Identification:** ✅ Implemented - all user identification is properly handled with UTF-8 encoding via `isc_dpb_utf8_filename` flag for Firebird 3+.
 
 The following features are planned for future implementation:
 
 - **Database Encryption Callback:** Support the new callback mechanism for handling database encryption keys.
-- **UTF-8 User Identification:** Ensure all user identification is properly handled with UTF-8 encoding.
 
 ## Firebird 4 Support
 
