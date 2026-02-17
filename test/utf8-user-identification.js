@@ -91,7 +91,7 @@ describe('UTF-8 User Identification (PR #377)', function () {
             const rows = await fromCallback(cb => db.query('SELECT 1 as test FROM RDB$DATABASE', cb));
             assert.ok(rows, 'Query should return results');
             assert.strictEqual(rows.length, 1, 'Should return one row');
-            assert.strictEqual(rows[0].test, 1, 'Query should execute successfully with UTF-8 support');
+            assert.strictEqual(rows[0].test, 1, 'Connection with UTF-8 support should work correctly');
             
             await fromCallback(cb => db.detach(cb));
         });
