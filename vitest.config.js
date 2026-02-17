@@ -6,7 +6,6 @@ module.exports = defineConfig({
         testTimeout: 10000,
         fileParallelism: false,
         maxWorkers: 1,
-        isolate: false,
         include: ['test/arc4.js', 'test/index.js', 'test/protocol.js', 'test/service.js', 'test/srp.js'],
     },
 });
