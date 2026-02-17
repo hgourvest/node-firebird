@@ -23,8 +23,11 @@ describe('UTF-8 User Identification (PR #377)', function () {
 
     it('should define PROTOCOL_VERSION13 constant', function () {
         assert.ok(Const.PROTOCOL_VERSION13, 'PROTOCOL_VERSION13 should be defined');
+        // PROTOCOL_VERSION13 is defined as (FB_PROTOCOL_FLAG | 13), so we verify the masked value
         assert.strictEqual(Const.PROTOCOL_VERSION13 & Const.FB_PROTOCOL_MASK, 13,
-            'Protocol version 13 should be properly masked');
+            'Protocol version 13 should be properly masked to extract version number');
+        assert.ok(Const.PROTOCOL_VERSION13 & Const.FB_PROTOCOL_FLAG, 
+            'PROTOCOL_VERSION13 should include FB_PROTOCOL_FLAG');
     });
 
     describe('Database Operations', function () {
@@ -44,7 +47,7 @@ describe('UTF-8 User Identification (PR #377)', function () {
                 // Verify UTF-8 handling works by querying the current user
                 const rows = await fromCallback(cb => db.query('SELECT CURRENT_USER FROM RDB$DATABASE', cb));
                 assert.ok(rows, 'Query should succeed with UTF-8 support enabled');
-                assert.equal(rows.length, 1, 'Should return one row');
+                assert.strictEqual(rows.length, 1, 'Should return one row');
             }
             
             await fromCallback(cb => db.detach(cb));
@@ -69,7 +72,7 @@ describe('UTF-8 User Identification (PR #377)', function () {
                 // Verify database was created with UTF-8 support by creating a test table
                 await fromCallback(cb => db.query('CREATE TABLE utf8_test (id INT, name VARCHAR(50))', cb));
                 const rows = await fromCallback(cb => db.query('SELECT COUNT(*) as cnt FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = ?', ['UTF8_TEST'], cb));
-                assert.equal(rows[0].cnt, 1, 'Table should be created successfully with UTF-8 support');
+                assert.strictEqual(rows[0].cnt, 1, 'Table should be created successfully with UTF-8 support');
             }
             
             await fromCallback(cb => db.detach(cb));
@@ -88,7 +91,7 @@ describe('UTF-8 User Identification (PR #377)', function () {
             // Query to verify the connection is working properly
             const rows = await fromCallback(cb => db.query('SELECT CURRENT_USER FROM RDB$DATABASE', cb));
             assert.ok(rows, 'Query should return results');
-            assert.equal(rows.length, 1, 'Should return one row');
+            assert.strictEqual(rows.length, 1, 'Should return one row');
             assert.ok(rows[0].current_user, 'Current user should be returned');
             
             await fromCallback(cb => db.detach(cb));
@@ -146,7 +149,7 @@ describe('UTF-8 User Identification (PR #377)', function () {
             if (db.connection.accept && db.connection.accept.protocolVersion >= Const.PROTOCOL_VERSION13) {
                 // Execute a query to verify the connection works with UTF-8 support
                 const rows = await fromCallback(cb => db.query('SELECT 1 AS test FROM RDB$DATABASE', cb));
-                assert.equal(rows[0].test, 1, 'Query should execute successfully with UTF-8 support');
+                assert.strictEqual(rows[0].test, 1, 'Query should execute successfully with UTF-8 support');
             }
             
             await fromCallback(cb => db.detach(cb));
@@ -169,7 +172,7 @@ describe('UTF-8 User Identification (PR #377)', function () {
                 
                 // Verify we can execute queries normally
                 const rows = await fromCallback(cb => db.query('SELECT 1 AS test FROM RDB$DATABASE', cb));
-                assert.equal(rows[0].test, 1, 'Query should execute successfully');
+                assert.strictEqual(rows[0].test, 1, 'Query should execute successfully');
                 
                 await fromCallback(cb => db.detach(cb));
             } finally {
