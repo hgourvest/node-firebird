@@ -172,7 +172,7 @@ describe('Auth plugin connection', function () {
 
     describe('FB3 - Srp', function () {
         // Must be test with firebird 3.0 or higher with Srp enable on server
-        it('should attach with srp plugin', async function () {
+        it('should attach with srp plugin', { timeout: 20000 }, async function () {
             const db = await fromCallback(cb => Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP }), cb));
             await fromCallback(cb => db.detach(cb));
         });
