@@ -59,6 +59,11 @@ describe('Test Srp client', function () {
           algo
         );
 
+        if (proof.clientSessionKey !== serverSessionKey) {
+            console.log('Mismatch!');
+            console.log('Client Key:', proof.clientSessionKey.toString(16));
+            console.log('Server Key:', serverSessionKey.toString(16));
+        }
         assert.ok(proof.clientSessionKey === serverSessionKey, 'Session key mismatch');
     }
 });
