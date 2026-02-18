@@ -14,6 +14,7 @@ const TEST_SALT_1 = 'a8ae6e6ee929abea3afcfc5258c8ccd6f85273e0d4626d26c7279f3250f
 const TEST_CLIENT_1 = BigInt('0x3138bb9bc78df27c473ecfd1410f7bd45ebac1f59cf3ff9cfe4db77aab7aedd3');
 const TEST_SALT_2 = 'd91323a5298f3b9f814db29efaa271f24fbdccedfdd062491b8abc8e07b7fb69';
 const TEST_CLIENT_2 = BigInt('0xf435f2420b50c70ec80865cf8e20b169874165fb8576b48633caf2a8176d2e4a');
+const FIXED_SERVER_KEY = BigInt('0x534a89b30360d5d33a8714b949292e7519295f1257d746809a6e9163c6a4f630');
 
 describe('Test Srp client', function () {
     it('should generate client keys', function() {
@@ -23,15 +24,15 @@ describe('Test Srp client', function () {
     });
 
     it('should generate server keys with debug input value', function() {
-        testSrp('sha1', DEBUG_SALT, DEBUG_PRIVATE_KEY);
+        testSrp('sha1', DEBUG_SALT, DEBUG_PRIVATE_KEY, FIXED_SERVER_KEY);
     });
 
     it('should generate sha1 server keys with fixed test vector 1', function() {
-        testSrp('sha1', TEST_SALT_1, TEST_CLIENT_1);
+        testSrp('sha1', TEST_SALT_1, TEST_CLIENT_1, FIXED_SERVER_KEY);
     });
 
     it('should generate sha256 server keys with fixed test vector 2', function() {
-        testSrp('sha256', TEST_SALT_2, TEST_CLIENT_2);
+        testSrp('sha256', TEST_SALT_2, TEST_CLIENT_2, FIXED_SERVER_KEY);
     });
 
     /**
@@ -39,7 +40,7 @@ describe('Test Srp client', function () {
      */
     function testSrp(algo, salt, client, server) {
         var clientKeys = client ? Srp.clientSeed(client) : Srp.clientSeed();
-        var serverKeys = Srp.serverSeed(USER, PASSWORD, salt);
+        var serverKeys = server ? Srp.serverSeed(USER, PASSWORD, salt, server) : Srp.serverSeed(USER, PASSWORD, salt);
 
         const serverSessionKey = Srp.serverSession(
           USER, PASSWORD, salt,
