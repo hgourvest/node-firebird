@@ -46,7 +46,7 @@ describe('Test Srp client', function () {
      */
     function testSrp(algo, salt, client, server) {
         var clientKeys = client ? Srp.clientSeed(client) : Srp.clientSeed();
-        var serverKeys = server ? Srp.serverSeed(USER, PASSWORD, salt, server) : Srp.serverSeed(USER, PASSWORD, salt);
+        var serverKeys = server ? Srp.serverSeed(USER, PASSWORD, salt, server, algo) : Srp.serverSeed(USER, PASSWORD, salt, undefined, algo);
 
         const serverSessionKey = Srp.serverSession(
           USER, PASSWORD, salt,
