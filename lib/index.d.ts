@@ -7,7 +7,7 @@ declare module 'node-firebird' {
     type TransactionCallback = (err: any, transaction: Transaction) => void;
     type QueryCallback = (err: any, result: any[]) => void;
     type SimpleCallback = (err: any) => void;
-    type SequentialCallback = (row: any, index: number) => void;
+    type SequentialCallback = (row: any, index: number, next?: (err?: any) => void) => void | Promise<void>;
 
     export const AUTH_PLUGIN_LEGACY: string;
     export const AUTH_PLUGIN_SRP: string;
