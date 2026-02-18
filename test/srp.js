@@ -50,7 +50,8 @@ describe('Test Srp client', function () {
 
         const serverSessionKey = Srp.serverSession(
           USER, PASSWORD, salt,
-          clientKeys.public, serverKeys.public, serverKeys.private
+          clientKeys.public, serverKeys.public, serverKeys.private,
+          algo
         );
 
         const proof = Srp.clientProof(
