@@ -507,6 +507,33 @@ describe('Database', function() {
                 );
             });
         });
+
+        it('should not buffer all streamed rows in sequentially callback result', async function() {
+            const ids = [];
+            await new Promise((resolve, reject) => {
+                db.sequentially(
+                    'SELECT Id FROM test',
+                    function(row) {
+                        ids.push(row.id);
+                    },
+                    function(err, rows) {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+
+                        try {
+                            assert.equal(ids.length, 5);
+                            assert.ok(Array.isArray(rows));
+                            assert.equal(rows.length, 0);
+                            resolve();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    }
+                );
+            });
+        });
     });
 
     describe('Fetch', () => {
