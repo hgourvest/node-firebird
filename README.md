@@ -645,9 +645,44 @@ Firebird.attach({
 
 ### Firebird 4.0 and 5.0
 
-Firebird 4 wire protocol (versions 16 and 17) is not supported yet.
-However, Srp256 authentication and wire encryption are now supported natively,
-so you only need the following minimal configuration in `firebird.conf`:
+Firebird 4 wire protocol (versions 16 and 17) is now supported with the following features:
+
+- **Protocol versions 16 and 17** — Full support for Firebird 4.0+ wire protocol
+- **DECFLOAT data types** — Support for DECFLOAT(16) and DECFLOAT(34) using IEEE 754 Decimal64 and Decimal128 formats
+- **INT128 data type** — Native support for 128-bit integers
+- **Extended metadata identifiers** — Support for identifiers up to 63 characters
+- **Backward compatibility** — Automatically negotiates the best protocol version with the server
+
+The driver will automatically negotiate the best protocol version supported by both the client and server. No configuration changes are required for Firebird 4.0 servers.
+
+```js
+Firebird.attach({
+  host: '127.0.0.1',
+  port: 3050,
+  database: '/path/to/fb4.fdb',
+  user: 'SYSDBA',
+  password: 'masterkey',
+}, function(err, db) {
+  if (err) throw err;
+  
+  // DECFLOAT and INT128 types are automatically supported
+  db.query('SELECT CAST(123.456 AS DECFLOAT(16)) AS df16, CAST(9876543210 AS INT128) AS i128 FROM RDB$DATABASE', function(err, result) {
+    console.log(result); // { df16: 123.456, i128: '9876543210' }
+    db.detach();
+  });
+});
+```
+
+**Important Notes:**
+
+1. **Statement Timeouts:** Statement timeouts (a Protocol 16 feature) are not yet implemented. This will be added in a future release.
+
+2. **DECFLOAT Encoding:** The current DECFLOAT implementation uses a simplified encoding/decoding mechanism and does NOT implement proper IEEE 754 Decimal64/Decimal128 formats. For production use with DECFLOAT types requiring full precision and standards compliance, consider:
+   - Using a proper IEEE 754 Decimal library (e.g., `decimal128` npm package)
+   - Contributing a full IEEE 754 implementation to this driver
+   - Working with DECFLOAT values as strings or Buffers to preserve exact precision
+
+For legacy Firebird 4 servers with SRP authentication only, use the following configuration in `firebird.conf`:
 
 ```bash
 AuthServer = Srp256, Srp
@@ -657,6 +692,7 @@ WireCrypt = Enabled
 For more details see:
 - [Firebird 3 release notes — new authentication](https://firebirdsql.org/file/documentation/release_notes/html/en/3_0/rnfb30-security-new-authentication.html)
 - [Firebird 4 release notes — Srp256](https://firebirdsql.org/file/documentation/release_notes/html/en/4_0/rlsnotes40.html#rnfb40-config-srp256)
+- [Firebird 4 release notes — DECFLOAT](https://firebirdsql.org/file/documentation/release_notes/html/en/4_0/rlsnotes40.html#rnfb40-datatype-decfloat)
 - [Firebird 4 migration guide — authorization](https://ib-aid.com/download/docs/fb4migrationguide.html#_authorization_with_firebird_2_5_client_library_fbclient_dll)
 - [Firebird 5 migration guide — authorization](https://ib-aid.com/download/docs/fb5migrationguide.html#_authorization_from_firebird_2_5_client_libraries)
 

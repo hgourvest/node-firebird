@@ -10,7 +10,7 @@ The following table summarizes the current and planned implementation status of 
 | :--- | :--- | :--- |
 | 2.5 | 10, 11, 12, 13 | ✅ Implemented |
 | 3.0 | 14, 15 | ✅ Implemented |
-| 4.0 | 16, 17 | ❌ Not Implemented |
+| 4.0 | 16, 17 | ✅ Implemented (Partial) |
 | 5.0 | N/A | ❌ Not Implemented |
 | 6.0 | N/A | ❌ Not Implemented |
 
@@ -31,9 +31,19 @@ The following features are planned for future implementation:
 
 ## Firebird 4 Support
 
-Firebird 4 introduced Protocol versions 16 and 17, continuing to build upon the foundation of Firebird 3. Key features to implement include:
+Firebird 4 introduced Protocol versions 16 and 17, continuing to build upon the foundation of Firebird 3. The following features have been implemented:
 
-- **Protocol Versions 16 and 17:** Implement the latest protocol versions to support Firebird 4 features.
+- **Protocol Versions 16 and 17:** ✅ Implemented - the latest protocol versions are now supported.
+- **DECFLOAT Data Types:** ✅ Implemented (Simplified) - support for DECFLOAT(16) and DECFLOAT(34) with basic encoding/decoding. Note: The current implementation does NOT use proper IEEE 754 Decimal64/Decimal128 encoding. For production use requiring full precision, a proper IEEE 754 Decimal library should be integrated.
+- **INT128 Data Type:** ✅ Implemented - native support for 128-bit integers.
+- **Extended Metadata Identifiers:** ✅ Implemented - support for identifiers up to 63 characters (handled automatically by the protocol).
+- **Database Encryption Callback:** ✅ Implemented - inherited from Protocol 14/15, works with Firebird 4.0+.
+
+The following features are planned for future implementation:
+
+- **Statement Timeouts:** Implement support for setting maximum execution times for SQL statements at the wire protocol level (Protocol 16 feature).
+- **Time Zone Data Types:** Add support for TIMESTAMP WITH TIME ZONE and TIME WITH TIME ZONE types.
+- **Full IEEE 754 DECFLOAT Support:** Implement proper IEEE 754 Decimal64 and Decimal128 encoding/decoding for DECFLOAT types (currently uses simplified implementation).
 
 ## Firebird 5 Support
 
