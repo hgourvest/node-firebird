@@ -480,6 +480,60 @@ describe('Database', function() {
                 });
             });
         });
+
+        it('should preserve sequential index across fetch batches', async function() {
+            const indices = [];
+            await new Promise((resolve, reject) => {
+                db.sequentially(
+                    'SELECT FIRST 450 a.RDB$RELATION_ID AS ID FROM RDB$RELATIONS a, RDB$RELATIONS b',
+                    function(row, index) {
+                        indices.push(index);
+                    },
+                    function(err) {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+
+                        try {
+                            assert.equal(indices.length, 450);
+                            assert.equal(indices[0], 0);
+                            assert.equal(indices[indices.length - 1], indices.length - 1);
+                            resolve();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    }
+                );
+            });
+        });
+
+        it('should not buffer all streamed rows in sequentially callback result', async function() {
+            const ids = [];
+            await new Promise((resolve, reject) => {
+                db.sequentially(
+                    'SELECT Id FROM test',
+                    function(row) {
+                        ids.push(row.id);
+                    },
+                    function(err, rows) {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+
+                        try {
+                            assert.equal(ids.length, 5);
+                            assert.ok(Array.isArray(rows));
+                            assert.equal(rows.length, 0);
+                            resolve();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    }
+                );
+            });
+        });
     });
 
     describe('Fetch', () => {
