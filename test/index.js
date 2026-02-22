@@ -1,4 +1,5 @@
 const Firebird = require('../lib');
+const Const = require('../lib/wire/const');
 const { GDSCode } = require('../lib/gdscodes');
 const Config = require('./config');
 
@@ -237,9 +238,11 @@ describe('Database', function() {
     var blobPath = path.join(Config.testDir, 'image.png');
     var blobSize = fs.readFileSync(blobPath).length;
     var db;
+    var protocolVersion;
 
     beforeAll(async function() {
         db = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
+        protocolVersion = db.connection.accept.protocolVersion;
         await fromCallback(cb => db.query(TEST_TABLE, cb));
     });
 
@@ -268,6 +271,31 @@ describe('Database', function() {
 
         it('should create table', async function () {
             await fromCallback(cb => db.query('CREATE TABLE T (ID INT)', cb));
+        });
+    });
+
+    describe('Statement timeout', function(ctx) {
+        const skip = protocolVersion < Const.PROTOCOL_VERSION16; // Statement timeout available from protocol v16
+
+        it('should query with sufficient timeout', { skip }, async function (test) {
+            await fromCallback(cb => db.query('SELECT * FROM RDB$RELATIONS FOR UPDATE', cb, { timeout: 10 }));
+        });
+
+        it('should query throw timeout', { skip }, async function (test) {
+            await assert.rejects(async () => {
+                await fromCallback(cb => db.query('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
+            }, /Operation was cancelled, Statement level timeout expired/);
+        });
+
+        it('should execute with sufficient timeout', { skip }, async function (test) {
+            await fromCallback(cb => db.execute('SELECT * FROM RDB$RELATIONS FOR UPDATE', cb, { timeout: 10 }));
+        });
+
+        it('should execute throw timeout', { skip }, async function (test) {
+
+            await assert.rejects(async () => {
+                await fromCallback(cb => db.execute('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
+            }, /Operation was cancelled, Statement level timeout expired/);
         });
     });
 
