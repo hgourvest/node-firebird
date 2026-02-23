@@ -113,9 +113,9 @@ pool.destroy();
 
 ### Database Methods
 
-- `db.query(query, [params], function(err, result))` - classic query, returns Array of Object
-- `db.execute(query, [params], function(err, result))` - classic query, returns Array of Array
-- `db.sequentially(query, [params], function(row, index), function(err))` - sequentially query
+- `db.query(query, [params], function(err, result), options)` - classic query, returns Array of Object
+- `db.execute(query, [params], function(err, result), options)` - classic query, returns Array of Array
+- `db.sequentially(query, [params], function(row, index), function(err), options)` - sequentially query
 - `db.detach(function(err))` detach a database
 - `db.transaction(options, function(err, transaction))` create transaction
 
@@ -135,10 +135,19 @@ const options = {
 
 ### Transaction methods
 
-- `transaction.query(query, [params], function(err, result))` - classic query, returns Array of Object
-- `transaction.execute(query, [params], function(err, result))` - classic query, returns Array of Array
+- `transaction.query(query, [params], function(err, result), options)` - classic query, returns Array of Object
+- `transaction.execute(query, [params], function(err, result), options)` - classic query, returns Array of Array
+- `transaction.sequentially(query, [params], function(row, index), function(err), options)` - sequentially query
 - `transaction.commit(function(err))` commit current transaction
 - `transaction.rollback(function(err))` rollback current transaction
+
+### Statement options 
+
+```js
+const options = {
+  timeout: 1000, // Statement timeout in ms, default is 0 (no timeout)
+}
+```
 
 ## Examples
 

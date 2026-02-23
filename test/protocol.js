@@ -16,7 +16,7 @@ describe('Test Firebird 3.0 protocol support', function () {
         var versions = Const.SUPPORTED_PROTOCOL.map(function (p) { return p[0]; });
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION14) !== -1, 'Protocol 14 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION15) !== -1, 'Protocol 15 should be supported');
-        assert.strictEqual(Const.SUPPORTED_PROTOCOL.length, 6, 'Should support 6 protocol versions');
+        assert.strictEqual(Const.SUPPORTED_PROTOCOL.length, 7, 'Should support 6 protocol versions');
     });
 
     it('should support Srp256 authentication plugin', function () {
