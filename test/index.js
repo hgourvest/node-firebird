@@ -173,16 +173,24 @@ describe('Auth plugin connection', function () {
 
     describe('FB3 - Srp', function () {
         // Must be test with firebird 3.0 or higher with Srp enable on server
-        it('should attach with srp plugin', async function () {
+        it('should attach with srp plugin', { timeout: 20000 }, async function () {
             const db = await fromCallback(cb => Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP }), cb));
             await fromCallback(cb => db.detach(cb));
         });
 
         // FB 3.0 : Should be tested with Srp256 enabled on server configuration
-        /*it('should attach with srp 256 plugin', async function () {
-            const db = await fromCallback(cb => Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP256 }), cb));
-            await fromCallback(cb => db.detach(cb));
-        });*/
+        it('should attach with srp 256 plugin', { timeout: 20000 }, async function () {
+            try {
+                const db = await fromCallback(cb => Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP256 }), cb));
+                await fromCallback(cb => db.detach(cb));
+            } catch (e) {
+                if (e.message.indexOf('Server don\'t accept plugin : Srp256') !== -1) {
+                    console.log('Skipping test: Server does not support Srp256');
+                    return;
+                }
+                throw e;
+            }
+        });
     });
 });
 
