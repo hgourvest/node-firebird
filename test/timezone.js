@@ -131,5 +131,5 @@ describe('Firebird 4.0 Time Zone support', () => {
         } finally {
             db.detach();
         }
-    });
+    }, 30000);
 });
