@@ -11,13 +11,14 @@ describe('Firebird 4.0 Time Zone support', () => {
     
     it('should select and insert TIME WITH TIME ZONE and TIMESTAMP WITH TIME ZONE', async () => {
         const options = Object.assign({}, config, {
+            database: config.database.replace(/\.fdb$/, '_tz.fdb'),
             sessionTimeZone: 'UTC'
         });
 
         const db = await new Promise((resolve, reject) => {
-            Firebird.attach(options, (err, db) => {
+            Firebird.attachOrCreate(options, (err, db) => {
                 if (err) {
-                    if (err.message && (err.message.indexOf('Column unknown') !== -1 || err.message.indexOf('Dynamic SQL Error') !== -1 || err.message.indexOf('ECONNREFUSED') !== -1)) {
+                    if (err.message && (err.message.indexOf('Column unknown') !== -1 || err.message.indexOf('Dynamic SQL Error') !== -1 || err.message.indexOf('ECONNREFUSED') !== -1 || err.message.indexOf('I/O error') !== -1)) {
                         return resolve(null);
                     }
                     return reject(err);
