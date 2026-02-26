@@ -3,24 +3,20 @@ var Const = require('../lib/wire/const');
 var Firebird = require('../lib');
 
 describe('Test Firebird 3.0 protocol support', function () {
-    it('should define protocol versions 14, 15 and 16', function () {
+    it('should define protocol versions 14 and 15', function () {
         assert.ok(Const.PROTOCOL_VERSION14, 'PROTOCOL_VERSION14 should be defined');
         assert.ok(Const.PROTOCOL_VERSION15, 'PROTOCOL_VERSION15 should be defined');
-        assert.ok(Const.PROTOCOL_VERSION16, 'PROTOCOL_VERSION16 should be defined');
         assert.strictEqual(Const.PROTOCOL_VERSION14 & Const.FB_PROTOCOL_MASK, 14);
         assert.strictEqual(Const.PROTOCOL_VERSION15 & Const.FB_PROTOCOL_MASK, 15);
-        assert.strictEqual(Const.PROTOCOL_VERSION16 & Const.FB_PROTOCOL_MASK, 16);
         assert.ok(Const.PROTOCOL_VERSION14 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
         assert.ok(Const.PROTOCOL_VERSION15 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
-        assert.ok(Const.PROTOCOL_VERSION16 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
     });
 
-    it('should include protocols 14, 15 and 16 in SUPPORTED_PROTOCOL', function () {
+    it('should include protocols 14 and 15 in SUPPORTED_PROTOCOL', function () {
         var versions = Const.SUPPORTED_PROTOCOL.map(function (p) { return p[0]; });
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION14) !== -1, 'Protocol 14 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION15) !== -1, 'Protocol 15 should be supported');
-        assert.ok(versions.indexOf(Const.PROTOCOL_VERSION16) !== -1, 'Protocol 16 should be supported');
-        assert.strictEqual(Const.SUPPORTED_PROTOCOL.length, 7, 'Should support 7 protocol versions');
+        assert.strictEqual(Const.SUPPORTED_PROTOCOL.length, 7, 'Should support 6 protocol versions');
     });
 
     it('should support Srp256 authentication plugin', function () {
