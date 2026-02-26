@@ -30,8 +30,8 @@ describe('Firebird 4.0 Time Zone support', function() {
                     
                     if (err) {
                         db.detach();
-                        if (err.message && (err.message.indexOf('Token unknown') !== -1 || err.message.indexOf('WITH TIME ZONE') !== -1)) {
-                            console.warn('Skipping Firebird 4.0 Time Zone tests (unsupported syntax)');
+                        if (err.message && (err.message.indexOf('Token unknown') !== -1 || err.message.indexOf('WITH TIME ZONE') !== -1 || err.message.indexOf('dialect 1') !== -1)) {
+                            console.warn('Skipping Firebird 4.0 Time Zone tests (unsupported syntax or Dialect 1)');
                             return resolve();
                         }
                         return reject(err);
