@@ -23,19 +23,36 @@ describe('Firebird 4.0 Time Zone support', function() {
                     return reject(err);
                 }
 
-                // 1. Check if we can select TIME WITH TIME ZONE and TIMESTAMP WITH TIME ZONE
-                db.query('SELECT CAST(\'12:00:00.0000 UTC\' AS TIME WITH TIME ZONE) AS t_tz, ' +
-                         'CAST(\'2023-01-01 12:00:00.0000 UTC\' AS TIMESTAMP WITH TIME ZONE) AS ts_tz ' +
-                         'FROM RDB$DATABASE', function(err, rows) {
-                    
+                // Check version
+                db.query('SELECT rdb$get_context(\'SYSTEM\', \'ENGINE_VERSION\') AS FB_VERSION FROM RDB$DATABASE', function(err, rows) {
                     if (err) {
                         db.detach();
-                        if (err.message && (err.message.indexOf('Token unknown') !== -1 || err.message.indexOf('WITH TIME ZONE') !== -1 || err.message.indexOf('dialect 1') !== -1)) {
-                            console.warn('Skipping Firebird 4.0 Time Zone tests (unsupported syntax or Dialect 1)');
-                            return resolve();
-                        }
-                        return reject(err);
+                        console.warn('Skipping Firebird 4.0 Time Zone tests (rdb$get_context missing or incompatible)');
+                        return resolve();
                     }
+
+                    var version = rows[0].fb_version || '';
+                    var majorVersion = parseInt(version.split('.')[0]);
+
+                    if (majorVersion < 4) {
+                        db.detach();
+                        console.warn('Skipping Firebird 4.0 Time Zone tests (Firebird ' + version + ' detected)');
+                        return resolve();
+                    }
+
+                    // 1. Check if we can select TIME WITH TIME ZONE and TIMESTAMP WITH TIME ZONE
+                    db.query('SELECT CAST(\'12:00:00.0000 UTC\' AS TIME WITH TIME ZONE) AS t_tz, ' +
+                             'CAST(\'2023-01-01 12:00:00.0000 UTC\' AS TIMESTAMP WITH TIME ZONE) AS ts_tz ' +
+                             'FROM RDB$DATABASE', function(err, rows) {
+                        
+                        if (err) {
+                            db.detach();
+                            if (err.message && (err.message.indexOf('Token unknown') !== -1 || err.message.indexOf('WITH TIME ZONE') !== -1 || err.message.indexOf('dialect 1') !== -1)) {
+                                console.warn('Skipping Firebird 4.0 Time Zone tests (unsupported syntax or Dialect 1)');
+                                return resolve();
+                            }
+                            return reject(err);
+                        }
 
                     var row = rows[0];
                     
