@@ -64,7 +64,7 @@ describe('Firebird 4.0 Time Zone support', () => {
             console.log('[Test] Testing CAST with TIME ZONE...');
             const tzRows = await new Promise((resolve, reject) => {
                 db.query('SELECT CAST(\'12:00:00.0000 UTC\' AS TIME WITH TIME ZONE) AS t_tz, ' +
-                         'CAST(\'2023-01-01 12:00:00.0000 UTC\' AS TIMESTAMP WITH TIME ZONE) AS ts_tz ' +
+                         'CAST(\'2024-02-02 12:00:00.0000 UTC\' AS TIMESTAMP WITH TIME ZONE) AS ts_tz ' +
                          'FROM RDB$DATABASE', (err, rows) => {
                     if (err) {
                         if (err.message && (err.message.indexOf('Token unknown') !== -1 || err.message.indexOf('WITH TIME ZONE') !== -1 || err.message.indexOf('dialect 1') !== -1)) {
@@ -96,8 +96,12 @@ describe('Firebird 4.0 Time Zone support', () => {
             // Verify ts_tz
             assert.ok(row.ts_tz instanceof Date, 'ts_tz should be an instance of Date');
             
-            // 2023-01-01 12:00:00 UTC
-            var ts_expected = new Date('2023-01-01T12:00:00.000Z').getTime();
+            // 2024-02-02 12:00:00 UTC
+            var ts_expected = new Date('2024-02-02T12:00:00.000Z').getTime();
+            if (row.ts_tz.getTime() !== ts_expected) {
+                console.log('[Test] ts_tz mismatch! Raw Date:', row.ts_tz._rawDate, 'Raw Time:', row.ts_tz._rawTime, 'TZ:', row.ts_tz.timeZoneId);
+                console.log('[Test] Expected ms:', ts_expected, 'Actual ms:', row.ts_tz.getTime());
+            }
             assert.strictEqual(row.ts_tz.getTime(), ts_expected, 'Timestamp value mismatch');
 
             // 2. Test inserting with parameters
