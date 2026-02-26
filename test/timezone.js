@@ -1,6 +1,8 @@
 import assert from 'assert';
 import Firebird from '../lib/index';
-import config from './config';
+import ConfigModule from './config';
+
+const config = ConfigModule.default || ConfigModule;
 
 /**
  * These tests require Firebird 4.0 or higher.
@@ -8,7 +10,7 @@ import config from './config';
 describe('Firebird 4.0 Time Zone support', () => {
     
     it('should select and insert TIME WITH TIME ZONE and TIMESTAMP WITH TIME ZONE', async () => {
-        const options = Object.assign({}, config.default, {
+        const options = Object.assign({}, config, {
             sessionTimeZone: 'UTC'
         });
 
