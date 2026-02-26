@@ -34,7 +34,6 @@
     },
     "devDependencies": {
         "coveralls-next": "^4.2.0",
-        "nyc": "^15.0.1",
         "oxlint": "^0.15.11",
         "vitest": "^4.0.18"
     }
