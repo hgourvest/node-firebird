@@ -297,6 +297,22 @@ describe('Database', function() {
                 await fromCallback(cb => db.execute('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
             }, /Operation was cancelled, Statement level timeout expired/);
         });
+
+        it('should sequentially with sufficient timeout', { skip }, async function (test) {
+            await fromCallback(cb => db.sequentially('SELECT * FROM RDB$RELATIONS', [], (row, index) => {}, cb, { timeout: 10 }));
+        });
+
+        it('should sequentially throw timeout', { skip }, async function (test) {
+            await assert.rejects(async () => {
+                await fromCallback(cb => db.sequentially('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', [], (row, index) => {}, cb, { timeout: 1000 }));
+            }, /Operation was cancelled, Statement level timeout expired/);
+        });
+
+        it('should sequentially support backward compatibility for asArray boolean', async function () {
+            await fromCallback(cb => db.sequentially('SELECT * FROM RDB$DATABASE', [], (row, index) => {
+                assert.ok(Array.isArray(row), 'Row should be an array');
+            }, cb, true));
+        });
     });
 
     describe('Insert', function() {
@@ -703,6 +719,68 @@ describe('Database', function() {
                 cb));
             assert.equal(r[0].lock_timeout, 10);
             await fromCallback(cb => transaction.commit(cb));
+        });
+
+        describe('Statement timeout', function() {
+            it('should query with sufficient timeout', async function () {
+                const protocolVersion = db.connection.accept.protocolVersion;
+                if (protocolVersion < Const.PROTOCOL_VERSION16) return;
+
+                const transaction = await fromCallback(cb => db.transaction(cb));
+                await fromCallback(cb => transaction.query('SELECT * FROM RDB$RELATIONS FOR UPDATE', cb, { timeout: 10 }));
+                await fromCallback(cb => transaction.commit(cb));
+            });
+
+            it('should query throw timeout', async function () {
+                const protocolVersion = db.connection.accept.protocolVersion;
+                if (protocolVersion < Const.PROTOCOL_VERSION16) return;
+
+                const transaction = await fromCallback(cb => db.transaction(cb));
+                await assert.rejects(async () => {
+                    await fromCallback(cb => transaction.query('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
+                }, /Operation was cancelled, Statement level timeout expired/);
+                await fromCallback(cb => transaction.rollback(cb));
+            });
+
+            it('should execute with sufficient timeout', async function () {
+                const protocolVersion = db.connection.accept.protocolVersion;
+                if (protocolVersion < Const.PROTOCOL_VERSION16) return;
+
+                const transaction = await fromCallback(cb => db.transaction(cb));
+                await fromCallback(cb => transaction.execute('SELECT * FROM RDB$RELATIONS FOR UPDATE', cb, { timeout: 10 }));
+                await fromCallback(cb => transaction.commit(cb));
+            });
+
+            it('should execute throw timeout', async function () {
+                const protocolVersion = db.connection.accept.protocolVersion;
+                if (protocolVersion < Const.PROTOCOL_VERSION16) return;
+
+                const transaction = await fromCallback(cb => db.transaction(cb));
+                await assert.rejects(async () => {
+                    await fromCallback(cb => transaction.execute('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
+                }, /Operation was cancelled, Statement level timeout expired/);
+                await fromCallback(cb => transaction.rollback(cb));
+            });
+
+            it('should sequentially with sufficient timeout', async function () {
+                const protocolVersion = db.connection.accept.protocolVersion;
+                if (protocolVersion < Const.PROTOCOL_VERSION16) return;
+
+                const transaction = await fromCallback(cb => db.transaction(cb));
+                await fromCallback(cb => transaction.sequentially('SELECT * FROM RDB$RELATIONS', [], (row, index) => {}, cb, { timeout: 10 }));
+                await fromCallback(cb => transaction.commit(cb));
+            });
+
+            it('should sequentially throw timeout', async function () {
+                const protocolVersion = db.connection.accept.protocolVersion;
+                if (protocolVersion < Const.PROTOCOL_VERSION16) return;
+
+                const transaction = await fromCallback(cb => db.transaction(cb));
+                await assert.rejects(async () => {
+                    await fromCallback(cb => transaction.sequentially('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', [], (row, index) => {}, cb, { timeout: 1000 }));
+                }, /Operation was cancelled, Statement level timeout expired/);
+                await fromCallback(cb => transaction.rollback(cb));
+            });
         });
 
         async function verify(count) {
