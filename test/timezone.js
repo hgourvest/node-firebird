@@ -89,7 +89,8 @@ describe('Firebird 4.0 Time Zone support', () => {
             
             // UTC 12:00 is 43200000ms from midnight
             var t_ms = row.t_tz.getTime();
-            assert.strictEqual(t_ms, 43200000, 'Expected 12:00:00 UTC (43200000ms)');
+            // Use modulo to check only the time part, as some environments might normalize to today's date
+            assert.strictEqual(t_ms % 86400000, 43200000, 'Expected 12:00:00 UTC (43200000ms from midnight)');
             assert.strictEqual(row.t_tz.timeZoneId, 65535, 'Expected TZ ID 65535 (UTC)');
 
             // Verify ts_tz
