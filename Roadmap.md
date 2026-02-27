@@ -35,7 +35,7 @@ Firebird 4 introduced Protocol versions 16 and 17, continuing to build upon the 
 - **Statement Timeout:** ✅ Implemented - support for `op_execute` with statement timeout (Protocol 16+).
 - **`INT128` Data Type:** ✅ Implemented - support for 128-bit integer data type.
 - **Time Zone Support:** ✅ Implemented - support for `TIME WITH TIME ZONE`, `TIMESTAMP WITH TIME ZONE`, and `sessionTimeZone` connection option (Protocol 16+).
-- **`DECFLOAT` Data Type:** ❌ TODO - support for `DECFLOAT(16)` and `DECFLOAT(34)`.
+- **`DECFLOAT` Data Type:** ✅ Implemented - support for `DECFLOAT(16)` and `DECFLOAT(34)` (as Buffers).
 
 ## Firebird 5 Support
 

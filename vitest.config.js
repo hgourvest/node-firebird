@@ -16,7 +16,8 @@ module.exports = defineConfig({
             'test/utf8-user-identification.js',
             'test/index.js',
             'test/db-crypt-config.js',
-            'test/timezone.js'
+            'test/timezone.js',
+            'test/decfloat.js'
         ],
     },
 });

@@ -657,6 +657,7 @@ Firebird.attach({
 Firebird 4 wire protocol (versions 16 and 17) is partially supported, including:
 - **Time Zone Support**: Native support for `TIME WITH TIME ZONE` and `TIMESTAMP WITH TIME ZONE` (Protocol 16+).
 - **INT128 support**: Native support for 128-bit integers.
+- **DECFLOAT support**: Native support for `DECFLOAT(16)` and `DECFLOAT(34)` (as Buffers).
 - **Statement Timeout**: Support for statement-level timeouts.
 
 #### Using Timezones (FB 4.0+)
