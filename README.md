@@ -654,8 +654,12 @@ Firebird.attach({
 
 ### Firebird 4.0 and 5.0
 
-Firebird 4 wire protocol (versions 16 and 17) is not supported yet.
-However, Srp256 authentication and wire encryption are now supported natively,
+Firebird 4 wire protocol (versions 16 and 17) is partially supported, including:
+- **Time Zone Support**: Native support for `TIME WITH TIME ZONE` and `TIMESTAMP WITH TIME ZONE` (Protocol 16+).
+- **INT128 support**: Native support for 128-bit integers.
+- **Statement Timeout**: Support for statement-level timeouts.
+
+Srp256 authentication and wire encryption are now supported natively,
 so you only need the following minimal configuration in `firebird.conf`:
 
 ```bash
