@@ -77,4 +77,45 @@ describe('DECFLOAT Support Integration (Firebird 4.0+)', () => {
             await fromCallback(cb => db.query('DROP TABLE TEST_DEC', cb)).catch(() => {});
         }
     });
+
+    it('should handle INSERT ... RETURNING with DECFLOAT', { skip: !supportsDecFloat }, async () => {
+        const table_sql = 'CREATE TABLE TEST_DEC_RET (ID INT, D16 DECFLOAT(16))';
+        await fromCallback(cb => db.query(table_sql, cb));
+
+        try {
+            const d16_val = Buffer.alloc(8, 0x33);
+
+            const row = await fromCallback(cb => db.query(
+                'INSERT INTO TEST_DEC_RET (ID, D16) VALUES (?, ?) RETURNING D16',
+                [1, d16_val],
+                cb
+            ));
+
+            assert.ok(row.d16 instanceof Buffer);
+            assert.ok(row.d16.equals(d16_val), 'DECFLOAT RETURNING mismatch');
+        } finally {
+            await fromCallback(cb => db.query('DROP TABLE TEST_DEC_RET', cb)).catch(() => {});
+        }
+    });
+
+    it('should handle NULL values in DECFLOAT columns', { skip: !supportsDecFloat }, async () => {
+        const table_sql = 'CREATE TABLE TEST_DEC_NULL (ID INT, D16 DECFLOAT(16), D34 DECFLOAT(34))';
+        await fromCallback(cb => db.query(table_sql, cb));
+
+        try {
+            await fromCallback(cb => db.query(
+                'INSERT INTO TEST_DEC_NULL (ID, D16, D34) VALUES (?, ?, ?)',
+                [1, null, null],
+                cb
+            ));
+
+            const rows = await fromCallback(cb => db.query('SELECT D16, D34 FROM TEST_DEC_NULL WHERE ID = 1', cb));
+            const row = rows[0];
+
+            assert.strictEqual(row.d16, null, 'DECFLOAT(16) should be null');
+            assert.strictEqual(row.d34, null, 'DECFLOAT(34) should be null');
+        } finally {
+            await fromCallback(cb => db.query('DROP TABLE TEST_DEC_NULL', cb)).catch(() => {});
+        }
+    });
 });
