@@ -17,9 +17,6 @@
 
 - added auto-reconnect
 - added [sequentially selects](https://github.com/hgourvest/node-firebird/wiki/What-is-sequentially-selects)
-- added **Time Zone support** (`TIME WITH TIME ZONE` and `TIMESTAMP WITH TIME ZONE`) for Firebird 4.0+
-- added `sessionTimeZone` connection option for session-level time zone control
-- added **`INT128`** data type support (Firebird 4.0+)
 - events for connection (attach, detach, row, result, transaction, commit, rollback, error, etc.)
 - performance improvements
 - supports inserting/updating buffers and streams
@@ -75,7 +72,6 @@ options.wireCompression = false; // set to true to enable firebird compression o
 options.wireCrypt = Firebird.WIRE_CRYPT_ENABLE; // default; set to Firebird.WIRE_CRYPT_DISABLE to disable wire encryption (FB >= 3)
 options.pluginName = undefined; // optional, auto-negotiated; can be set to Firebird.AUTH_PLUGIN_SRP256, Firebird.AUTH_PLUGIN_SRP, or Firebird.AUTH_PLUGIN_LEGACY
 options.dbCryptConfig = undefined; // optional; database encryption key for encrypted databases. Use 'base64:<value>' for base64-encoded keys or plain text
-options.sessionTimeZone = undefined; // optional; session time zone (e.g., 'UTC', 'Europe/Paris', or offset '+02:00'). Requires Firebird 4.0+
 ```
 
 ### Classic
@@ -656,35 +652,15 @@ Firebird.attach({
 - Empty or undefined values send an empty response to the callback
 - This feature requires Firebird 3.0.1+ (protocol 14/15) for encrypted databases
 
-### Firebird 4.0 and 5.0 Support
+### Firebird 4.0 and 5.0
 
-Firebird 4.0+ wire protocol (versions 16 and 17) is partially supported, including:
+Firebird 4 wire protocol (versions 16 and 17) is not supported yet.
+However, Srp256 authentication and wire encryption are now supported natively,
+so you only need the following minimal configuration in `firebird.conf`:
 
-- **Srp256 authentication** (SHA-256)
-- **Wire encryption** (Arc4/RC4)
-- **`INT128` data type** support
-- **Time Zone support** (`TIME WITH TIME ZONE` and `TIMESTAMP WITH TIME ZONE`)
-- **Session Time Zone** configuration via `sessionTimeZone` option
-- **Statement Timeout** support via `timeout` option in query methods
-
-Example with Time Zone:
-
-```js
-Firebird.attach({
-  host: '127.0.0.1',
-  database: 'db.fdb',
-  user: 'SYSDBA',
-  password: 'masterkey',
-  sessionTimeZone: 'Europe/Paris' // optional
-}, function(err, db) {
-  if (err) throw err;
-  
-  db.query('SELECT CURRENT_TIMESTAMP FROM RDB$DATABASE', function(err, rows) {
-    // rows[0].current_timestamp is a Date object with timeZoneId attached
-    console.log(rows[0].current_timestamp.timeZoneId);
-    db.detach();
-  });
-});
+```bash
+AuthServer = Srp256, Srp
+WireCrypt = Enabled
 ```
 
 For more details see:
