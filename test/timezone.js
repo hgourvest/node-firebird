@@ -15,9 +15,11 @@ describe('Firebird 4.0 Time Zone support', () => {
             sessionTimeZone: 'UTC'
         });
 
+        console.log('[Test] Attempting to attach or create database:', options.database);
         const db = await new Promise((resolve, reject) => {
             Firebird.attachOrCreate(options, (err, db) => {
                 if (err) {
+                    console.log('[Test] Connection failed:', err.message);
                     if (err.message && (err.message.indexOf('Column unknown') !== -1 || err.message.indexOf('Dynamic SQL Error') !== -1 || err.message.indexOf('ECONNREFUSED') !== -1 || err.message.indexOf('I/O error') !== -1)) {
                         return resolve(null);
                     }
@@ -32,21 +34,25 @@ describe('Firebird 4.0 Time Zone support', () => {
             return;
         }
 
+        console.log('[Test] Connected to database. Protocol version:', db.connection.accept.protocolVersion);
+
         try {
             // Check version
+            console.log('[Test] Querying engine version...');
             const versionRows = await new Promise((resolve, reject) => {
                 db.query('SELECT rdb$get_context(\'SYSTEM\', \'ENGINE_VERSION\') AS FB_VERSION FROM RDB$DATABASE', (err, rows) => {
                     if (err) return reject(err);
                     resolve(rows);
                 });
             }).catch(err => {
-                console.warn('Skipping Firebird 4.0 Time Zone tests (rdb$get_context missing or incompatible)');
+                console.warn('Skipping Firebird 4.0 Time Zone tests (rdb$get_context missing or incompatible):', err.message);
                 return null;
             });
 
             if (!versionRows) return;
 
             const version = versionRows[0].fb_version || '';
+            console.log('[Test] Firebird version:', version);
             const majorVersion = parseInt(version.split('.')[0]);
 
             if (majorVersion < 4) {
@@ -55,6 +61,7 @@ describe('Firebird 4.0 Time Zone support', () => {
             }
 
             // 1. Check if we can select TIME WITH TIME ZONE and TIMESTAMP WITH TIME ZONE
+            console.log('[Test] Testing CAST with TIME ZONE...');
             const tzRows = await new Promise((resolve, reject) => {
                 db.query('SELECT CAST(\'12:00:00.0000 UTC\' AS TIME WITH TIME ZONE) AS t_tz, ' +
                          'CAST(\'2024-02-02 12:00:00.0000 UTC\' AS TIMESTAMP WITH TIME ZONE) AS ts_tz ' +
@@ -74,6 +81,7 @@ describe('Firebird 4.0 Time Zone support', () => {
                 return;
             }
 
+            console.log('[Test] CAST successful. Verifying values...');
             const row = tzRows[0];
             
             // Verify t_tz
@@ -93,6 +101,7 @@ describe('Firebird 4.0 Time Zone support', () => {
             assert.strictEqual(row.ts_tz.getTime(), ts_expected, 'Timestamp value mismatch');
 
             // 2. Test inserting with parameters
+            console.log('[Test] Creating test table...');
             await new Promise((resolve, reject) => {
                 db.execute('CREATE TABLE TEST_TZ (ID INT, T_TZ TIME WITH TIME ZONE, TS_TZ TIMESTAMP WITH TIME ZONE)', [], (err) => {
                     if (err) return reject(err);
@@ -100,6 +109,7 @@ describe('Firebird 4.0 Time Zone support', () => {
                 });
             });
 
+            console.log('[Test] Inserting data with parameters...');
             const insertT = new Date(0);
             insertT.setUTCHours(15);
             insertT.timeZoneId = 65535;
@@ -114,6 +124,7 @@ describe('Firebird 4.0 Time Zone support', () => {
                 });
             });
 
+            console.log('[Test] Selecting inserted data...');
             const resRows = await new Promise((resolve, reject) => {
                 db.query('SELECT T_TZ, TS_TZ FROM TEST_TZ WHERE ID = 1', (err, rows) => {
                     if (err) return reject(err);
@@ -125,11 +136,14 @@ describe('Firebird 4.0 Time Zone support', () => {
             assert.strictEqual(res.t_tz.getTime(), 15 * 3600 * 1000, 'Parameter insertion for TIME WITH TIME ZONE failed');
             assert.strictEqual(res.ts_tz.getTime(), insertTS.getTime(), 'Parameter insertion for TIMESTAMP WITH TIME ZONE failed');
 
+            console.log('[Test] Dropping test table...');
             await new Promise((resolve) => {
                 db.query('DROP TABLE TEST_TZ', () => resolve());
             });
 
+            console.log('[Test] Timezone tests completed successfully.');
         } finally {
+            console.log('[Test] Detaching from database...');
             db.detach();
         }
     }, 15000);
