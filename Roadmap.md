@@ -10,7 +10,7 @@ The following table summarizes the current and planned implementation status of 
 | :--- | :--- | :--- |
 | 2.5 | 10, 11, 12, 13 | ✅ Implemented |
 | 3.0 | 14, 15 | ✅ Implemented |
-| 4.0 | 16, 17 | 🚧 Partially Implemented (Protocol 16) |
+| 4.0 | 16, 17 | ✅ Protocol 16 Implemented / 🚧 Protocol 17 Missing |
 | 5.0 | 18 | ❌ Not Implemented |
 | 6.0 | N/A | ❌ Not Implemented |
 
@@ -31,10 +31,10 @@ Firebird 3 introduced Protocol 13, which brought significant changes focusing on
 
 Firebird 4 introduced Protocol versions 16 and 17, continuing to build upon the foundation of Firebird 3. Key features to implement include:
 
-- **Protocol Versions 16 and 17:** 🚧 Partially Implemented - Protocol 16 is defined, but Protocol 17 is missing.
+- **Protocol Versions 16 and 17:** ✅ Protocol 16 Implemented - support for statement timeout, INT128, and timezones. 🚧 Protocol 17 Missing.
 - **Statement Timeout:** ✅ Implemented - support for `op_execute` with statement timeout (Protocol 16+).
 - **`INT128` Data Type:** ✅ Implemented - support for 128-bit integer data type.
-- **Time Zone Support:** ✅ Implemented - support for `TIME WITH TIME ZONE` and `TIMESTAMP WITH TIME ZONE` (Protocol 16+).
+- **Time Zone Support:** ✅ Implemented - support for `TIME WITH TIME ZONE`, `TIMESTAMP WITH TIME ZONE`, and `sessionTimeZone` connection option (Protocol 16+).
 - **`DECFLOAT` Data Type:** ❌ TODO - support for `DECFLOAT(16)` and `DECFLOAT(34)`.
 
 ## Firebird 5 Support
