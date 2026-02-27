@@ -8,6 +8,15 @@ module.exports = defineConfig({
         fileParallelism: false,
         maxWorkers: 1,
         isolate: false,
-        include: ['test/arc4.js', 'test/protocol.js', 'test/srp.js', 'test/service.js', 'test/utf8-user-identification.js', 'test/index.js', 'test/db-crypt-config.js'],
+        include: [
+            'test/arc4.js',
+            'test/protocol.js',
+            'test/srp.js',
+            'test/service.js',
+            'test/utf8-user-identification.js',
+            'test/index.js',
+            'test/db-crypt-config.js',
+            'test/timezone.js'
+        ],
     },
 });
