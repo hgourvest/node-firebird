@@ -118,6 +118,7 @@ declare module 'node-firebird' {
         wireCompression?: boolean;
         pluginName?: string;
         dbCryptConfig?: string; // Database encryption key callback config (base64: prefix for base64, or plain string)
+        sessionTimeZone?: string; // Session time zone (Firebird 4.0+)
     }
 
     export interface SvcMgrOptions extends Options {
