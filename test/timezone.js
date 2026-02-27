@@ -61,4 +61,28 @@ describe('Timezone Support (Firebird 4.0)', () => {
             expect(reader.pos).toBe(20);
         });
     });
+
+    describe('Null handling', () => {
+        it('should return null for SQLVarTimeTz when null indicator is set', () => {
+            const sqlVar = new Xsql.SQLVarTimeTz();
+            const buffer = Buffer.alloc(12);
+            buffer.writeInt32BE(1, 8); // Null indicator = 1
+
+            const reader = new XdrReader(buffer);
+            const result = sqlVar.decode(reader, true);
+
+            expect(result).toBeNull();
+        });
+
+        it('should return null for SQLVarTimeStampTzEx when null indicator is set', () => {
+            const sqlVar = new Xsql.SQLVarTimeStampTzEx();
+            const buffer = Buffer.alloc(20);
+            buffer.writeInt32BE(1, 16); // Null indicator = 1
+
+            const reader = new XdrReader(buffer);
+            const result = sqlVar.decode(reader, true);
+
+            expect(result).toBeNull();
+        });
+    });
 });
