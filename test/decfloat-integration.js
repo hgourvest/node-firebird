@@ -17,15 +17,22 @@ describe('DECFLOAT Support Integration (Firebird 4.0+)', () => {
     beforeAll(async () => {
         try {
             db = await fromCallback(cb => Firebird.attach(config, cb));
-            // Check if server supports DECFLOAT types
-            await fromCallback(cb => db.query('SELECT CAST(123.45 AS DECFLOAT(16)) FROM RDB$DATABASE', cb));
-            supportsDecFloat = true;
-        } catch (err) {
-            console.warn('Firebird server does not support DECFLOAT types, skipping integration tests.');
-            if (db) {
-                await fromCallback(cb => db.detach(cb));
-                db = null;
+            const protocolVersion = db.connection.accept.protocolVersion;
+
+            // DECFLOAT is available from Protocol 16 (Firebird 4.0)
+            if (protocolVersion >= 16) {
+                try {
+                    // Check if server supports DECFLOAT types
+                    await fromCallback(cb => db.query('SELECT CAST(123.45 AS DECFLOAT(16)) FROM RDB$DATABASE', cb));
+                    supportsDecFloat = true;
+                } catch (err) {
+                    console.warn('Firebird server reported protocol >= 16 but DECFLOAT cast failed, skipping.');
+                }
+            } else {
+                console.warn('Firebird server protocol < 16, skipping DECFLOAT integration tests.');
             }
+        } catch (err) {
+            console.warn('Could not connect to Firebird server, skipping DECFLOAT integration tests.');
         }
     });
 
