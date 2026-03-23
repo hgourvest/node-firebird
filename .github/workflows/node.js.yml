@@ -73,3 +73,21 @@ jobs:
       run: |
         export FIREBIRD_DATA=/firebird/data
         npm test
+
+    - name: Show Firebird log on failure
+      if: failure()
+      run: |
+        echo "=========================================="
+        echo "Firebird Server Log (last 100 lines):"
+        echo "=========================================="
+        docker exec firebird tail -n 100 /firebird/log/firebird.log || echo "Could not read firebird.log"
+        echo ""
+        echo "=========================================="
+        echo "Docker container status:"
+        echo "=========================================="
+        docker ps -a
+        echo ""
+        echo "=========================================="
+        echo "Docker container logs:"
+        echo "=========================================="
+        docker logs firebird --tail 50
