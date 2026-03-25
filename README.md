@@ -113,9 +113,9 @@ pool.destroy();
 
 ### Database Methods
 
-- `db.query(query, [params], function(err, result))` - classic query, returns Array of Object
-- `db.execute(query, [params], function(err, result))` - classic query, returns Array of Array
-- `db.sequentially(query, [params], function(row, index), function(err))` - sequentially query
+- `db.query(query, [params], function(err, result), options)` - classic query, returns Array of Object
+- `db.execute(query, [params], function(err, result), options)` - classic query, returns Array of Array
+- `db.sequentially(query, [params], function(row, index), function(err), options)` - sequentially query
 - `db.detach(function(err))` detach a database
 - `db.transaction(options, function(err, transaction))` create transaction
 
@@ -135,10 +135,19 @@ const options = {
 
 ### Transaction methods
 
-- `transaction.query(query, [params], function(err, result))` - classic query, returns Array of Object
-- `transaction.execute(query, [params], function(err, result))` - classic query, returns Array of Array
+- `transaction.query(query, [params], function(err, result), options)` - classic query, returns Array of Object
+- `transaction.execute(query, [params], function(err, result), options)` - classic query, returns Array of Array
+- `transaction.sequentially(query, [params], function(row, index), function(err), options)` - sequentially query
 - `transaction.commit(function(err))` commit current transaction
 - `transaction.rollback(function(err))` rollback current transaction
+
+### Statement options 
+
+```js
+const options = {
+  timeout: 1000, // Statement timeout in ms, default is 0 (no timeout)
+}
+```
 
 ## Examples
 
@@ -683,6 +692,29 @@ Firebird.attach({
    - Working with DECFLOAT values as strings or Buffers to preserve exact precision
 
 For legacy Firebird 4 servers with SRP authentication only, use the following configuration in `firebird.conf`:
+Firebird 4 wire protocol (versions 16 and 17) is partially supported, including:
+- **Time Zone Support**: Native support for `TIME WITH TIME ZONE` and `TIMESTAMP WITH TIME ZONE` (Protocol 16+).
+- **INT128 support**: Native support for 128-bit integers.
+- **Statement Timeout**: Support for statement-level timeouts.
+
+#### Using Timezones (FB 4.0+)
+
+Columns of type `TIMESTAMP WITH TIME ZONE` and `TIME WITH TIME ZONE` are automatically mapped to JavaScript `Date` objects. Values are read as UTC and represented in the local timezone of the Node.js process.
+
+```js
+// Select timezone columns
+db.query('SELECT TS_TZ_COL, T_TZ_COL FROM FB4_TABLE', function(err, result) {
+    console.log(result[0].ts_tz_col); // JavaScript Date object
+});
+
+// Insert using Date objects
+db.query('INSERT INTO FB4_TABLE (TS_TZ_COL) VALUES (?)', [new Date()], function(err) {
+    // ...
+});
+```
+
+Srp256 authentication and wire encryption are now supported natively,
+so you only need the following minimal configuration in `firebird.conf`:
 
 ```bash
 AuthServer = Srp256, Srp

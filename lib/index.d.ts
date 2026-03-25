@@ -7,7 +7,7 @@ declare module 'node-firebird' {
     type TransactionCallback = (err: any, transaction: Transaction) => void;
     type QueryCallback = (err: any, result: any[]) => void;
     type SimpleCallback = (err: any) => void;
-    type SequentialCallback = (row: any, index: number) => void;
+    type SequentialCallback = (row: any, index: number, next?: (err?: any) => void) => void | Promise<void>;
 
     export const AUTH_PLUGIN_LEGACY: string;
     export const AUTH_PLUGIN_SRP: string;
@@ -41,21 +41,25 @@ declare module 'node-firebird' {
         waitTimeout?: number;
     };
 
+    export type QueryOptions = {
+        timeout: number;
+    }
+
     export interface Database {
         detach(callback?: SimpleCallback): Database;
         transaction(options: TransactionOptions|Isolation|TransactionCallback, callback?: TransactionCallback): Database;
-        query(query: string, params: any[], callback: QueryCallback): Database;
-        execute(query: string, params: any[], callback: QueryCallback): Database;
-        sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, asArray?: boolean): Database;
+        query(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): Database;
+        execute(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): Database;
+        sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
         drop(callback: SimpleCallback): void;
         escape(value: any): string;
         attachEvent(callback: any): this;
     }
 
     export interface Transaction {
-        query(query: string, params: any[], callback: QueryCallback): void;
-        execute(query: string, params: any[], callback: QueryCallback): void;
-        sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, asArray?: boolean): Database;
+        query(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): void;
+        execute(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): void;
+        sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
         commit(callback?: SimpleCallback): void;
         commitRetaining(callback?: SimpleCallback): void;
         rollback(callback?: SimpleCallback): void;

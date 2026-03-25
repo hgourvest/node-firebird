@@ -1,4 +1,5 @@
 const Firebird = require('../lib');
+const Const = require('../lib/wire/const');
 const { GDSCode } = require('../lib/gdscodes');
 const Config = require('./config');
 
@@ -237,9 +238,11 @@ describe('Database', function() {
     var blobPath = path.join(Config.testDir, 'image.png');
     var blobSize = fs.readFileSync(blobPath).length;
     var db;
+    var protocolVersion;
 
     beforeAll(async function() {
         db = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
+        protocolVersion = db.connection.accept.protocolVersion;
         await fromCallback(cb => db.query(TEST_TABLE, cb));
     });
 
@@ -268,6 +271,31 @@ describe('Database', function() {
 
         it('should create table', async function () {
             await fromCallback(cb => db.query('CREATE TABLE T (ID INT)', cb));
+        });
+    });
+
+    describe('Statement timeout', function(ctx) {
+        const skip = protocolVersion < Const.PROTOCOL_VERSION16; // Statement timeout available from protocol v16
+
+        it('should query with sufficient timeout', { skip }, async function (test) {
+            await fromCallback(cb => db.query('SELECT * FROM RDB$RELATIONS FOR UPDATE', cb, { timeout: 10 }));
+        });
+
+        it('should query throw timeout', { skip }, async function (test) {
+            await assert.rejects(async () => {
+                await fromCallback(cb => db.query('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
+            }, /Operation was cancelled, Statement level timeout expired/);
+        });
+
+        it('should execute with sufficient timeout', { skip }, async function (test) {
+            await fromCallback(cb => db.execute('SELECT * FROM RDB$RELATIONS FOR UPDATE', cb, { timeout: 10 }));
+        });
+
+        it('should execute throw timeout', { skip }, async function (test) {
+
+            await assert.rejects(async () => {
+                await fromCallback(cb => db.execute('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
+            }, /Operation was cancelled, Statement level timeout expired/);
         });
     });
 
@@ -478,6 +506,60 @@ describe('Database', function() {
                     assert.equal(sum, 15);
                     resolve();
                 });
+            });
+        });
+
+        it('should preserve sequential index across fetch batches', async function() {
+            const indices = [];
+            await new Promise((resolve, reject) => {
+                db.sequentially(
+                    'SELECT FIRST 450 a.RDB$RELATION_ID AS ID FROM RDB$RELATIONS a, RDB$RELATIONS b',
+                    function(row, index) {
+                        indices.push(index);
+                    },
+                    function(err) {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+
+                        try {
+                            assert.equal(indices.length, 450);
+                            assert.equal(indices[0], 0);
+                            assert.equal(indices[indices.length - 1], indices.length - 1);
+                            resolve();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    }
+                );
+            });
+        });
+
+        it('should not buffer all streamed rows in sequentially callback result', async function() {
+            const ids = [];
+            await new Promise((resolve, reject) => {
+                db.sequentially(
+                    'SELECT Id FROM test',
+                    function(row) {
+                        ids.push(row.id);
+                    },
+                    function(err, rows) {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+
+                        try {
+                            assert.equal(ids.length, 5);
+                            assert.ok(Array.isArray(rows));
+                            assert.equal(rows.length, 0);
+                            resolve();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    }
+                );
             });
         });
     });

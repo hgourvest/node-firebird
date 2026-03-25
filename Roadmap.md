@@ -12,6 +12,8 @@ The following table summarizes the current and planned implementation status of 
 | 3.0 | 14, 15 | ✅ Implemented |
 | 4.0 | 16, 17 | ✅ Implemented (Partial) |
 | 5.0 | N/A | ❌ Not Implemented |
+| 4.0 | 16, 17 | ✅ Protocol 16 Implemented / 🚧 Protocol 17 Missing |
+| 5.0 | 18 | ❌ Not Implemented |
 | 6.0 | N/A | ❌ Not Implemented |
 
 ## Firebird 3 Support
@@ -26,8 +28,6 @@ Firebird 3 introduced Protocol 13, which brought significant changes focusing on
 - **op_cond_accept Handling:** ✅ Implemented - proper handling of conditional accept with authentication continuation.
 - **UTF-8 User Identification:** ✅ Implemented - all user identification is properly handled with UTF-8 encoding via `isc_dpb_utf8_filename` flag for Firebird 3+.
 - **Database Encryption Callback:** ✅ Implemented - support for database encryption key callback (`op_crypt_key_callback`) during the connect phase, allowing connections to encrypted databases. The `dbCryptConfig` connection option supports both plain text and base64-encoded encryption keys.
-
-The following features are planned for future implementation:
 
 ## Firebird 4 Support
 
@@ -44,23 +44,33 @@ The following features are planned for future implementation:
 - **Statement Timeouts:** Implement support for setting maximum execution times for SQL statements at the wire protocol level (Protocol 16 feature).
 - **Time Zone Data Types:** Add support for TIMESTAMP WITH TIME ZONE and TIME WITH TIME ZONE types.
 - **Full IEEE 754 DECFLOAT Support:** Implement proper IEEE 754 Decimal64 and Decimal128 encoding/decoding for DECFLOAT types (currently uses simplified implementation).
+- **Protocol Versions 16 and 17:** ✅ Protocol 16 Implemented - support for statement timeout, INT128, and timezones. 🚧 Protocol 17 Missing.
+- **Statement Timeout:** ✅ Implemented - support for `op_execute` with statement timeout (Protocol 16+).
+- **`INT128` Data Type:** ✅ Implemented - support for 128-bit integer data type.
+- **Time Zone Support:** ✅ Implemented - support for `TIME WITH TIME ZONE`, `TIMESTAMP WITH TIME ZONE`, and `sessionTimeZone` connection option (Protocol 16+).
+- **`DECFLOAT` Data Type:** ❌ TODO - support for `DECFLOAT(16)` and `DECFLOAT(34)`.
 
 ## Firebird 5 Support
 
-Firebird 5 introduces a host of new SQL features and performance improvements that will require significant client-side implementation:
+Firebird 5 introduces Protocol version 18 and a host of new SQL features and performance improvements:
 
-- **Bidirectional Cursors:** Implement support for scrollable cursors for remote database access.
-- **`RETURNING` Multiple Rows:** Enhance DML operations to support returning multiple rows.
-- **`SKIP LOCKED`:** Add support for the `SKIP LOCKED` clause in `SELECT WITH LOCK`, `UPDATE`, and `DELETE` statements.
-- **New Data Types and Functions:** Add support for new built-in functions and packages.
+- **Protocol Version 18:** ❌ TODO - implement the latest protocol version.
+- **Bidirectional Cursors:** ❌ TODO - implement support for scrollable cursors for remote database access.
+- **`RETURNING` Multiple Rows:** ❌ TODO - enhance DML operations to support returning multiple rows.
+- **`SKIP LOCKED`:** ❌ TODO - add support for the `SKIP LOCKED` clause in `SELECT WITH LOCK`, `UPDATE`, and `DELETE` statements.
+- **Parallel Workers Information:** ❌ TODO - support for parallel workers information in SQL information items.
+
 
 ## Firebird 6 and Beyond
 
 As Firebird 6 and future versions are released, we will continue to monitor new features and plan for their implementation. Key areas of interest include:
 
-- **JSON Support:** Implement client-side support for the new SQL-compliant JSON functions.
-- **Tablespaces:** Add support for tablespaces.
-- **SQL Schemas:** Implement support for SQL schemas.
+- **Native `JSON` Data Type:** Implement support for the new native `JSON` type (often handled as optimized binary storage).
+- **SQL-Standard `ROW` Type:** Support for structured data types (records) as columns or variables.
+- **SQL-Compliant JSON Functions:** Implement client-side support for `JSON_VALUE`, `JSON_QUERY`, `JSON_EXISTS`, and `JSON_OBJECT`.
+- **Tablespaces:** Add support for tablespaces to control physical storage locations.
+- **SQL Schemas:** Implement support for SQL-standard schemas for better namespace organization.
+- **Enhanced Collation Support:** Support for collations defined directly as part of the data type declaration.
 
 ## Codebase Refactoring
 
