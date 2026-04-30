@@ -1,6 +1,7 @@
 var assert = require('assert');
 var Const = require('../lib/wire/const');
 var Firebird = require('../lib');
+var ServiceManager = require('../lib/wire/service');
 
 describe('Test Firebird 3.0 and 4.0 protocol support', function () {
     it('should define protocol versions 14, 15, 16, and 17', function () {
@@ -69,5 +70,27 @@ describe('Test Firebird 3.0 and 4.0 protocol support', function () {
     it('should define INT128 data type constants', function () {
         assert.strictEqual(Const.SQL_INT128, 32752, 'SQL_INT128 should be 32752');
         assert.strictEqual(Const.blr_int128, 26, 'blr_int128 should be 26');
+    });
+
+    it('should return a callback error for missing service query buffer', async function () {
+        var svc = new ServiceManager({});
+        await new Promise(function (resolve) {
+            svc._processquery(undefined, function (err) {
+                assert.ok(err instanceof Error);
+                assert.match(err.message, /malformed service-manager response/i);
+                resolve();
+            });
+        });
+    });
+
+    it('should return a callback error for truncated service query buffer', async function () {
+        var svc = new ServiceManager({});
+        await new Promise(function (resolve) {
+            svc._processquery(Buffer.from([Const.isc_info_svc_server_version]), function (err) {
+                assert.ok(err instanceof Error);
+                assert.match(err.message, /malformed service-manager response/i);
+                resolve();
+            });
+        });
     });
 });
