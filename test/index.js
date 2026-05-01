@@ -127,8 +127,9 @@ describe('Events', function () {
             });
         });
 
-        // Use a unique ID to avoid primary key conflicts
-        const uniqueId = Date.now();
+        // Use Unix timestamp in seconds (always within INT32 range until 2038)
+        // to uniquely identify the row and avoid primary key conflicts on retries
+        const uniqueId = Math.floor(Date.now() / 1000);
         await fromCallback(cb => db.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [uniqueId, 'xpto'], cb));
 
         const event = await eventPromise;
