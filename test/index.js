@@ -262,25 +262,30 @@ describe('Database', function() {
         });
     });
 
-    describe('Statement timeout', function(ctx) {
-        const skip = protocolVersion < Const.PROTOCOL_VERSION16; // Statement timeout available from protocol v16
+    describe('Statement timeout', function() {
+        // Statement timeout is only available from protocol v16 (Firebird 4+).
+        // protocolVersion is set in beforeAll, so skip must be evaluated lazily
+        // inside beforeEach (not at describe-block setup time) to avoid running
+        // the infinite-loop test on Firebird 3 which would permanently block the queue.
+        beforeEach(function(ctx) {
+            if (protocolVersion < Const.PROTOCOL_VERSION16) ctx.skip();
+        });
 
-        it('should query with sufficient timeout', { skip }, async function (test) {
+        it('should query with sufficient timeout', async function (test) {
             await fromCallback(cb => db.query('SELECT * FROM RDB$RELATIONS FOR UPDATE', cb, { timeout: 10 }));
         });
 
-        it('should query throw timeout', { skip }, async function (test) {
+        it('should query throw timeout', async function (test) {
             await assert.rejects(async () => {
                 await fromCallback(cb => db.query('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
             }, /Operation was cancelled, Statement level timeout expired/);
         });
 
-        it('should execute with sufficient timeout', { skip }, async function (test) {
+        it('should execute with sufficient timeout', async function (test) {
             await fromCallback(cb => db.execute('SELECT * FROM RDB$RELATIONS FOR UPDATE', cb, { timeout: 10 }));
         });
 
-        it('should execute throw timeout', { skip }, async function (test) {
-
+        it('should execute throw timeout', async function (test) {
             await assert.rejects(async () => {
                 await fromCallback(cb => db.execute('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
             }, /Operation was cancelled, Statement level timeout expired/);
