@@ -98,36 +98,31 @@ describe('Events', function () {
     });
 
     it("should register an event", async function () {
-        console.log('[Test] Starting "should register an event" test');
-        const evtmgr = await fromCallback(cb => {
-            console.log('[Test] Calling db.attachEvent');
-            return db.attachEvent(cb);
-        });
-        console.log('[Test] Event manager attached, evtmgr:', !!evtmgr, 'eventid:', evtmgr.eventid);
-        
-        console.log('[Test] Calling registerEvent with TRG_TEST_EVENTS');
+        const evtmgr = await fromCallback(cb => db.attachEvent(cb));
         await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
-        console.log('[Test] registerEvent completed successfully');
-        
-        console.log('[Test] Calling evtmgr.close');
         await fromCallback(cb => evtmgr.close(cb));
-        console.log('[Test] Test completed successfully');
     });
 
-    it.skip("should receive an event", async function () {
-        // TODO: This test has issues when run with other Event tests due to
-        // event count accumulation. Needs investigation.
+    it("should unregister an event", async function () {
+        const evtmgr = await fromCallback(cb => db.attachEvent(cb));
+        await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
+        await fromCallback(cb => evtmgr.unregisterEvent(["TRG_TEST_EVENTS"], cb));
+        await fromCallback(cb => evtmgr.close(cb));
+    });
+
+    it("should receive an event", async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
         await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
 
+        // Record the current event count so we only resolve when a NEW event fires
+        const baseCount = evtmgr.events["TRG_TEST_EVENTS"] || 0;
+
         const eventPromise = new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Timeout waiting for event notification after 5000ms')), 5000);
             evtmgr.on('post_event', (name, count) => {
-                try {
-                    assert.equal(name, 'TRG_TEST_EVENTS');
-                    assert.ok(count > 0); // Count may be > 1 if previous tests have fired events
-                    resolve();
-                } catch (e) {
-                    reject(e);
+                if (name === 'TRG_TEST_EVENTS' && count > baseCount) {
+                    clearTimeout(timeout);
+                    resolve({ name, count });
                 }
             });
         });
@@ -136,7 +131,9 @@ describe('Events', function () {
         const uniqueId = Date.now();
         await fromCallback(cb => db.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [uniqueId, 'xpto'], cb));
 
-        await eventPromise;
+        const event = await eventPromise;
+        assert.equal(event.name, 'TRG_TEST_EVENTS');
+        assert.ok(event.count > baseCount);
         await fromCallback(cb => evtmgr.close(cb));
     });
 });
