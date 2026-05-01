@@ -104,10 +104,15 @@ describe('Events', function () {
     });
 
     it("should unregister an event", async function () {
+        console.error('[DBG:unreg] step 1: calling attachEvent');
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
+        console.error('[DBG:unreg] step 2: attachEvent done, eventid=%d hasActiveSub=%s', evtmgr.eventid, evtmgr._hasActiveSubscription);
         await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
+        console.error('[DBG:unreg] step 3: registerEvent done, events=%j hasActiveSub=%s', evtmgr.events, evtmgr._hasActiveSubscription);
         await fromCallback(cb => evtmgr.unregisterEvent(["TRG_TEST_EVENTS"], cb));
+        console.error('[DBG:unreg] step 4: unregisterEvent done, events=%j hasActiveSub=%s', evtmgr.events, evtmgr._hasActiveSubscription);
         await fromCallback(cb => evtmgr.close(cb));
+        console.error('[DBG:unreg] step 5: close done');
     });
 
     it("should receive an event", async function () {
