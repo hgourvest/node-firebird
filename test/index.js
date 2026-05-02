@@ -162,11 +162,8 @@ describe('Auth plugin connection', function () {
     describe('FB3 - Srp', function () {
         // Must be test with firebird 3.0 or higher with Srp enable on server
         it('should attach with srp plugin', async function () {
-            process.stderr.write('[DBG:test] starting should attach with srp plugin, plugin=' + Firebird.AUTH_PLUGIN_SRP + '\n');
             const db = await fromCallback(cb => Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP }), cb));
-            process.stderr.write('[DBG:test] attachOrCreate succeeded, calling detach\n');
             await fromCallback(cb => db.detach(cb));
-            process.stderr.write('[DBG:test] detach succeeded\n');
         });
 
         // FB 3.0 : Should be tested with Srp256 enabled on server configuration
