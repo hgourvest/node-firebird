@@ -161,9 +161,11 @@ describe('Driver Events', function () {
 
         const errorPromise = new Promise((resolve) => { adb.once('error', resolve); });
 
-        // Force throwClosed path by marking the connection closed, then
-        // attempting an operation. The callback receives the error too, but we
-        // absorb it to avoid an unhandled rejection.
+        // Trigger the throwClosed() code-path in Connection, which emits 'error'
+        // on the Database object and then calls the provided callback with the
+        // same error. We absorb the callback error to avoid an unhandled rejection.
+        // This is the standard driver path for connection-level errors (socket
+        // closed, etc.) and avoids the complexity of destroying a live socket.
         adb.connection._isClosed = true;
         adb.connection.startTransaction(() => {});
 

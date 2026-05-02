@@ -403,7 +403,7 @@ Firebird.attach(options, function (err, db) {
 
   db.on('transaction', function (options) {
     // fired when a transaction is started (before server response)
-    // options === transaction options object
+    // options === resolved transaction options object
   });
 
   db.on('commit', function () {
