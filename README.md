@@ -377,40 +377,92 @@ Firebird.attach(options, function (err, db) {
 });
 ```
 
-### Events
+### Driver Events
+
+Driver events are synchronous notifications emitted on the `Database` object for connection-level operations. Subscribe with `db.on(eventName, handler)`.
 
 ```js
 Firebird.attach(options, function (err, db) {
   if (err) throw err;
 
-  db.on('row', function (row, index, isObject) {
-    // index === Number
-    // isObject === is row object or array?
+  db.on('attach', function () {
+    // fired once the database is attached
   });
-
-  db.on('result', function (result) {
-    // result === Array
-  });
-
-  db.on('attach', function () {});
 
   db.on('detach', function (isPoolConnection) {
-    // isPoolConnection == Boolean
+    // isPoolConnection === Boolean
   });
 
-  db.on('reconnect', function () {});
-
-  db.on('error', function (err) {});
-
-  db.on('transaction', function (isolation) {
-    // isolation === Number
+  db.on('reconnect', function () {
+    // fired after the driver reconnects a dropped socket
   });
 
-  db.on('commit', function () {});
+  db.on('error', function (err) {
+    // connection-level errors (socket errors, closed connection, etc.)
+  });
 
-  db.on('rollback', function () {});
+  db.on('transaction', function (options) {
+    // fired when a transaction is started (before server response)
+    // options === transaction options object
+  });
+
+  db.on('commit', function () {
+    // fired when a transaction commit is sent
+  });
+
+  db.on('rollback', function () {
+    // fired when a transaction rollback is sent
+  });
+
+  db.on('query', function (sql) {
+    // fired with the SQL string when a statement is prepared
+  });
+
+  db.on('row', function (row, index, isObject) {
+    // fired for each row decoded during a fetch
+    // index === Number, isObject === Boolean
+  });
+
+  db.on('result', function (rows) {
+    // fired with the full rows array once all rows are fetched
+    // rows === Array
+  });
 
   db.detach();
+});
+```
+
+### Firebird Database Events (POST_EVENT)
+
+Firebird database events are **asynchronous** notifications triggered by `POST_EVENT` inside PSQL triggers or stored procedures. They travel over a separate aux connection and are handled through `FbEventManager`.
+
+> **Note:** Full POST_EVENT reception is not yet implemented. `attachEvent` and `registerEvent` are available, but actual event delivery requires completing the `op_que_events`/`op_event` wire-protocol implementation.
+
+```js
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
+
+  // 1. Open the aux event connection and get a FbEventManager
+  db.attachEvent(function (err, evtmgr) {
+    if (err) throw err;
+
+    // 2. Subscribe to one or more named events
+    evtmgr.registerEvent(['MY_EVENT'], function (err) {
+      if (err) throw err;
+
+      // 3. Listen for POST_EVENT notifications
+      evtmgr.on('post_event', function (name, count) {
+        // name  === event name string (e.g. 'MY_EVENT')
+        // count === cumulative trigger count since last notification
+      });
+    });
+
+    // 4. Unsubscribe from events when no longer needed
+    // evtmgr.unregisterEvent(['MY_EVENT'], function (err) { ... });
+
+    // 5. Release the aux connection when done
+    // evtmgr.close(function (err) { ... });
+  });
 });
 ```
 

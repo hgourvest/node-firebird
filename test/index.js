@@ -66,7 +66,127 @@ describe('Connection', function () {
     });
 });
 
-describe('Events', function () {
+describe('Driver Events', function () {
+    // Driver events are notifications emitted directly on the Database object
+    // for connection-level operations: attach, detach, transaction, commit,
+    // rollback, query, row, result, error, and reconnect.
+    // These are distinct from Firebird database POST_EVENT notifications, which
+    // are received via db.attachEvent() and the FbEventManager class.
+
+    let db;
+
+    beforeAll(async function () {
+        db = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
+    });
+
+    afterAll(async function () {
+        if (db) {
+            await fromCallback(cb => db.detach(cb)).catch(() => {});
+        }
+    });
+
+    it('should emit "attach" event when a database connection is established', async function () {
+        // attach is fired via setImmediate after the user callback, so we
+        // register the listener once we have the db reference and before the
+        // current tick completes.
+        const adb = await fromCallback(cb => Firebird.attach(config, cb));
+
+        await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('attach event timed out')), 2000);
+            adb.once('attach', () => { clearTimeout(timer); resolve(); });
+        });
+
+        await fromCallback(cb => adb.detach(cb));
+    });
+
+    it('should emit "detach" event when a database connection is closed', async function () {
+        const adb = await fromCallback(cb => Firebird.attach(config, cb));
+
+        const detachPromise = new Promise((resolve) => { adb.once('detach', resolve); });
+        await fromCallback(cb => adb.detach(cb));
+        await detachPromise;
+    });
+
+    it('should emit "transaction" event when a transaction starts', async function () {
+        const txPromise = new Promise((resolve) => { db.once('transaction', resolve); });
+        const transaction = await fromCallback(cb => db.startTransaction(cb));
+        await txPromise;
+        await fromCallback(cb => transaction.commit(cb));
+    });
+
+    it('should emit "commit" event when a transaction is committed', async function () {
+        const transaction = await fromCallback(cb => db.startTransaction(cb));
+        const commitPromise = new Promise((resolve) => { db.once('commit', resolve); });
+        await fromCallback(cb => transaction.commit(cb));
+        await commitPromise;
+    });
+
+    it('should emit "rollback" event when a transaction is rolled back', async function () {
+        const transaction = await fromCallback(cb => db.startTransaction(cb));
+        const rollbackPromise = new Promise((resolve) => { db.once('rollback', resolve); });
+        await fromCallback(cb => transaction.rollback(cb));
+        await rollbackPromise;
+    });
+
+    it('should emit "query" event with the SQL string when a query is executed', async function () {
+        const sql = 'SELECT 1 FROM RDB$DATABASE';
+        const queryPromise = new Promise((resolve) => { db.once('query', resolve); });
+        await fromCallback(cb => db.query(sql, cb));
+        const emittedSql = await queryPromise;
+        assert.equal(emittedSql, sql);
+    });
+
+    it('should emit "row" event for each row returned by a query', async function () {
+        const rowEvents = [];
+        const rowHandler = (row) => rowEvents.push(row);
+        db.on('row', rowHandler);
+        try {
+            await fromCallback(cb => db.query('SELECT * FROM RDB$DATABASE', cb));
+        } finally {
+            db.removeListener('row', rowHandler);
+        }
+        assert.ok(rowEvents.length > 0, 'Expected at least one row event');
+    });
+
+    it('should emit "result" event with the full result array when a query completes', async function () {
+        const resultPromise = new Promise((resolve) => { db.once('result', resolve); });
+        await fromCallback(cb => db.query('SELECT * FROM RDB$DATABASE', cb));
+        const rows = await resultPromise;
+        assert.ok(Array.isArray(rows), 'result event should emit an array');
+        assert.ok(rows.length > 0, 'result array should not be empty');
+    });
+
+    it('should emit "error" event on connection-level errors', async function () {
+        const adb = await fromCallback(cb => Firebird.attach(config, cb));
+
+        const errorPromise = new Promise((resolve) => { adb.once('error', resolve); });
+
+        // Force throwClosed path by marking the connection closed, then
+        // attempting an operation. The callback receives the error too, but we
+        // absorb it to avoid an unhandled rejection.
+        adb.connection._isClosed = true;
+        adb.connection.startTransaction(() => {});
+
+        const err = await errorPromise;
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /Connection is closed/);
+
+        // Restore and clean up
+        adb.connection._isClosed = false;
+        await fromCallback(cb => adb.detach(cb));
+    });
+});
+
+describe('Firebird Database Events (POST_EVENT)', function () {
+    // Real Firebird database events are asynchronous notifications triggered
+    // by POST_EVENT calls inside PSQL triggers or stored procedures.
+    // They are accessed via db.attachEvent() which returns a FbEventManager.
+    // Use FbEventManager.registerEvent() to subscribe to named events and
+    // listen for the 'post_event' emitter event to receive notifications.
+    //
+    // NOTE: Full POST_EVENT reception (op_que_events wire protocol) is not yet
+    // implemented – the "should receive an event" test is skipped until complete.
+
     const table_sql = 'CREATE TABLE TEST_EVENTS (ID INT NOT NULL CONSTRAINT PK_EVENTS PRIMARY KEY, NAME VARCHAR(50))';
 
     let db;
@@ -92,22 +212,31 @@ describe('Events', function () {
         }
     });
 
-    it("should create a connection", async function () {
+    it('should create an event manager connection via attachEvent', async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
         await fromCallback(cb => evtmgr.close(cb));
     });
 
-    it("should register an event", async function () {
+    it('should register a named event subscription', async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
-        await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
+        await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
         await fromCallback(cb => evtmgr.close(cb));
     });
 
-    it.skip("should receive an event", async function () {
+    it.skip('should unregister a named event subscription', async function () {
+        // TODO: unregisterEvent sends op_cancel_events; skip until the full
+        // POST_EVENT wire protocol is verified end-to-end.
+        const evtmgr = await fromCallback(cb => db.attachEvent(cb));
+        await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
+        await fromCallback(cb => evtmgr.unregisterEvent(['TRG_TEST_EVENTS'], cb));
+        await fromCallback(cb => evtmgr.close(cb));
+    });
+
+    it.skip('should receive a post_event notification when the database fires an event', async function () {
         // TODO: Real Firebird database events (POST_EVENT / op_que_events) are not
         // fully implemented yet – skip until the feature is complete.
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
-        await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
+        await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
 
         const eventPromise = new Promise((resolve, reject) => {
             evtmgr.on('post_event', (name, count) => {
