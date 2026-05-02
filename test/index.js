@@ -217,12 +217,7 @@ describe('Firebird Database Events (POST_EVENT)', function () {
         }
     });
 
-    it('should create an event manager connection via attachEvent', async function () {
-        const evtmgr = await fromCallback(cb => db.attachEvent(cb));
-        await fromCallback(cb => evtmgr.close(cb));
-    });
-
-    it('should expose current state via getState() debug API', async function () {
+    it('should create an event manager connection and verify initial state via getState()', async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
 
         // After attachEvent: IDLE – EventConnection open, no active subscription
