@@ -98,25 +98,14 @@ describe('Events', function () {
     });
 
     it("should register an event", async function () {
-        console.log('[Test] Starting "should register an event" test');
-        const evtmgr = await fromCallback(cb => {
-            console.log('[Test] Calling db.attachEvent');
-            return db.attachEvent(cb);
-        });
-        console.log('[Test] Event manager attached, evtmgr:', !!evtmgr, 'eventid:', evtmgr.eventid);
-        
-        console.log('[Test] Calling registerEvent with TRG_TEST_EVENTS');
+        const evtmgr = await fromCallback(cb => db.attachEvent(cb));
         await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
-        console.log('[Test] registerEvent completed successfully');
-        
-        console.log('[Test] Calling evtmgr.close');
         await fromCallback(cb => evtmgr.close(cb));
-        console.log('[Test] Test completed successfully');
     });
 
     it.skip("should receive an event", async function () {
-        // TODO: This test has issues when run with other Event tests due to
-        // event count accumulation. Needs investigation.
+        // TODO: Real Firebird database events (POST_EVENT / op_que_events) are not
+        // fully implemented yet – skip until the feature is complete.
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
         await fromCallback(cb => evtmgr.registerEvent(["TRG_TEST_EVENTS"], cb));
 
@@ -124,7 +113,7 @@ describe('Events', function () {
             evtmgr.on('post_event', (name, count) => {
                 try {
                     assert.equal(name, 'TRG_TEST_EVENTS');
-                    assert.ok(count > 0); // Count may be > 1 if previous tests have fired events
+                    assert.ok(count > 0);
                     resolve();
                 } catch (e) {
                     reject(e);
@@ -132,8 +121,7 @@ describe('Events', function () {
             });
         });
 
-        // Use a unique ID to avoid primary key conflicts
-        const uniqueId = Date.now();
+        const uniqueId = Math.floor(Date.now() / 1000);
         await fromCallback(cb => db.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [uniqueId, 'xpto'], cb));
 
         await eventPromise;
@@ -274,25 +262,30 @@ describe('Database', function() {
         });
     });
 
-    describe('Statement timeout', function(ctx) {
-        const skip = protocolVersion < Const.PROTOCOL_VERSION16; // Statement timeout available from protocol v16
+    describe('Statement timeout', function() {
+        // Statement timeout is only available from protocol v16 (Firebird 4+).
+        // protocolVersion is set in beforeAll, so skip must be evaluated lazily
+        // inside beforeEach (not at describe-block setup time) to avoid running
+        // the infinite-loop test on Firebird 3 which would permanently block the queue.
+        beforeEach(function(ctx) {
+            if (protocolVersion < Const.PROTOCOL_VERSION16) ctx.skip();
+        });
 
-        it('should query with sufficient timeout', { skip }, async function (test) {
+        it('should query with sufficient timeout', async function (test) {
             await fromCallback(cb => db.query('SELECT * FROM RDB$RELATIONS FOR UPDATE', cb, { timeout: 10 }));
         });
 
-        it('should query throw timeout', { skip }, async function (test) {
+        it('should query throw timeout', async function (test) {
             await assert.rejects(async () => {
                 await fromCallback(cb => db.query('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
             }, /Operation was cancelled, Statement level timeout expired/);
         });
 
-        it('should execute with sufficient timeout', { skip }, async function (test) {
+        it('should execute with sufficient timeout', async function (test) {
             await fromCallback(cb => db.execute('SELECT * FROM RDB$RELATIONS FOR UPDATE', cb, { timeout: 10 }));
         });
 
-        it('should execute throw timeout', { skip }, async function (test) {
-
+        it('should execute throw timeout', async function (test) {
             await assert.rejects(async () => {
                 await fromCallback(cb => db.execute('EXECUTE BLOCK AS BEGIN WHILE(0=0) DO BEGIN END END', cb, { timeout: 1000 }));
             }, /Operation was cancelled, Statement level timeout expired/);
