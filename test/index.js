@@ -222,6 +222,28 @@ describe('Firebird Database Events (POST_EVENT)', function () {
         await fromCallback(cb => evtmgr.close(cb));
     });
 
+    it('should expose current state via getState() debug API', async function () {
+        const evtmgr = await fromCallback(cb => db.attachEvent(cb));
+
+        // After attachEvent: IDLE – EventConnection open, no active subscription
+        const idleState = evtmgr.getState();
+        assert.equal(idleState.state, 'IDLE');
+        assert.equal(idleState.hasActiveSubscription, false);
+        assert.deepStrictEqual(idleState.registeredEvents, {});
+        assert.equal(idleState.isEventConnectionOpen, true);
+        assert.equal(idleState.isDatabaseConnectionClosed, false);
+
+        await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
+
+        // After registerEvent: SUBSCRIBED
+        const subscribed = evtmgr.getState();
+        assert.equal(subscribed.state, 'SUBSCRIBED');
+        assert.equal(subscribed.hasActiveSubscription, true);
+        assert.ok('TRG_TEST_EVENTS' in subscribed.registeredEvents);
+
+        await fromCallback(cb => evtmgr.close(cb));
+    });
+
     it('should register a named event subscription', async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
         await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
