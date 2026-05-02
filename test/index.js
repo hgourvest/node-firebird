@@ -233,8 +233,9 @@ describe('Firebird Database Events (POST_EVENT)', function () {
         assert.equal(idleState.isEventConnectionOpen, true);
         assert.equal(idleState.isDatabaseConnectionClosed, false);
 
-        // SUBSCRIBED state (post registerEvent) is tested in the skip block below
-        // once the full op_que_events wire protocol is implemented.
+        // SUBSCRIBED state (post registerEvent / op_que_events) is not tested here
+        // because the full POST_EVENT wire protocol is not yet implemented.
+        // See the skip block below ('should register a named event subscription').
 
         await fromCallback(cb => evtmgr.close(cb));
     });
