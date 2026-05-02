@@ -86,17 +86,20 @@ describe('Driver Events', function () {
     });
 
     it('should emit "attach" event when a database connection is established', async function () {
-        // attach is fired via setImmediate after the user callback, so we
-        // register the listener once we have the db reference and before the
-        // current tick completes.
-        const adb = await fromCallback(cb => Firebird.attach(config, cb));
-
+        // The 'attach' event is fired via setImmediate (after the user callback
+        // returns). Register the listener synchronously inside the Firebird.attach
+        // callback so it is in place before setImmediate fires – the two are in
+        // the same tick of the socket data handler.
+        let adb;
         await new Promise((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error('attach event timed out')), 2000);
-            adb.once('attach', () => { clearTimeout(timer); resolve(); });
+            const timer = setTimeout(() => reject(new Error('attach event timed out')), 5000);
+            Firebird.attach(config, function (err, db) {
+                if (err) { clearTimeout(timer); reject(err); return; }
+                adb = db;
+                db.once('attach', () => { clearTimeout(timer); resolve(); });
+            });
         });
-
-        await fromCallback(cb => adb.detach(cb));
+        if (adb) await fromCallback(cb => adb.detach(cb));
     });
 
     it('should emit "detach" event when a database connection is closed', async function () {
