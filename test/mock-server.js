@@ -190,7 +190,7 @@ function buildOpCondAcceptSRP(protocolVersion, salt, serverB) {
  * @param {string} [m2Data]  Optional UTF-8 string payload for the M2 field.
  *                           Omit (or pass undefined) for an empty array.
  */
-function buildOpContAuthServer(m2Data) {
+function buildOpContAuthServer(m2Data, pluginName) {
     const w = new XdrWriter(128);
     w.addInt(Const.op_cont_auth);
     if (m2Data) {
@@ -204,7 +204,7 @@ function buildOpContAuthServer(m2Data) {
     } else {
         w.addInt(0);                // empty M2 array (length = 0)
     }
-    w.addString('Srp', 'utf8');     // plugin name
+    w.addString(pluginName || 'Srp', 'utf8'); // plugin name
     w.addString('', 'utf8');        // plist
     w.addString('', 'utf8');        // pkey
     return w.getData();
@@ -739,6 +739,63 @@ describe('Firebird SRP Authentication – offline protocol tests', function () {
 
     it('should complete full SRP auth exchange – protocol 17 (FB5)', async function () {
         await runSrpAuthCycle(Const.PROTOCOL_VERSION17);
+    });
+
+    /**
+     * Firebird 4/5 chained-auth: after the client sends SRP M1, the server
+     * sends op_cont_auth with Legacy_Auth (not Srp), then the client responds
+     * with Legacy_Auth credentials, then the server sends op_accept.
+     */
+    it('should handle SRP + Legacy_Auth chained-auth (Firebird 4/5 behaviour) – protocol 16', async function () {
+        const protocolVersion = Const.PROTOCOL_VERSION16;
+        const serverKeys = srp.serverSeed(SRP_TEST_USER, SRP_TEST_PASSWORD, SRP_TEST_SALT);
+        const challengeFrame = buildOpCondAcceptSRP(protocolVersion, SRP_TEST_SALT, serverKeys.public);
+
+        let legacyAuthReceived = false;
+
+        const { server, port } = await startMockServer(socket => {
+            let state = 'init';
+            makeFullDispatcher(socket, (s, opcode, buf) => {
+                if (opcode === Const.op_connect) {
+                    state = 'challenge_sent';
+                    s.write(challengeFrame);
+                    return buf.length;
+
+                } else if (opcode === Const.op_cont_auth && state === 'challenge_sent') {
+                    // Client sends SRP M1 – server responds with Legacy_Auth continuation
+                    state = 'legacy_auth_sent';
+                    s.write(buildOpContAuthServer(null, 'Legacy_Auth'));
+                    return buf.length;
+
+                } else if (opcode === Const.op_cont_auth && state === 'legacy_auth_sent') {
+                    // Client sends Legacy_Auth credentials – server responds with op_accept
+                    legacyAuthReceived = true;
+                    state = 'auth_complete';
+                    s.write(buildOpAccept(protocolVersion));
+                    return buf.length;
+
+                } else if (opcode === Const.op_attach || opcode === Const.op_create) {
+                    s.write(buildOpResponse(42));
+                    return buf.length;
+
+                } else if (opcode === Const.op_detach) {
+                    s.write(buildOpResponse(0));
+                    s.end();
+                    return buf.length;
+                }
+                return buf.length;
+            });
+        });
+
+        try {
+            const db = await withMockSrpAttach(port);
+            assert.ok(db, 'db should be returned after chained SRP+Legacy_Auth auth');
+            assert.ok(legacyAuthReceived, 'client should have sent Legacy_Auth credentials after SRP M1');
+            await new Promise((resolve, reject) =>
+                db.detach(e => (e ? reject(e) : resolve())));
+        } finally {
+            await stopMockServer(server);
+        }
     });
 
     it('should parse op_connect BLR and extract Srp plugin name and client key A', async function () {
