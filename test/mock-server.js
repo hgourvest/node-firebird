@@ -186,13 +186,16 @@ function buildOpCondAcceptSRP(protocolVersion, salt, serverB) {
  * NOTE: The node-firebird client does NOT validate M2 content; it just waits
  * for the subsequent op_accept.  An empty array is therefore sufficient for
  * offline testing.
+ *
+ * @param {string} [m2Data]  Optional UTF-8 string payload for the M2 field.
+ *                           Omit (or pass undefined) for an empty array.
  */
-function buildOpContAuthServer(m2Hex) {
+function buildOpContAuthServer(m2Data) {
     const w = new XdrWriter(128);
     w.addInt(Const.op_cont_auth);
-    if (m2Hex) {
-        // Write M2 as an XDR string-length-prefixed byte sequence
-        const m2Buf = Buffer.from(m2Hex, 'utf8');
+    if (m2Data) {
+        // Write M2 as a length-prefixed XDR array (UTF-8 encoded)
+        const m2Buf = Buffer.from(m2Data, 'utf8');
         const authBlr = new BlrWriter(m2Buf.length + 4);
         authBlr.ensure(m2Buf.length);
         m2Buf.copy(authBlr.buffer, authBlr.pos);
@@ -276,26 +279,36 @@ function parseOpConnect(buf) {
 
             switch (tag) {
                 case Const.CNCT_plugin_name: {          // 8
+                    if (pos >= blrData.length) break;
                     const len = blrData[pos++];
+                    if (pos + len > blrData.length) break;
                     result.pluginName = blrData.slice(pos, pos + len).toString('utf8');
                     pos += len;
                     break;
                 }
                 case Const.CNCT_login: {                // 9
+                    if (pos >= blrData.length) break;
                     const len = blrData[pos++];
+                    if (pos + len > blrData.length) break;
                     result.login = blrData.slice(pos, pos + len).toString('utf8');
                     pos += len;
                     break;
                 }
                 case Const.CNCT_plugin_list: {          // 10
+                    if (pos >= blrData.length) break;
                     const len = blrData[pos++];
+                    if (pos + len > blrData.length) break;
                     pos += len;
                     break;
                 }
                 case Const.CNCT_specific_data: {        // 7 – multiblock
+                    if (pos >= blrData.length) break;
                     const totalLen = blrData[pos++];    // includes step byte
+                    if (totalLen < 1) break;            // must include at least the step byte
                     const chunkLen = totalLen - 1;
+                    if (pos >= blrData.length) break;   // need at least the step byte
                     const step     = blrData[pos++];
+                    if (pos + chunkLen > blrData.length) break; // bounds check
                     specificParts[step] = blrData.slice(pos, pos + chunkLen).toString('utf8');
                     pos += chunkLen;
                     break;
@@ -304,7 +317,9 @@ function parseOpConnect(buf) {
                 case Const.CNCT_user:                   // 1
                 case Const.CNCT_host:                   // 4
                 case Const.CNCT_user_verification: {    // 6
+                    if (pos >= blrData.length) break;
                     const len = blrData[pos++];
+                    if (pos + len > blrData.length) break; // bounds check
                     pos += len;
                     break;
                 }
@@ -329,10 +344,14 @@ function parseOpConnect(buf) {
  *
  * op_cont_auth XDR layout:
  *   int op_cont_auth (92)
- *   XDR array: M1 proof bytes (hex string as UTF-8 bytes)
+ *   XDR array: M1 proof bytes (UTF-8 encoded hex string, e.g. "3f9a...")
  *   XDR string: plugin name
  *   XDR string: plugin list
  *   int: keys (0)
+ *
+ * The M1 proof is sent by the client as a hex-character string encoded as
+ * UTF-8 bytes (so each byte is an ASCII hex character 0-9/a-f).  Reading it
+ * with `toString('utf8')` therefore produces the hex string directly.
  *
  * @param {Buffer} buf  Raw TCP bytes starting at the op_cont_auth opcode.
  * @returns {{ m1Hex, pluginName }} or null on parse error.
@@ -341,8 +360,9 @@ function parseOpContAuth(buf) {
     try {
         const r = new XdrReader(buf);
         r.readInt();                                    // op_cont_auth
-        const authDataBuf = r.readArray();              // M1 as hex bytes
+        const authDataBuf = r.readArray();              // M1 proof as UTF-8 hex characters
         const pluginName  = r.readString('utf8');
+        // The authDataBuf contains UTF-8 bytes of the hex string (e.g. "3f9a...")
         const m1Hex = authDataBuf ? authDataBuf.toString('utf8') : '';
         return { m1Hex, pluginName };
     } catch (e) {
