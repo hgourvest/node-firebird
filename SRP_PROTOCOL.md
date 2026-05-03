@@ -419,8 +419,10 @@ pkey            string     "" (empty)
 | `lib/wire/connection.js` | Wire protocol encode/decode; SRP handshake; debug logging |
 | `lib/wire/const.js` | Protocol version constants, opcode numbers, auth plugin names |
 | `lib/wire/serialize.js` | `XdrWriter`, `XdrReader`, `BlrWriter`, `BlrReader` |
+| `test/srp.js` | Unit tests for SRP arithmetic helpers and end-to-end handshake |
 | `test/mock-server.js` | Offline wire-protocol tests (SRP auth + queue integrity) |
 | `test/index.js` | Online integration tests (real Firebird server required) |
+| `BIGINT_MIGRATION.md` | Migration guide: `big-integer` → native `BigInt` (root-cause analysis, modPow docs, performance) |
 
 ---
 
