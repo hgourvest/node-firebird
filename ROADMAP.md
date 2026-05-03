@@ -204,7 +204,7 @@ Before or alongside the TypeScript work, refactor the prototype-based codebase t
 
 These are open pull requests that are close to being merged and represent near-term deliverables.
 
-- **[PR #385](https://github.com/hgourvest/node-firebird/pull/385)** — Use native `BigInt` instead of the `big-integer` library
+- **[PR #385](https://github.com/hgourvest/node-firebird/pull/385)** — Use native `BigInt` instead of the `big-integer` library ✅ Merged
 - **[PR #383](https://github.com/hgourvest/node-firebird/pull/383)** — `DECFLOAT` data type support ✅ Merged
 
 ---
