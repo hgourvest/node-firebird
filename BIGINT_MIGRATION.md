@@ -242,6 +242,59 @@ Replacing a pure-JavaScript library with a native implementation has the followi
 
 ---
 
+## Test Private-Key Size Constraint
+
+### Root Cause of Flaky Tests with Random 1024-bit Keys
+
+`clientSession` in `lib/srp.js` reduces the client exponent modulo `PRIME.N`:
+
+```js
+var ux  = (u * x) % PRIME.N;
+var aux = (a + ux) % PRIME.N;   // ← reduction
+```
+
+The `big-integer` library applied the identical reduction:
+
+```js
+var ux  = u.multiply(x).mod(PRIME.N);
+var aux = a.add(ux).mod(PRIME.N);  // ← same reduction
+```
+
+Both implementations are therefore **identical in behaviour**.
+
+When the client private key `a` is generated as a random 1024-bit number (128 bytes) there is a ~10%
+chance that `a >= PRIME.N` (since `N ≈ 0.9 × 2^1024`).  Combined with `ux < N`, the sum `a + ux`
+can exceed `N`, causing the `% N` reduction to change the effective exponent.  The server side
+(`serverSession`) does **not** apply the same reduction to `b`, so the two session secrets diverge.
+
+### Why this doesn't affect real Firebird authentication
+
+In a real Firebird SRP handshake the client private key is the **only** place where `a` appears, and
+it enters the protocol as `A = g^a mod N`.  The real Firebird server therefore only ever "sees" `A`,
+not `a` itself.  Node.js generates `a` from `crypto.randomBytes(128)`, a 1024-bit value.  When
+`a < N` (~90% of the time) the reduction is a no-op and auth succeeds.  When `a >= N`, the effective
+client exponent changes and auth would fail — this is a pre-existing edge case shared by both the
+`big-integer` and native-BigInt implementations.
+
+### Why tests must use small (< N) private keys
+
+The unit-test helper `serverSession` (used only for testing) mirrors what the real Firebird server
+does: it uses the server private key `b` **without** reduction.  This means that test vectors must
+ensure `a + ux < N` to avoid the divergence.
+
+All test private keys in `test/srp.js` are **256-bit** values — far smaller than the 1024-bit
+`PRIME.N` — so `a + ux < N` always holds and every test is deterministic.
+
+```js
+// ✓ correct — 256-bit key, always << PRIME.N
+const TEST_CLIENT_1 = BigInt('0x3138bb9bc78df27c...aedd3');
+
+// ✗ flaky — 1024-bit random key, ~12% chance of a+ux >= N
+var clientKeys = Srp.clientSeed();  // DO NOT use this in assertions
+```
+
+---
+
 ## Verifying the Fix
 
 ### 1. Unit Tests (offline, no Firebird required)

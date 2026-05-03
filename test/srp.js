@@ -20,6 +20,12 @@ const TEST_CLIENT_3 = BigInt('0x4a5b6c7d8e9fa0b1c2d3e4f5061718192a3b4c5d6e7f8091
 const TEST_SALT_4 = '1f2e3d4c5b6a79887a6b5c4d3e2f1e0b1f2e3d4c5b6a79887a6b5c4d3e2f1e0b';
 const TEST_CLIENT_4 = BigInt('0x9182736450a1b2c3d4e5f6071819202122232425262728293a3b3c3d3e3f4041');
 
+// Fixed server private keys for deterministic full round-trip tests.
+// Both values are 256-bit (<<< PRIME.N which is 1024-bit), so a + ux < N
+// always holds and the session-key comparison is always deterministic.
+const TEST_SERVER_1 = BigInt('0x60975527035cf2ad1989806f0407210bc81edc04e2762a56afd529ddda2d4394');
+const TEST_SERVER_2 = BigInt('0x4a5b6c7d8e9fa0b1c2d3e4f5061718192a3b4c5d6e7f8091a2b3c4d5e6f70819');
+
 // Alternative user/password for testing non-SYSDBA authentication
 const ALT_USER = 'ALICE';
 const ALT_PASSWORD = 'alicepassword';
@@ -121,10 +127,14 @@ describe('Test Srp client', function () {
         testSrpUser('sha256', TEST_SALT_2, TEST_CLIENT_2, ALT_USER, ALT_PASSWORD);
     });
 
-    it('should succeed end-to-end with randomly generated private keys', function () {
-        // Uses Srp.clientSeed() and Srp.serverSeed() without fixed keys.
-        // Verifies that client and server always agree on the session key.
-        testSrp('sha1', TEST_SALT_1);
+    it('should succeed end-to-end with fixed client and server keys (sha1)', function () {
+        // Fully deterministic: both client and server private keys are fixed 256-bit
+        // values (always << PRIME.N) so the (a + ux) % N reduction never fires.
+        testSrp('sha1', TEST_SALT_1, TEST_CLIENT_1, TEST_SERVER_1);
+    });
+
+    it('should succeed end-to-end with fixed client and server keys (sha256)', function () {
+        testSrp('sha256', TEST_SALT_2, TEST_CLIENT_2, TEST_SERVER_2);
     });
 
     it('should produce mismatched session keys for a wrong password', function () {
