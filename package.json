@@ -29,7 +29,6 @@
         "lint": "oxlint"
     },
     "dependencies": {
-        "big-integer": "^1.6.51",
         "long": "^5.2.3"
     },
     "devDependencies": {
