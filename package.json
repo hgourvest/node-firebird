@@ -29,7 +29,6 @@
         "lint": "oxlint"
     },
     "dependencies": {
-        "long": "^5.2.3"
     },
     "devDependencies": {
         "coveralls-next": "^6.0.1",
