@@ -72,6 +72,7 @@ options.wireCompression = false; // set to true to enable firebird compression o
 options.wireCrypt = Firebird.WIRE_CRYPT_ENABLE; // default; set to Firebird.WIRE_CRYPT_DISABLE to disable wire encryption (FB >= 3)
 options.pluginName = undefined; // optional, auto-negotiated; can be set to Firebird.AUTH_PLUGIN_SRP256, Firebird.AUTH_PLUGIN_SRP, or Firebird.AUTH_PLUGIN_LEGACY
 options.dbCryptConfig = undefined; // optional; database encryption key for encrypted databases. Use 'base64:<value>' for base64-encoded keys or plain text
+options.connectTimeout = 10000; // optional; timeout in ms for a single pool.get() attach operation (default: no timeout)
 ```
 
 ### Classic
@@ -107,6 +108,60 @@ pool.get(function (err, db) {
 
 // Destroy pool
 pool.destroy();
+```
+
+#### Advanced Pooling Features
+
+The pool implementation includes several safeguards for reliability:
+
+1.  **Connection Timeout**: Use `options.connectTimeout` to prevent the pool from hanging if a server accepts the TCP connection but fails to respond to the Firebird wire protocol (e.g., during high load or authentication stalls).
+2.  **Pool Destruction**: Calling `pool.destroy()` now immediately drains the `pending` queue, notifying all waiting callers with an error. It also prevents any further `pool.get()` calls.
+3.  **Slot Recovery**: If a connection attempt times out, the pool slot is correctly freed so subsequent requests can be served. Late-arriving connections are automatically discarded to prevent resource leaks.
+
+#### Pool Lifecycle State Diagram
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active
+    Active --> Destroying: pool.destroy()
+    Destroying --> Destroyed: all connections detached
+    Destroyed --> [*]
+
+    state Active {
+        [*] --> Idle
+        Idle --> Creating: pool.get() [no idle db]
+        Creating --> InUse: attach() success
+        Creating --> Idle: attach() failure/timeout
+        Idle --> InUse: pool.get() [idle db exists]
+        InUse --> Idle: db.detach()
+    }
+
+    state Destroying {
+        [*] --> DrainingPending
+        DrainingPending --> DetachingIdle
+        DetachingIdle --> WaitingForInUse
+        WaitingForInUse --> [*]
+    }
+```
+
+#### Connect Timeout Sequence
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Pool
+    participant Firebird
+    User->>Pool: pool.get()
+    Pool->>Pool: increment _creating
+    Pool->>Pool: start timer (connectTimeout)
+    Pool->>Firebird: attach(options)
+    Note over Firebird: Server accepts TCP but hangs
+    Pool-->>Pool: timer expires
+    Pool->>Pool: decrement _creating
+    Pool-->>User: callback(Error: Connection timeout)
+    Note over Firebird: Server eventually responds
+    Firebird-->>Pool: attach callback(db)
+    Pool->>Firebird: db.detach() (discard late connection)
 ```
 
 ## Database object (db)

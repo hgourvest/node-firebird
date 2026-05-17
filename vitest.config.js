@@ -18,7 +18,8 @@ module.exports = defineConfig({
             'test/db-crypt-config.js',
             'test/timezone.js',
             'test/decfloat.js',
-            'test/mock-server.js'
+            'test/mock-server.js',
+            'test/pool-fixes.js'
         ],
     },
 });

@@ -118,6 +118,16 @@ declare module 'node-firebird' {
         wireCompression?: boolean;
         pluginName?: string;
         dbCryptConfig?: string; // Database encryption key callback config (base64: prefix for base64, or plain string)
+        /**
+         * Timeout in milliseconds for a single pool.get() attach operation.
+         * If attach() does not complete within this time the slot is freed,
+         * the caller receives an error, and any late-arriving connection is
+         * safely discarded. Set to 0 or omit to disable (default: no timeout).
+         *
+         * Recommended value: 5000–10000 ms depending on network latency and
+         * expected Firebird server response time under load.
+         */
+        connectTimeout?: number;
     }
 
     export interface SvcMgrOptions extends Options {
