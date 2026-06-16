@@ -114,6 +114,18 @@ declare module 'node-firebird' {
         retryConnectionInterval?: number;
         encoding?: SupportedCharacterSet;
         blobAsText?: boolean; // only affects for blob subtype 1
+        /**
+         * Segment size in bytes used when WRITING blobs (op_batch_segments).
+         * Default 1024, max 65535. Use 65535 to minimize round-trips on
+         * remote/high-latency connections.
+         */
+        blobChunkSize?: number;
+        /**
+         * Buffer size in bytes requested per op_get_segment when READING
+         * blobs. Default 1024, max 65535. Use 65535 to minimize round-trips
+         * on remote/high-latency connections (~64x fewer round-trips).
+         */
+        blobReadChunkSize?: number;
         wireCrypt?: number; // WIRE_CRYPT_DISABLE or WIRE_CRYPT_ENABLE
         wireCompression?: boolean;
         pluginName?: string;
