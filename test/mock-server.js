@@ -58,6 +58,7 @@ const Const    = require('../lib/wire/const');
 const {XdrWriter, XdrReader, BlrWriter} = require('../lib/wire/serialize');
 const srp      = require('../lib/srp');
 const Firebird = require('../lib');
+const Socket   = require('../lib/wire/socket');
 
 // ---------------------------------------------------------------------------
 // Wire-protocol response builders
@@ -1077,4 +1078,128 @@ describe('XDR encode/decode round trips', function () {
         assert.strictEqual(Const.PROTOCOL_VERSION16 & Const.FB_PROTOCOL_MASK, 16);
         assert.strictEqual(Const.PROTOCOL_VERSION17 & Const.FB_PROTOCOL_MASK, 17);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Regression test: Socket deferred-write accumulation (Issue #411 / PR #412)
+// ---------------------------------------------------------------------------
+//
+// Bug: Socket.write(data, defer=true) overwrote this.buffer instead of
+// appending to it.  When two deferred packets were written back-to-back
+// (op_close_blob then op_free_statement) the first was silently discarded,
+// leaving the request/response queue one entry short.  Every subsequent
+// operation was then matched to the wrong callback, causing the connection to
+// hang forever after any SELECT that returned a non-null BLOB column.
+//
+// Fix: accumulate deferred packets with Buffer.concat so that a non-deferred
+// flush sends ALL of them together.
+//
+// These tests call Socket.write() directly on a bare prototype instance
+// (bypassing the constructor's net.createConnection) so that they run fully
+// offline and deterministically.
+
+describe('Socket – deferred write accumulation (regression #411)', function () {
+
+    /**
+     * Build a minimal Socket instance without opening a real TCP connection.
+     * Writes to the underlying socket are captured in `written[]`.
+     */
+    function makeBareSocket() {
+        const written = [];
+        const fakeUnderlying = {
+            setNoDelay: () => {},
+            on: () => {},
+            write: (data) => written.push(Buffer.from(data)),
+        };
+
+        const instance = Object.create(Socket.prototype);
+        instance._socket        = fakeUnderlying;
+        instance.buffer         = null;
+        instance.compress       = false;
+        instance.encrypt        = false;
+        instance.compressor     = null;
+        instance.decompressor   = null;
+        instance.compressorBuffer   = [];
+        instance.decompressorBuffer = [];
+        instance.encryptCipher  = null;
+        instance.decryptCipher  = null;
+
+        return { instance, written };
+    }
+
+    it('should accumulate multiple consecutive deferred writes and flush all at once', function () {
+        const { instance, written } = makeBareSocket();
+
+        // Simulate op_close_blob (deferred) followed by op_free_statement
+        // (deferred) – exactly the sequence that triggered the bug.
+        const pkt1 = Buffer.from('OP_CLOSE_BLOB');
+        const pkt2 = Buffer.from('OP_FREE_STMT');
+        const pkt3 = Buffer.from('OP_ALLOC_STMT');
+
+        instance.write(pkt1, true);   // defer – stored in socket.buffer
+        instance.write(pkt2, true);   // defer – must ACCUMULATE, not overwrite
+        instance.write(pkt3, false);  // flush – send accumulated buffer + pkt3
+
+        assert.strictEqual(written.length, 1,
+            'all accumulated packets should be sent in a single write on flush');
+
+        const expected = Buffer.concat([pkt1, pkt2, pkt3]);
+        assert.ok(
+            written[0].equals(expected),
+            'Expected ' + expected.toString() + ' but got ' + written[0].toString() +
+            ' — pkt1 was dropped (deferred writes overwriting instead of accumulating)'
+        );
+    });
+
+    it('should clear the deferred buffer after a flush (no double-send)', function () {
+        const { instance, written } = makeBareSocket();
+
+        const pkt1 = Buffer.from('DEFERRED_A');
+        const pkt2 = Buffer.from('FLUSH_B');
+        const pkt3 = Buffer.from('DIRECT_C');
+
+        // First flush: accumulated pkt1 + pkt2
+        instance.write(pkt1, true);
+        instance.write(pkt2, false);
+
+        // Second standalone write: only pkt3 — pkt1 must NOT be re-sent.
+        instance.write(pkt3, false);
+
+        assert.strictEqual(written.length, 2,
+            'should produce exactly two socket writes: one flush and one direct');
+
+        const expected1 = Buffer.concat([pkt1, pkt2]);
+        const expected2 = pkt3;
+
+        assert.ok(written[0].equals(expected1),
+            'first write should be ' + expected1.toString());
+        assert.ok(written[1].equals(expected2),
+            'second write should be ' + expected2.toString() +
+            ' (pkt1 must not be re-sent after flush)');
+    });
+
+    it('should handle a single deferred write followed by a flush', function () {
+        const { instance, written } = makeBareSocket();
+
+        const pkt1 = Buffer.from('ONLY_DEFERRED');
+        const pkt2 = Buffer.from('FLUSH_DATA');
+
+        instance.write(pkt1, true);
+        instance.write(pkt2, false);
+
+        assert.strictEqual(written.length, 1);
+        const expected = Buffer.concat([pkt1, pkt2]);
+        assert.ok(written[0].equals(expected));
+    });
+
+    it('should send a non-deferred write immediately when no buffer is pending', function () {
+        const { instance, written } = makeBareSocket();
+
+        const pkt = Buffer.from('IMMEDIATE');
+        instance.write(pkt, false);
+
+        assert.strictEqual(written.length, 1);
+        assert.ok(written[0].equals(pkt));
+    });
+
 });

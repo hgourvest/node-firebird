@@ -254,3 +254,50 @@ describe('Test Srp client', function () {
         assert.ok(proof.clientSessionKey === serverSessionKey, `Session key mismatch for user ${user}`);
     }
 });
+
+// ─────────────────────────────────────────────────────────────────
+// Regression tests for Issue #411 / PR #412
+// ─────────────────────────────────────────────────────────────────
+//
+// Bug: clientSeed() generated the 1024-bit random private key a without
+// reducing it mod N.  Because N ≈ 0.9 × 2^1024, roughly 10% of random values
+// are >= N.  When a >= N the client's public key A = g^a mod N equals
+// g^(a mod (N-1)) mod N (Fermat), but clientSession() reduces the exponent
+// (a + ux) mod N — a different reduction.  The resulting session keys
+// diverge and Firebird rejects the SRP proof, causing attach() to hang.
+//
+// Fix: default parameter is now `toBigInt(randomBytes(128)) % PRIME.N`,
+// guaranteeing a is always in [0, N).
+
+// The SRP prime N — imported from the library so we never diverge from
+// the value actually used during authentication.
+const PRIME_N = Srp.PRIME_N;
+
+describe('clientSeed – private key reduction (regression #411)', function () {
+
+    it('random private key should always be < PRIME.N', function () {
+        // 100 independent draws.  Without the fix, ~10% of 1024-bit random values
+        // exceed N, so the probability that all 100 happen to be < N is
+        // 0.9^100 ≈ 2.6 × 10^-5 — effectively zero.
+        for (var i = 0; i < 100; i++) {
+            var keys = Srp.clientSeed();
+            assert.ok(
+                keys.private < PRIME_N,
+                'private key ' + keys.private.toString(16).slice(0, 16) + '… must be < PRIME.N'
+            );
+        }
+    });
+
+    it('private key from clientSeed() should equal itself mod PRIME.N', function () {
+        // x < N  ⟺  x % N === x.  Any key >= N would violate this invariant.
+        for (var i = 0; i < 50; i++) {
+            var keys = Srp.clientSeed();
+            assert.strictEqual(
+                keys.private % PRIME_N,
+                keys.private,
+                'private key must already be reduced mod PRIME.N'
+            );
+        }
+    });
+
+});
