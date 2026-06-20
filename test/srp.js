@@ -254,3 +254,52 @@ describe('Test Srp client', function () {
         assert.ok(proof.clientSessionKey === serverSessionKey, `Session key mismatch for user ${user}`);
     }
 });
+
+// ─────────────────────────────────────────────────────────────────
+// Regression tests for Issue #411 / PR #412
+// ─────────────────────────────────────────────────────────────────
+//
+// Bug: clientSeed() generated the 1024-bit random private key a without
+// reducing it mod N.  Because N ≈ 0.9 × 2^1024, roughly 10% of random values
+// are >= N.  When a >= N the client's public key A = g^a mod N equals
+// g^(a mod (N-1)) mod N (Fermat), but clientSession() reduces the exponent
+// (a + ux) mod N — a different reduction.  The resulting session keys
+// diverge and Firebird rejects the SRP proof, causing attach() to hang.
+//
+// Fix: default parameter is now `toBigInt(randomBytes(128)) % PRIME.N`,
+// guaranteeing a is always in [0, N).
+
+// The SRP prime N (1024-bit) from lib/srp.js — copied here so the tests are
+// self-contained and do not depend on unexported internals.
+const PRIME_N = BigInt(
+    '0xE67D2E994B2F900C3F41F08F5BB2627ED0D49EE1FE767A52EFCD565CD6E768812C3E1E9CE8F0A8BEA6CB13CD29DDEBF7A96D4A93B55D488DF099A15C89DCB0640738EB2CBDD9A8F7BAB561AB1B0DC1C6CDABF303264A08D1BCA932D1F1EE428B619D970F342ABA9A65793B8B2F041AE5364350C16F735F56ECBCA87BD57B29E7'
+);
+
+describe('clientSeed – private key reduction (regression #411)', function () {
+
+    it('random private key should always be < PRIME.N', function () {
+        // 100 independent draws.  Without the fix, ~10% of 1024-bit random values
+        // exceed N, so the probability that all 100 happen to be < N is
+        // 0.9^100 ≈ 2.6 × 10^-5 — effectively zero.
+        for (var i = 0; i < 100; i++) {
+            var keys = Srp.clientSeed();
+            assert.ok(
+                keys.private < PRIME_N,
+                'private key ' + keys.private.toString(16).slice(0, 16) + '… must be < PRIME.N'
+            );
+        }
+    });
+
+    it('private key from clientSeed() should equal itself mod PRIME.N', function () {
+        // x < N  ⟺  x % N === x.  Any key >= N would violate this invariant.
+        for (var i = 0; i < 50; i++) {
+            var keys = Srp.clientSeed();
+            assert.strictEqual(
+                keys.private % PRIME_N,
+                keys.private,
+                'private key must already be reduced mod PRIME.N'
+            );
+        }
+    });
+
+});
