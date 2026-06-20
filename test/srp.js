@@ -269,11 +269,9 @@ describe('Test Srp client', function () {
 // Fix: default parameter is now `toBigInt(randomBytes(128)) % PRIME.N`,
 // guaranteeing a is always in [0, N).
 
-// The SRP prime N (1024-bit) from lib/srp.js — copied here so the tests are
-// self-contained and do not depend on unexported internals.
-const PRIME_N = BigInt(
-    '0xE67D2E994B2F900C3F41F08F5BB2627ED0D49EE1FE767A52EFCD565CD6E768812C3E1E9CE8F0A8BEA6CB13CD29DDEBF7A96D4A93B55D488DF099A15C89DCB0640738EB2CBDD9A8F7BAB561AB1B0DC1C6CDABF303264A08D1BCA932D1F1EE428B619D970F342ABA9A65793B8B2F041AE5364350C16F735F56ECBCA87BD57B29E7'
-);
+// The SRP prime N — imported from the library so we never diverge from
+// the value actually used during authentication.
+const PRIME_N = Srp.PRIME_N;
 
 describe('clientSeed – private key reduction (regression #411)', function () {
 
