@@ -903,4 +903,47 @@ describe('GDSCode in errors', function () {
             assert.strictEqual(err.gdsparams[1], 'TEST_GDSCODE', 'The table name')
         }
     });
+
+    describe('Issue #387 - 100 rows with large text BLOBs and blobAsText: true', function () {
+        const testConfig = Config.extends(config, { blobAsText: true });
+        
+        beforeAll(async function () {
+            // Setup table
+            const setupDb = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
+            try {
+                await fromCallback(cb => setupDb.query('DROP TABLE test_large_blobs', cb));
+            } catch (e) {}
+            await fromCallback(cb => setupDb.query('CREATE TABLE test_large_blobs (id INTEGER, val BLOB SUB_TYPE 1)', cb));
+            
+            // Insert 100 rows of large text blobs
+            const largeText = 'A'.repeat(5000); // 5 KB text blob
+            for (let i = 1; i <= 100; i++) {
+                await fromCallback(cb => setupDb.query('INSERT INTO test_large_blobs (id, val) VALUES (?, ?)', [i, largeText], cb));
+            }
+            await fromCallback(cb => setupDb.detach(cb));
+        });
+
+        afterAll(async function () {
+            const cleanupDb = await fromCallback(cb => Firebird.attach(config, cb));
+            try {
+                await fromCallback(cb => cleanupDb.query('DROP TABLE test_large_blobs', cb));
+            } catch (e) {}
+            await fromCallback(cb => cleanupDb.detach(cb));
+        });
+
+        it('should retrieve 100 rows with large text BLOBs sequentially without deadlocking', async function () {
+            const dbText = await fromCallback(cb => Firebird.attach(testConfig, cb));
+            try {
+                const rows = await fromCallback(cb => dbText.query('SELECT * FROM test_large_blobs ORDER BY id ASC', cb));
+                assert.strictEqual(rows.length, 100);
+                const largeText = 'A'.repeat(5000);
+                for (let i = 0; i < 100; i++) {
+                    assert.strictEqual(rows[i].id, i + 1);
+                    assert.strictEqual(rows[i].val, largeText);
+                }
+            } finally {
+                await fromCallback(cb => dbText.detach(cb));
+            }
+        });
+    });
 });
