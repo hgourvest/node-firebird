@@ -137,4 +137,60 @@ describe('Pool Fixes', function () {
             });
         });
     });
+
+    it('should discard connection and create a new one if connection is closed/destroyed while idle', function () {
+        return new Promise((resolve, reject) => {
+            let attachCount = 0;
+            const mockDbs = [];
+
+            const attach = (options, cb) => {
+                attachCount++;
+                const db = {
+                    detach: (cb) => { if (cb) cb(); },
+                    on: (event, cb) => {},
+                    connection: {
+                        _isClosed: false,
+                        _isDetach: false,
+                        _socket: { destroyed: false }
+                    }
+                };
+                mockDbs.push(db);
+                cb(null, db);
+            };
+
+            const pool = new Pool(attach, 1, {});
+
+            // First get: creates first connection
+            pool.get((err, db1) => {
+                try {
+                    assert.ifError(err);
+                    assert.equal(attachCount, 1);
+
+                    // Return to pool (triggers detach listener, which adds to pooldb)
+                    db1.connection._pooled = true;
+                    // Simulate detach/return to pool
+                    pool.dbinuse--;
+                    pool.pooldb.push(db1);
+
+                    // Destroy/close the connection socket while idle
+                    db1.connection._socket.destroyed = true;
+
+                    // Second get: should notice socket is destroyed, discard db1, and attach a new connection
+                    pool.get((err, db2) => {
+                        try {
+                            assert.ifError(err);
+                            assert.equal(attachCount, 2); // verify new connection was created
+                            assert.notStrictEqual(db1, db2);
+                            resolve();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    });
+
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        });
+    });
 });
