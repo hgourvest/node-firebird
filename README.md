@@ -67,6 +67,8 @@ options.role = null; // default
 options.pageSize = 4096; // default when creating database
 options.retryConnectionInterval = 1000; // reconnect interval in case of connection drop
 options.blobAsText = false; // set to true to get blob as text, only affects blob subtype 1
+options.blobChunkSize = 1024; // segment size in bytes used when WRITING blobs (default 1024, max 65535)
+options.blobReadChunkSize = 1024; // buffer size in bytes requested per op_get_segment when READING blobs (default 1024, max 65535)
 options.encoding = 'UTF8'; // default encoding for connection is UTF-8
 options.wireCompression = false; // set to true to enable firebird compression on the wire (works only on FB >= 3 and compression is enabled on server (WireCompression = true in firebird.conf))
 options.wireCrypt = Firebird.WIRE_CRYPT_ENABLE; // default; set to Firebird.WIRE_CRYPT_DISABLE to disable wire encryption (FB >= 3)
@@ -369,6 +371,34 @@ Firebird.attach(options, (err, db) => {
         });
     });
   });
+});
+```
+
+### Optimizing BLOB Read/Write Chunk Sizes
+
+When working with large blobs (especially over remote or high-latency connections), you can configure the chunk/segment sizes to minimize the number of network round-trips:
+
+*   **blobChunkSize**: The segment size in bytes used when writing blobs (default: `1024`, maximum: `65535`).
+*   **blobReadChunkSize**: The buffer size in bytes requested per segment read operation when reading blobs (default: `1024`, maximum: `65535`).
+
+For example, setting `blobReadChunkSize: 65535` requests 64KB segments at a time, resulting in up to 64x fewer network packets/round-trips when reading large blobs.
+
+```js
+var options = {
+    host: '127.0.0.1',
+    port: 3050,
+    database: 'database.fdb',
+    user: 'SYSDBA',
+    password: 'masterkey',
+    blobChunkSize: 65535,      // Minimize write round-trips
+    blobReadChunkSize: 65535   // Minimize read round-trips
+};
+
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
+
+  // Insert/Read operations will use the configured 64KB chunk sizes
+  db.detach();
 });
 ```
 
