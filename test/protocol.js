@@ -93,4 +93,41 @@ describe('Test Firebird 3.0 and 4.0 protocol support', function () {
             });
         });
     });
+
+    it('should decode SQLVarText to correct logical character length based on connection encoding', function () {
+        const { SQLVarText } = require('../lib/wire/xsqlvar');
+        
+        // Mock reader class
+        class MockReader {
+            constructor(buf) {
+                this.buffer = buf;
+                this.pos = 0;
+            }
+            readText(len, encoding) {
+                const r = this.buffer.toString(encoding, this.pos, this.pos + len);
+                this.pos += len;
+                return r;
+            }
+            readInt() {
+                return 0; // indicates not null / success
+            }
+        }
+
+        // CHAR(6) in UTF8 connection encoding (subtype 4, length 24 bytes)
+        const sqlVar = new SQLVarText();
+        sqlVar.length = 24;
+        sqlVar.subType = 4; // UTF8
+        
+        // Wire bytes: '1' followed by 23 spaces
+        const wireBytes = Buffer.alloc(24, 0x20);
+        wireBytes.write('1', 0, 1, 'utf8');
+        
+        // Decode with UTF8 connection options
+        const reader = new MockReader(wireBytes);
+        const result = sqlVar.decode(reader, false, { encoding: 'UTF8' });
+        
+        // Should be trimmed to 6 characters (not 24)
+        assert.strictEqual(result, '1     ');
+        assert.strictEqual(result.length, 6);
+    });
 });
