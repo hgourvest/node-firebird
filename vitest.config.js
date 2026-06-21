@@ -19,7 +19,8 @@ module.exports = defineConfig({
             'test/timezone.js',
             'test/decfloat.js',
             'test/mock-server.js',
-            'test/pool-fixes.js'
+            'test/pool-fixes.js',
+            'test/blob-chunks.js'
         ],
     },
 });
