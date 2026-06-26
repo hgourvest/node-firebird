@@ -727,15 +727,47 @@ fb.attach(_connection, function (err, svc) {
 });
 ```
 
-### Charset for database connection is always UTF-8
+### Character Set & Encoding Support
 
-Node Firebird uses UTF-8 as the default charset. If you want a different one, such as Latin1, you will need to go into the library and modify the default_encoding in the index.js file
+Node-Firebird defaults to `UTF-8` for database connections, but fully supports custom client character sets. You can set the connection encoding by specifying `options.encoding` (e.g. `'UTF8'`, `'WIN1252'`, `'ISO8859_1'`, `'LATIN1'`, `'ASCII'`, or `'NONE'`).
 
+Commonly used Firebird character sets are automatically mapped to their corresponding Node.js Buffer encodings:
+
+| Firebird Character Set | Node.js Buffer Encoding | Description / Notes |
+| ---------------------- | ----------------------- | ------------------- |
+| `UTF8`, `UNICODE_FSS`  | `utf8`                  | Unicode. Handles character-level truncation automatically based on charset width. |
+| `WIN1252`, `ISO8859_1`, `LATIN1` | `latin1`      | 8-bit European encodings. Safely decodes special accented characters. |
+| `ASCII`                | `ascii`                 | 7-bit ASCII. |
+| `NONE`                 | `latin1`                | Raw/unspecified character set. Treated as binary-safe 8-bit characters. |
+
+Accented characters and fixed-length `CHAR(N)` column whitespace/truncation are handled automatically matching the connection character set width definitions.
+
+#### Custom Charset Connection Example
 ```js
-const default_encoding = 'latin1';
-```
+var options = {
+    host: '127.0.0.1',
+    port: 3050,
+    database: 'win1252_db.fdb',
+    user: 'SYSDBA',
+    password: 'masterkey',
+    encoding: 'WIN1252' // Automatically maps to 'latin1' under the hood
+};
 
-This is why you should use **Firebird 2.5** server at least.
+Firebird.attach(options, function (err, db) {
+    if (err) throw err;
+
+    // Writes 'Ç Ã É Ú Ñ' correctly using Windows-1252 encoding
+    db.query('INSERT INTO ACCENTED_TEST (ID, NAME) VALUES (?, ?)', [1, 'Ç Ã É Ú Ñ'], function (err) {
+        if (err) throw err;
+
+        db.query('SELECT NAME FROM ACCENTED_TEST WHERE ID = 1', function (err, rows) {
+            if (err) throw err;
+            console.log(rows[0].name); // 'Ç Ã É Ú Ñ' (perfectly decoded)
+            db.detach();
+        });
+    });
+});
+```
 
 ### Firebird 3.0+ Support
 
@@ -789,17 +821,18 @@ Firebird.attach({
 - Empty or undefined values send an empty response to the callback
 - This feature requires Firebird 3.0.1+ (protocol 14/15) for encrypted databases
 
-### Firebird 4.0 and 5.0
+### Firebird 4.0 and 5.0 Support
 
-Firebird 4 wire protocol (versions 16 and 17) is now supported with the following features:
+Firebird 4.0+ wire protocol (versions 16 and 17) is fully supported, including:
 
-- **Protocol versions 16 and 17** — Full support for Firebird 4.0+ wire protocol
-- **DECFLOAT data types** — Support for DECFLOAT(16) and DECFLOAT(34) using IEEE 754 Decimal64 and Decimal128 formats
-- **INT128 data type** — Native support for 128-bit integers
-- **Extended metadata identifiers** — Support for identifiers up to 63 characters
-- **Backward compatibility** — Automatically negotiates the best protocol version with the server
+- **Protocol versions 16 and 17** — Full support for Firebird 4.0+ and 5.0+ wire protocols (automatic fallback/negotiation).
+- **DECFLOAT data types** — Production-ready support for `DECFLOAT(16)` (Decimal64, 8 bytes) and `DECFLOAT(34)` (Decimal128, 16 bytes) complying with the full IEEE 754-2008 standard using BID (Binary Integer Decimal) encoding. Supports special values such as `NaN`, `+Infinity`, `-Infinity`, `+0`, and `-0`.
+- **INT128 data type** — Native support for 128-bit integers using Node.js `BigInt`.
+- **Statement Timeout** — Support for query and statement-level execution timeouts (Protocol 16+).
+- **Time Zone Support** — Native support for `TIME WITH TIME ZONE` and `TIMESTAMP WITH TIME ZONE` (represented as JavaScript `Date` objects).
+- **Extended metadata identifiers** — Support for identifiers up to 63 characters.
 
-The driver will automatically negotiate the best protocol version supported by both the client and server. No configuration changes are required for Firebird 4.0 servers.
+No configuration changes are required for Firebird 4.0 or 5.0 servers. The driver will automatically negotiate the best protocol version supported by both the client and server.
 
 ```js
 Firebird.attach({
@@ -813,26 +846,11 @@ Firebird.attach({
   
   // DECFLOAT and INT128 types are automatically supported
   db.query('SELECT CAST(123.456 AS DECFLOAT(16)) AS df16, CAST(9876543210 AS INT128) AS i128 FROM RDB$DATABASE', function(err, result) {
-    console.log(result); // { df16: 123.456, i128: '9876543210' }
+    console.log(result); // { df16: 123.456, i128: 9876543210n }
     db.detach();
   });
 });
 ```
-
-**Important Notes:**
-
-1. **Statement Timeouts:** Statement timeouts (a Protocol 16 feature) are not yet implemented. This will be added in a future release.
-
-2. **DECFLOAT Encoding:** The current DECFLOAT implementation uses a simplified encoding/decoding mechanism and does NOT implement proper IEEE 754 Decimal64/Decimal128 formats. For production use with DECFLOAT types requiring full precision and standards compliance, consider:
-   - Using a proper IEEE 754 Decimal library (e.g., `decimal128` npm package)
-   - Contributing a full IEEE 754 implementation to this driver
-   - Working with DECFLOAT values as strings or Buffers to preserve exact precision
-
-For legacy Firebird 4 servers with SRP authentication only, use the following configuration in `firebird.conf`:
-Firebird 4 wire protocol (versions 16 and 17) is partially supported, including:
-- **Time Zone Support**: Native support for `TIME WITH TIME ZONE` and `TIMESTAMP WITH TIME ZONE` (Protocol 16+).
-- **INT128 support**: Native support for 128-bit integers.
-- **Statement Timeout**: Support for statement-level timeouts.
 
 #### Using Timezones (FB 4.0+)
 
@@ -850,8 +868,7 @@ db.query('INSERT INTO FB4_TABLE (TS_TZ_COL) VALUES (?)', [new Date()], function(
 });
 ```
 
-Srp256 authentication and wire encryption are now supported natively,
-so you only need the following minimal configuration in `firebird.conf`:
+For legacy Firebird 4 servers with SRP authentication only, use the following configuration in `firebird.conf`:
 
 ```bash
 AuthServer = Srp256, Srp
@@ -865,6 +882,91 @@ For more details see:
 - [Firebird 4 migration guide — authorization](https://ib-aid.com/download/docs/fb4migrationguide.html#_authorization_with_firebird_2_5_client_library_fbclient_dll)
 - [Firebird 5 migration guide — authorization](https://ib-aid.com/download/docs/fb5migrationguide.html#_authorization_from_firebird_2_5_client_libraries)
 
+
+## Extensive Examples
+
+### Firebird 4.0+ DECFLOAT & INT128 Usage
+```js
+Firebird.attach({
+  host: '127.0.0.1',
+  database: '/path/to/fb4.fdb',
+  user: 'SYSDBA',
+  password: 'masterkey',
+}, function(err, db) {
+  if (err) throw err;
+
+  // Insert DECFLOAT and INT128 types
+  db.query(
+    'INSERT INTO INVENTORY (ID, PRICE, SERIAL_NUMBER) VALUES (?, ?, ?)',
+    [1n, '12.34567890123456', 987654321098765432109876543210n],
+    function(err) {
+      if (err) throw err;
+
+      // Select them back
+      db.query('SELECT PRICE, SERIAL_NUMBER FROM INVENTORY WHERE ID = 1', function(err, result) {
+        if (err) throw err;
+        console.log(typeof result[0].price);          // 'string' (e.g. '12.34567890123456')
+        console.log(typeof result[0].serial_number);   // 'bigint' (e.g. 987654321098765432109876543210n)
+        db.detach();
+      });
+    }
+  );
+});
+```
+
+### Statement Timeouts (Firebird 4.0+)
+Setting a statement timeout allows the client to automatically abort queries that take too long on the server.
+```js
+Firebird.attach(options, function(err, db) {
+  if (err) throw err;
+
+  // Specify a statement-level execution timeout of 1000ms
+  db.query(
+    'SELECT * FROM MY_LARGE_TABLE',
+    [],
+    function(err, result) {
+      if (err) {
+        if (err.message.includes('timeout')) {
+          console.error('Query timed out!');
+        } else {
+          console.error('Error:', err);
+        }
+      }
+      db.detach();
+    },
+    { timeout: 1000 } // timeout option passed to query/execute
+  );
+});
+```
+
+### Advanced Connection Pooling & Life-cycle
+```js
+var pool = Firebird.pool(10, {
+    host: '127.0.0.1',
+    database: 'db.fdb',
+    user: 'SYSDBA',
+    password: 'masterkey',
+    connectTimeout: 5000 // 5 seconds connect timeout for pool.get()
+});
+
+// Retrieve a connection
+pool.get(function(err, db) {
+    if (err) {
+        console.error('Could not get connection from pool:', err);
+        return;
+    }
+
+    db.query('SELECT * FROM TABLE', function(err, result) {
+        // Return connection back to the pool
+        db.detach();
+    });
+});
+
+// Close all pool connections and reject pending requests
+process.on('SIGTERM', function() {
+    pool.destroy();
+});
+```
 
 ## Contributors
 
