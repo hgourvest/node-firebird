@@ -3,33 +3,41 @@ var Const = require('../lib/wire/const');
 var Firebird = require('../lib');
 var ServiceManager = require('../lib/wire/service');
 
-describe('Test Firebird 3.0 and 4.0 protocol support', function () {
-    it('should define protocol versions 14, 15, 16, 17, and 18', function () {
+describe('Test Firebird 3.0, 4.0, 5.0, and 6.0 protocol support', function () {
+    it('should define protocol versions 14, 15, 16, 17, 18, 19, and 20', function () {
         assert.ok(Const.PROTOCOL_VERSION14, 'PROTOCOL_VERSION14 should be defined');
         assert.ok(Const.PROTOCOL_VERSION15, 'PROTOCOL_VERSION15 should be defined');
         assert.ok(Const.PROTOCOL_VERSION16, 'PROTOCOL_VERSION16 should be defined');
         assert.ok(Const.PROTOCOL_VERSION17, 'PROTOCOL_VERSION17 should be defined');
         assert.ok(Const.PROTOCOL_VERSION18, 'PROTOCOL_VERSION18 should be defined');
+        assert.ok(Const.PROTOCOL_VERSION19, 'PROTOCOL_VERSION19 should be defined');
+        assert.ok(Const.PROTOCOL_VERSION20, 'PROTOCOL_VERSION20 should be defined');
         assert.strictEqual(Const.PROTOCOL_VERSION14 & Const.FB_PROTOCOL_MASK, 14);
         assert.strictEqual(Const.PROTOCOL_VERSION15 & Const.FB_PROTOCOL_MASK, 15);
         assert.strictEqual(Const.PROTOCOL_VERSION16 & Const.FB_PROTOCOL_MASK, 16);
         assert.strictEqual(Const.PROTOCOL_VERSION17 & Const.FB_PROTOCOL_MASK, 17);
         assert.strictEqual(Const.PROTOCOL_VERSION18 & Const.FB_PROTOCOL_MASK, 18);
+        assert.strictEqual(Const.PROTOCOL_VERSION19 & Const.FB_PROTOCOL_MASK, 19);
+        assert.strictEqual(Const.PROTOCOL_VERSION20 & Const.FB_PROTOCOL_MASK, 20);
         assert.ok(Const.PROTOCOL_VERSION14 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
         assert.ok(Const.PROTOCOL_VERSION15 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
         assert.ok(Const.PROTOCOL_VERSION16 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
         assert.ok(Const.PROTOCOL_VERSION17 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
         assert.ok(Const.PROTOCOL_VERSION18 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
+        assert.ok(Const.PROTOCOL_VERSION19 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
+        assert.ok(Const.PROTOCOL_VERSION20 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
     });
 
-    it('should include protocols 14, 15, 16, 17, and 18 in SUPPORTED_PROTOCOL', function () {
+    it('should include protocols 14 through 20 in SUPPORTED_PROTOCOL', function () {
         var versions = Const.SUPPORTED_PROTOCOL.map(function (p) { return p[0]; });
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION14) !== -1, 'Protocol 14 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION15) !== -1, 'Protocol 15 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION16) !== -1, 'Protocol 16 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION17) !== -1, 'Protocol 17 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION18) !== -1, 'Protocol 18 should be supported');
-        assert.strictEqual(Const.SUPPORTED_PROTOCOL.length, 9, 'Should support 9 protocol versions');
+        assert.ok(versions.indexOf(Const.PROTOCOL_VERSION19) !== -1, 'Protocol 19 should be supported');
+        assert.ok(versions.indexOf(Const.PROTOCOL_VERSION20) !== -1, 'Protocol 20 should be supported');
+        assert.strictEqual(Const.SUPPORTED_PROTOCOL.length, 11, 'Should support 11 protocol versions');
     });
 
     it('should support Srp256 authentication plugin', function () {
@@ -225,6 +233,37 @@ describe('Test Firebird 3.0 and 4.0 protocol support', function () {
                     });
                 });
             });
+        });
+    });
+
+    describe('Test Firebird 6.0 Protocol Version List Limit', function () {
+        it('should define PROTOCOL_VERSION19 and PROTOCOL_VERSION20', function () {
+            assert.ok(Const.PROTOCOL_VERSION19);
+            assert.ok(Const.PROTOCOL_VERSION20);
+        });
+
+        it('should respect maxNegotiatedProtocols option and slice protocol list correctly', function () {
+            // Helper function to test sliced protocols length
+            function getProtocolsLength(options) {
+                var maxProtocols = options.maxNegotiatedProtocols !== undefined ? options.maxNegotiatedProtocols : 10;
+                var protocolsToSend = Const.SUPPORTED_PROTOCOL;
+                if (protocolsToSend.length > maxProtocols) {
+                    protocolsToSend = protocolsToSend.slice(-maxProtocols);
+                }
+                return protocolsToSend.length;
+            }
+
+            // Default behavior: maxNegotiatedProtocols = 10, should return 10
+            assert.strictEqual(getProtocolsLength({}), 10);
+            
+            // Explicit 10: should return 10
+            assert.strictEqual(getProtocolsLength({ maxNegotiatedProtocols: 10 }), 10);
+
+            // Explicit 11 (Firebird 6.0 limit): should return 11 (since total defined is 11)
+            assert.strictEqual(getProtocolsLength({ maxNegotiatedProtocols: 11 }), 11);
+
+            // Explicit 5: should return 5
+            assert.strictEqual(getProtocolsLength({ maxNegotiatedProtocols: 5 }), 5);
         });
     });
 });

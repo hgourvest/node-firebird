@@ -144,6 +144,7 @@ declare module 'node-firebird' {
         pluginName?: string;
         parallelWorkers?: number;
         maxInlineBlobSize?: number;
+        maxNegotiatedProtocols?: number;
         dbCryptConfig?: string; // Database encryption key callback config (base64: prefix for base64, or plain string)
         /**
          * Timeout in milliseconds for a single pool.get() attach operation.
