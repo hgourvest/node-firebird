@@ -42,12 +42,14 @@ declare module 'node-firebird' {
     };
 
     export type QueryOptions = {
-        timeout: number;
+        timeout?: number;
+        scrollable?: boolean;
     }
 
     export interface Database {
         detach(callback?: SimpleCallback): Database;
         transaction(options: TransactionOptions|Isolation|TransactionCallback, callback?: TransactionCallback): Database;
+        newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): Database;
         query(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): Database;
         execute(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): Database;
         sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
@@ -57,6 +59,7 @@ declare module 'node-firebird' {
     }
 
     export interface Transaction {
+        newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): void;
         query(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): void;
         execute(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): void;
         sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
@@ -64,6 +67,16 @@ declare module 'node-firebird' {
         commitRetaining(callback?: SimpleCallback): void;
         rollback(callback?: SimpleCallback): void;
         rollbackRetaining(callback?: SimpleCallback): void;
+    }
+
+    export interface Statement {
+        close(callback?: SimpleCallback): void;
+        drop(callback?: SimpleCallback): void;
+        release(callback?: SimpleCallback): void;
+        execute(transaction: Transaction, params: any[], callback: QueryCallback, options?: QueryOptions): void;
+        fetch(transaction: Transaction, count: number, callback: QueryCallback): void;
+        fetchScroll(transaction: Transaction, direction: 'NEXT' | 'PRIOR' | 'FIRST' | 'LAST' | 'ABSOLUTE' | 'RELATIVE' | number, offset: number, count: number, callback: QueryCallback): void;
+        fetchAll(transaction: Transaction, callback: QueryCallback): void;
     }
 
     export type SupportedCharacterSet = |
@@ -129,6 +142,8 @@ declare module 'node-firebird' {
         wireCrypt?: number; // WIRE_CRYPT_DISABLE or WIRE_CRYPT_ENABLE
         wireCompression?: boolean;
         pluginName?: string;
+        parallelWorkers?: number;
+        maxInlineBlobSize?: number;
         dbCryptConfig?: string; // Database encryption key callback config (base64: prefix for base64, or plain string)
         /**
          * Timeout in milliseconds for a single pool.get() attach operation.

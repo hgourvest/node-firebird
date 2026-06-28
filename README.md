@@ -939,6 +939,77 @@ Firebird.attach(options, function(err, db) {
 });
 ```
 
+### Bidirectional Scrollable Cursors (Firebird 5.0+)
+Firebird 5.0 introduced native support for scrollable cursors, enabling bi-directional result set traversal on the server side. You can execute a statement with `{ scrollable: true }` and navigate with `statement.fetchScroll()`.
+
+```js
+db.transaction(function(err, tx) {
+  tx.newStatement('SELECT ID, VAL FROM MY_TABLE ORDER BY ID', function(err, statement) {
+    if (err) throw err;
+
+    // Execute the statement and request a scrollable cursor on the server
+    statement.execute(tx, [], function(err) {
+      if (err) throw err;
+
+      // 1. Fetch the first row
+      statement.fetchScroll(tx, 'FIRST', 0, 1, function(err, res) {
+        console.log('First:', res.data); // Row 1
+
+        // 2. Fetch the next row
+        statement.fetchScroll(tx, 'NEXT', 0, 1, function(err, res) {
+          console.log('Next:', res.data); // Row 2
+
+          // 3. Fetch the prior row
+          statement.fetchScroll(tx, 'PRIOR', 0, 1, function(err, res) {
+            console.log('Prior:', res.data); // Row 1 again
+
+            // 4. Fetch the absolute 3rd row
+            statement.fetchScroll(tx, 'ABSOLUTE', 3, 1, function(err, res) {
+              console.log('Absolute 3rd:', res.data); // Row 3
+
+              statement.release();
+              tx.commit();
+              db.detach();
+            });
+          });
+        });
+      });
+    }, { scrollable: true });
+  });
+});
+```
+
+Supported directions are: `'NEXT'` (0), `'PRIOR'` (1), `'FIRST'` (2), `'LAST'` (3), `'ABSOLUTE'` (4), and `'RELATIVE'` (5).
+
+### DML RETURNING Multiple Rows (Firebird 5.0+)
+In Firebird 5.0, DML statements like `UPDATE`, `DELETE`, and `INSERT ... SELECT` with a `RETURNING` clause can return multiple rows. When executing these statements, the driver receives an array of objects representing all the affected rows:
+
+```js
+db.query(
+  'UPDATE MY_TABLE SET VAL = VAL || \'!\' WHERE ID > 1 RETURNING ID, VAL',
+  [],
+  function(err, rows) {
+    if (err) throw err;
+    console.log(rows); // Array of updated rows: [{ id: 2, val: 'two!' }, { id: 3, val: 'three!' }]
+  }
+);
+```
+
+### SKIP LOCKED (Firebird 5.0+)
+Firebird 5.0 supports the `SKIP LOCKED` clause with `SELECT ... WITH LOCK`, `UPDATE`, and `DELETE` statements. This allows transactions to skip rows currently locked by other transactions instead of waiting or raising lock conflict errors, making it ideal for concurrency queues:
+
+```js
+// Selects unlocked rows, skipping any locked by concurrent processes
+db.query(
+  'SELECT * FROM QUEUE_TASK WHERE STATUS = \'PENDING\' WITH LOCK SKIP LOCKED',
+  [],
+  function(err, result) {
+    if (err) throw err;
+    console.log(result);
+  }
+);
+```
+
 ### Advanced Connection Pooling & Life-cycle
 ```js
 var pool = Firebird.pool(10, {

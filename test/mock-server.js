@@ -41,7 +41,7 @@
  * Protocol version support (Firebird compatibility):
  *  FB3 → PROTOCOL_VERSION14  (0x800E = 32782)
  *  FB4 → PROTOCOL_VERSION16  (0x8010 = 32784)
- *  FB5 → PROTOCOL_VERSION17  (0x8011 = 32785)
+ *  FB5 → PROTOCOL_VERSION17  (0x8011 = 32785) / PROTOCOL_VERSION18 (0x8012 = 32786)
  *
  * Additional tests inject op_event and op_response_piggyback frames between
  * real responses to verify that these unsolicited frames are consumed without
@@ -633,6 +633,7 @@ describe('Firebird SRP Authentication – offline protocol tests', function () {
      *   PROTOCOL_VERSION14 (0x800E) → Firebird 3 baseline
      *   PROTOCOL_VERSION16 (0x8010) → Firebird 4
      *   PROTOCOL_VERSION17 (0x8011) → Firebird 5
+     *   PROTOCOL_VERSION18 (0x8012) → Firebird 5.0
      */
     async function runSrpAuthCycle(protocolVersion) {
         // Pre-generate server keys once (deterministic: salt is fixed)
@@ -740,6 +741,10 @@ describe('Firebird SRP Authentication – offline protocol tests', function () {
 
     it('should complete full SRP auth exchange – protocol 17 (FB5)', async function () {
         await runSrpAuthCycle(Const.PROTOCOL_VERSION17);
+    });
+
+    it('should complete full SRP auth exchange – protocol 18 (FB5)', async function () {
+        await runSrpAuthCycle(Const.PROTOCOL_VERSION18);
     });
 
     /**
@@ -1077,6 +1082,7 @@ describe('XDR encode/decode round trips', function () {
         assert.strictEqual(Const.PROTOCOL_VERSION14 & Const.FB_PROTOCOL_MASK, 14);
         assert.strictEqual(Const.PROTOCOL_VERSION16 & Const.FB_PROTOCOL_MASK, 16);
         assert.strictEqual(Const.PROTOCOL_VERSION17 & Const.FB_PROTOCOL_MASK, 17);
+        assert.strictEqual(Const.PROTOCOL_VERSION18 & Const.FB_PROTOCOL_MASK, 18);
     });
 });
 

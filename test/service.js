@@ -278,7 +278,8 @@ describe('Test Service', () => {
         };
         it('should create user', async () => {
             const srv = await fromCallback(cb => Firebird.attach(config, cb));
-            await fromCallback(cb => srv.addUser(EXPECTED_USER.username, EXPECTED_USER.password, EXPECTED_USER, cb));
+            const data = await fromCallback(cb => srv.addUser(EXPECTED_USER.username, EXPECTED_USER.password, EXPECTED_USER, cb));
+            await readStreamAsync(data);
             const userData = await fromCallback(cb => srv.getUsers(EXPECTED_USER.username, cb));
 
             verifyUser(userData.fbusers[0], EXPECTED_USER);
@@ -293,7 +294,8 @@ describe('Test Service', () => {
         });
         it('should edit user', async () => {
             const srv = await fromCallback(cb => Firebird.attach(config, cb));
-            await fromCallback(cb => srv.editUser(EDIT_EXPECTED_USER.username, EDIT_EXPECTED_USER, cb));
+            const data = await fromCallback(cb => srv.editUser(EDIT_EXPECTED_USER.username, EDIT_EXPECTED_USER, cb));
+            await readStreamAsync(data);
             const userData = await fromCallback(cb => srv.getUsers(EDIT_EXPECTED_USER.username, cb));
 
             verifyUser(userData.fbusers[0], EDIT_EXPECTED_USER);
@@ -303,7 +305,8 @@ describe('Test Service', () => {
 
         it('should remove user', async () => {
             const srv = await fromCallback(cb => Firebird.attach(config, cb));
-            await fromCallback(cb => srv.removeUser(EXPECTED_USER.username, '', cb));
+            const data = await fromCallback(cb => srv.removeUser(EXPECTED_USER.username, '', cb));
+            await readStreamAsync(data);
             const userData = await fromCallback(cb => srv.getUsers('', cb));
 
             const users = userData.fbusers.filter(u => u.username === EXPECTED_USER.username)
@@ -460,10 +463,10 @@ describe('Test Service', () => {
 
             const result = await readStreamAsync(data);
             assert.ok(result.indexOf('Session ID: ' + traceId) > -1);
-            assert.ok(result.indexOf('name:  ' + traceName) > -1);
-            assert.ok(result.indexOf('user:  ' + config.user.toUpperCase()) > -1);
-            assert.ok(result.indexOf('date:') > -1);
-            assert.ok(result.indexOf('flags: active') > -1);
+            assert.match(result, new RegExp('name:\\s+' + traceName));
+            assert.match(result, new RegExp('user:\\s+' + config.user, 'i'));
+            assert.match(result, /date:/);
+            assert.match(result, /flags:\s+active/);
 
             await fromCallback(cb => srv.detach(cb));
         });

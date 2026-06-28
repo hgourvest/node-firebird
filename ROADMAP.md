@@ -21,14 +21,14 @@ These items come directly from current open issues and should be tracked as road
 
 ### P0 — Correctness / hang / callback never called
 
-- **[Issue #387](https://github.com/hgourvest/node-firebird/issues/387) — BLOB callback never runs**
+- **[Issue #387](https://github.com/hgourvest/node-firebird/issues/387) — BLOB callback never runs** ✅ Resolved
   Goal: ensure query callbacks always settle (success or error) and that BLOB streaming cannot stall silently.
   Deliverables:
   - Add internal watchdog/timeout for pending requests (opt-in first, then default).
   - Add debug logging hooks (connection + statement lifecycle) to diagnose stalls.
   - Add regression test: BLOB read path must either resolve or error deterministically.
 
-- **[Issue #357](https://github.com/hgourvest/node-firebird/issues/357) — Pool connections hanging after idle time**
+- **[Issue #357](https://github.com/hgourvest/node-firebird/issues/357) — Pool connections hanging after idle time** ✅ Resolved
   Goal: pool should detect dead sockets and recover cleanly.
   Deliverables:
   - Health-check on checkout (lightweight ping or keepalive).
@@ -70,7 +70,7 @@ These may be closed with a clear explanation or resolved with a small doc/code f
 - **[Issue #335](https://github.com/hgourvest/node-firebird/issues/335)** — BLOB loading slowly
 - **[Issue #336](https://github.com/hgourvest/node-firebird/issues/336)** — Default encoding option (UTF-8 vs latin1)
 - **[Issue #332](https://github.com/hgourvest/node-firebird/issues/332)** — LIKE clause error in SELECT
-- **[Issue #320](https://github.com/hgourvest/node-firebird/issues/320)** — Deno compatibility
+- **[Issue #320](https://github.com/hgourvest/node-firebird/issues/320)** — Deno compatibility ✅ Resolved
 
 ---
 
@@ -159,7 +159,7 @@ Before or alongside the TypeScript work, refactor the prototype-based codebase t
 | 2.5 | 10, 11, 12, 13 | ✅ Implemented |
 | 3.0 | 14, 15 | ✅ Implemented |
 | 4.0 | 16, 17 | ✅ Implemented |
-| 5.0 | 18 | ❌ Not Implemented |
+| 5.0 | 18 | ✅ Implemented |
 | 6.0 | N/A | ❌ Not Implemented |
 
 ### Firebird 3 Support
@@ -183,19 +183,20 @@ Before or alongside the TypeScript work, refactor the prototype-based codebase t
 
 ### Firebird 5 Support
 
-- **Protocol Version 18:** ❌ TODO.
-- **Bidirectional Cursors:** ❌ TODO — scrollable cursors for remote database access.
-- **`RETURNING` Multiple Rows:** ❌ TODO — DML returning multiple rows.
-- **`SKIP LOCKED`:** ❌ TODO — `SELECT WITH LOCK`, `UPDATE`, and `DELETE`.
-- **Parallel Workers Information:** ❌ TODO.
+- **Protocol Version 18:** ✅ Implemented.
+- **Bidirectional Cursors:** ✅ Implemented — scrollable cursors for remote database access.
+- **`RETURNING` Multiple Rows:** ✅ Implemented — DML returning multiple rows.
+- **`SKIP LOCKED`:** ✅ Implemented — `SELECT WITH LOCK`, `UPDATE`, and `DELETE` (pure SQL syntax compatibility).
+- **Parallel Workers:** ✅ Implemented — client connection configuration via `parallelWorkers` (`isc_dpb_parallel_workers` DPB tag).
+- **Protocol Version 19 (Inline BLOBs):** ✅ Implemented — support for `op_inline_blob` (114) packet decoding/caching, and `maxInlineBlobSize` (`isc_dpb_max_inline_blob_size` DPB tag `93`) connection parameter.
 
 ### Firebird 6 and Beyond
 
-- **Native `JSON` Data Type:** ❌ TODO — native JSON storage support.
-- **SQL-Standard `ROW` Type:** ❌ TODO — structured data types as columns or variables.
-- **SQL-Compliant JSON Functions:** ❌ TODO — `JSON_VALUE`, `JSON_QUERY`, `JSON_EXISTS`, `JSON_OBJECT`.
-- **Tablespaces:** ❌ TODO — physical storage location control.
+- **Protocol Version List Limit:** ❌ TODO — update protocol negotiation limits to match Firebird 6.0's capability to receive up to 11 protocols.
+- **Named Arguments:** ❌ TODO — support named arguments in function and procedure invocations.
 - **SQL Schemas:** ❌ TODO — standard schema namespace support.
+- **Tablespaces & Native `JSON` Data Type:** ❌ TODO — physical storage location control and optimized binary JSON storage/functions.
+- **SQL-Standard `ROW` Type:** ❌ TODO — structured data types as columns or variables.
 - **Enhanced Collation Support:** ❌ TODO — collations declared as part of the data type.
 
 ---

@@ -4,28 +4,32 @@ var Firebird = require('../lib');
 var ServiceManager = require('../lib/wire/service');
 
 describe('Test Firebird 3.0 and 4.0 protocol support', function () {
-    it('should define protocol versions 14, 15, 16, and 17', function () {
+    it('should define protocol versions 14, 15, 16, 17, and 18', function () {
         assert.ok(Const.PROTOCOL_VERSION14, 'PROTOCOL_VERSION14 should be defined');
         assert.ok(Const.PROTOCOL_VERSION15, 'PROTOCOL_VERSION15 should be defined');
         assert.ok(Const.PROTOCOL_VERSION16, 'PROTOCOL_VERSION16 should be defined');
         assert.ok(Const.PROTOCOL_VERSION17, 'PROTOCOL_VERSION17 should be defined');
+        assert.ok(Const.PROTOCOL_VERSION18, 'PROTOCOL_VERSION18 should be defined');
         assert.strictEqual(Const.PROTOCOL_VERSION14 & Const.FB_PROTOCOL_MASK, 14);
         assert.strictEqual(Const.PROTOCOL_VERSION15 & Const.FB_PROTOCOL_MASK, 15);
         assert.strictEqual(Const.PROTOCOL_VERSION16 & Const.FB_PROTOCOL_MASK, 16);
         assert.strictEqual(Const.PROTOCOL_VERSION17 & Const.FB_PROTOCOL_MASK, 17);
+        assert.strictEqual(Const.PROTOCOL_VERSION18 & Const.FB_PROTOCOL_MASK, 18);
         assert.ok(Const.PROTOCOL_VERSION14 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
         assert.ok(Const.PROTOCOL_VERSION15 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
         assert.ok(Const.PROTOCOL_VERSION16 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
         assert.ok(Const.PROTOCOL_VERSION17 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
+        assert.ok(Const.PROTOCOL_VERSION18 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
     });
 
-    it('should include protocols 14, 15, 16, and 17 in SUPPORTED_PROTOCOL', function () {
+    it('should include protocols 14, 15, 16, 17, and 18 in SUPPORTED_PROTOCOL', function () {
         var versions = Const.SUPPORTED_PROTOCOL.map(function (p) { return p[0]; });
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION14) !== -1, 'Protocol 14 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION15) !== -1, 'Protocol 15 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION16) !== -1, 'Protocol 16 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION17) !== -1, 'Protocol 17 should be supported');
-        assert.strictEqual(Const.SUPPORTED_PROTOCOL.length, 8, 'Should support 8 protocol versions');
+        assert.ok(versions.indexOf(Const.PROTOCOL_VERSION18) !== -1, 'Protocol 18 should be supported');
+        assert.strictEqual(Const.SUPPORTED_PROTOCOL.length, 9, 'Should support 9 protocol versions');
     });
 
     it('should support Srp256 authentication plugin', function () {
@@ -129,5 +133,98 @@ describe('Test Firebird 3.0 and 4.0 protocol support', function () {
         // Should be trimmed to 6 characters (not 24)
         assert.strictEqual(result, '1     ');
         assert.strictEqual(result.length, 6);
+    });
+
+    describe('Test Firebird 5.0 Inline BLOB support', function () {
+        it('should define op_inline_blob and isc_dpb_max_inline_blob_size', function () {
+            assert.strictEqual(Const.op_inline_blob, 114);
+            assert.strictEqual(Const.isc_dpb_max_inline_blob_size, 93);
+        });
+
+        it('should parse op_inline_blob packets and populate cache', function () {
+            const { XdrWriter, XdrReader } = require('../lib/wire/serialize');
+            const Connection = require('../lib/wire/connection');
+
+            // Encode: op_inline_blob, tran_id=123, blob_id={high:10, low:20}, blob_data="hello inline"
+            const writer = new XdrWriter();
+            writer.addInt(Const.op_inline_blob);
+            writer.addInt(123); // tran_id
+            writer.addQuad({ high: 10, low: 20 });
+            
+            const payload = Buffer.from('hello inline', 'utf8');
+            writer.addInt(payload.length);
+            writer.addBuffer(payload);
+            writer.addAlignment(payload.length);
+
+            // Followed by op_response with status (we'll just use a dummy status list ending with end)
+            writer.addInt(Const.op_response);
+            writer.addInt(0); // handle
+            writer.addQuad({ high: 0, low: 0 }); // oid
+            writer.addInt(0); // buffer (empty array)
+            writer.addInt(Const.isc_arg_end); // end status list
+
+            const reader = new XdrReader(writer.buffer.slice(0, writer.pos));
+            const cnx = {
+                _inlineBlobs: null
+            };
+
+            Connection.decodeResponse(reader, {}, cnx, false, function (err, res) {
+                assert.ifError(err);
+                assert.ok(cnx._inlineBlobs);
+                const cacheKey = '10:20';
+                assert.ok(cnx._inlineBlobs.has(cacheKey));
+                const cachedData = cnx._inlineBlobs.get(cacheKey);
+                assert.strictEqual(cachedData.toString('utf8'), 'hello inline');
+            });
+        });
+
+        it('should bypass network calls in fetch_blob_async_transaction on cache hit', async function () {
+            const Connection = require('../lib/wire/connection');
+            const inlineBlobs = new Map();
+            inlineBlobs.set('10:20', Buffer.from('cached blob text', 'utf8'));
+
+            const statement = {
+                connection: {
+                    _inlineBlobs: inlineBlobs
+                }
+            };
+
+            const fn = Connection.fetch_blob_async_transaction(statement, { high: 10, low: 20 }, 'test_col', {});
+            const result = await fn();
+            assert.strictEqual(result.value, 'cached blob text');
+        });
+
+        it('should bypass network calls in fetch_blob_async on cache hit', function () {
+            const Connection = require('../lib/wire/connection');
+            const inlineBlobs = new Map();
+            inlineBlobs.set('10:20', Buffer.from('cached blob data', 'utf8'));
+
+            const statement = {
+                connection: {
+                    _inlineBlobs: inlineBlobs
+                }
+            };
+
+            const fn = Connection.fetch_blob_async(statement, { high: 10, low: 20 }, 'test_col', {});
+            return new Promise((resolve, reject) => {
+                fn(function (err, name, e, row) {
+                    if (err) return reject(err);
+                    assert.strictEqual(name, 'test_col');
+                    let received = [];
+                    e.on('data', function (chunk) {
+                        received.push(chunk);
+                    });
+                    e.on('end', function () {
+                        try {
+                            const finalBuffer = Buffer.concat(received);
+                            assert.strictEqual(finalBuffer.toString('utf8'), 'cached blob data');
+                            resolve();
+                        } catch (err) {
+                            reject(err);
+                        }
+                    });
+                });
+            });
+        });
     });
 });
