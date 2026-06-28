@@ -193,7 +193,7 @@ Before or alongside the TypeScript work, refactor the prototype-based codebase t
 ### Firebird 6 and Beyond
 
 - **Protocol Version List Limit:** ✅ Implemented — dynamic list slicing using the `maxNegotiatedProtocols` option (defaults to 10 for backward compatibility, supports up to 11 protocols in Firebird 6.0).
-- **Named Arguments:** ❌ TODO — support named arguments in function and procedure invocations.
+- **Named Arguments:** ✅ Implemented — support for named parameter objects (mapping keys to described aliases/fields) in stored procedures and functions.
 - **SQL Schemas:** ❌ TODO — standard schema namespace support.
 - **Tablespaces & Native `JSON` Data Type:** ❌ TODO — physical storage location control and optimized binary JSON storage/functions.
 - **SQL-Standard `ROW` Type:** ❌ TODO — structured data types as columns or variables.

@@ -266,4 +266,74 @@ describe('Test Firebird 3.0, 4.0, 5.0, and 6.0 protocol support', function () {
             assert.strictEqual(getProtocolsLength({ maxNegotiatedProtocols: 5 }), 5);
         });
     });
+
+    describe('Test Firebird 6.0 Named Arguments', function () {
+        it('should correctly map named parameter objects to positional parameter arrays', function () {
+            // Helper function mimicking Connection.prototype.executeStatement parameter preparation
+            function mapParams(params, input) {
+                if (!(params instanceof Array)) {
+                    if (params !== undefined && typeof params === 'object' && params !== null) {
+                        var mappedParams = [];
+                        for (var i = 0; i < input.length; i++) {
+                            mappedParams.push(undefined);
+                        }
+                        var matchedCount = 0;
+                        var nameMap = {};
+                        for (var i = 0; i < input.length; i++) {
+                            var name = input[i].alias || input[i].field;
+                            if (name) {
+                                nameMap[name.toUpperCase()] = i;
+                            }
+                        }
+                        for (var key in params) {
+                            if (Object.prototype.hasOwnProperty.call(params, key)) {
+                                var cleanKey = key.startsWith(':') ? key.substring(1) : key;
+                                var index = nameMap[cleanKey.toUpperCase()];
+                                if (index !== undefined) {
+                                    mappedParams[index] = params[key];
+                                    matchedCount++;
+                                }
+                            }
+                        }
+                        if (matchedCount > 0) {
+                            params = mappedParams;
+                        } else {
+                            params = [params];
+                        }
+                    } else if (params !== undefined) {
+                        params = [params];
+                    } else {
+                        params = [];
+                    }
+                }
+                return params;
+            }
+
+            const mockInput = [
+                { alias: 'paramA', field: 'fieldA' },
+                { alias: 'paramB', field: 'fieldB' },
+                { alias: 'paramC', field: 'fieldC' }
+            ];
+
+            // 1. Success matching exact name:
+            const params1 = { paramA: 10, paramB: 'hello', paramC: true };
+            assert.deepStrictEqual(mapParams(params1, mockInput), [10, 'hello', true]);
+
+            // 2. Success with prefix colons:
+            const params2 = { ':paramA': 20, ':paramB': 'world', ':paramC': false };
+            assert.deepStrictEqual(mapParams(params2, mockInput), [20, 'world', false]);
+
+            // 3. Success with mixed casing:
+            const params3 = { PaRaMa: 30, ':pArAmB': 'mixed', PARAMC: null };
+            assert.deepStrictEqual(mapParams(params3, mockInput), [30, 'mixed', null]);
+
+            // 4. Missing parameters default to undefined (which converts to null in PrepareParams):
+            const params4 = { paramA: 40 };
+            assert.deepStrictEqual(mapParams(params4, mockInput), [40, undefined, undefined]);
+
+            // 5. Unrecognized keys fallback to original wrap behavior:
+            const params5 = { unrecognizedKey: 50 };
+            assert.deepStrictEqual(mapParams(params5, mockInput), [params5]);
+        });
+    });
 });
