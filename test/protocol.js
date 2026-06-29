@@ -46,14 +46,32 @@ describe('Test Firebird 3.0, 4.0, 5.0, and 6.0 protocol support', function () {
         assert.ok(Const.AUTH_PLUGIN_SRP_LIST.indexOf('Srp256') !== -1, 'Srp256 should be in AUTH_PLUGIN_SRP_LIST');
     });
 
-    it('should prefer Srp256 over Srp', function () {
-        var srp256Index = Const.AUTH_PLUGIN_LIST.indexOf('Srp256');
-        var srpIndex = Const.AUTH_PLUGIN_LIST.indexOf('Srp');
-        assert.ok(srp256Index < srpIndex, 'Srp256 should come before Srp in plugin list');
+    it('should support Srp384 authentication plugin', function () {
+        assert.strictEqual(Const.AUTH_PLUGIN_SRP384, 'Srp384');
+        assert.ok(Const.AUTH_PLUGIN_LIST.indexOf('Srp384') !== -1, 'Srp384 should be in AUTH_PLUGIN_LIST');
+        assert.ok(Const.AUTH_PLUGIN_SRP_LIST.indexOf('Srp384') !== -1, 'Srp384 should be in AUTH_PLUGIN_SRP_LIST');
     });
 
-    it('should export AUTH_PLUGIN_SRP256 from main module', function () {
+    it('should support Srp512 authentication plugin', function () {
+        assert.strictEqual(Const.AUTH_PLUGIN_SRP512, 'Srp512');
+        assert.ok(Const.AUTH_PLUGIN_LIST.indexOf('Srp512') !== -1, 'Srp512 should be in AUTH_PLUGIN_LIST');
+        assert.ok(Const.AUTH_PLUGIN_SRP_LIST.indexOf('Srp512') !== -1, 'Srp512 should be in AUTH_PLUGIN_SRP_LIST');
+    });
+
+    it('should prefer Srp512 and Srp384 over Srp256 and Srp', function () {
+        var srp512Index = Const.AUTH_PLUGIN_LIST.indexOf('Srp512');
+        var srp384Index = Const.AUTH_PLUGIN_LIST.indexOf('Srp384');
+        var srp256Index = Const.AUTH_PLUGIN_LIST.indexOf('Srp256');
+        var srpIndex = Const.AUTH_PLUGIN_LIST.indexOf('Srp');
+        assert.ok(srp512Index < srp384Index, 'Srp512 should come before Srp384');
+        assert.ok(srp384Index < srp256Index, 'Srp384 should come before Srp256');
+        assert.ok(srp256Index < srpIndex, 'Srp256 should come before Srp');
+    });
+
+    it('should export AUTH_PLUGIN_SRP256, AUTH_PLUGIN_SRP384, AUTH_PLUGIN_SRP512 from main module', function () {
         assert.strictEqual(Firebird.AUTH_PLUGIN_SRP256, 'Srp256');
+        assert.strictEqual(Firebird.AUTH_PLUGIN_SRP384, 'Srp384');
+        assert.strictEqual(Firebird.AUTH_PLUGIN_SRP512, 'Srp512');
     });
 
     it('should export wire crypt constants', function () {

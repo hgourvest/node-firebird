@@ -111,6 +111,14 @@ describe('Test Srp client', function () {
         testSrp('sha256', TEST_SALT_2, TEST_CLIENT_2);
     });
 
+    it('should generate sha384 server keys with fixed test vector 2', function () {
+        testSrp('sha384', TEST_SALT_2, TEST_CLIENT_2);
+    });
+
+    it('should generate sha512 server keys with fixed test vector 2', function () {
+        testSrp('sha512', TEST_SALT_2, TEST_CLIENT_2);
+    });
+
     it('should generate sha1 server keys with fixed test vector 3', function () {
         testSrp('sha1', TEST_SALT_3, TEST_CLIENT_3);
     });
@@ -127,6 +135,14 @@ describe('Test Srp client', function () {
         testSrpUser('sha256', TEST_SALT_2, TEST_CLIENT_2, ALT_USER, ALT_PASSWORD);
     });
 
+    it('should authenticate a non-SYSDBA user with sha384', function () {
+        testSrpUser('sha384', TEST_SALT_2, TEST_CLIENT_2, ALT_USER, ALT_PASSWORD);
+    });
+
+    it('should authenticate a non-SYSDBA user with sha512', function () {
+        testSrpUser('sha512', TEST_SALT_2, TEST_CLIENT_2, ALT_USER, ALT_PASSWORD);
+    });
+
     it('should succeed end-to-end with fixed client and server keys (sha1)', function () {
         // Fully deterministic: both client and server private keys are fixed 256-bit
         // values (always << PRIME.N) so the (a + ux) % N reduction never fires.
@@ -135,6 +151,14 @@ describe('Test Srp client', function () {
 
     it('should succeed end-to-end with fixed client and server keys (sha256)', function () {
         testSrp('sha256', TEST_SALT_2, TEST_CLIENT_2, TEST_SERVER_2);
+    });
+
+    it('should succeed end-to-end with fixed client and server keys (sha384)', function () {
+        testSrp('sha384', TEST_SALT_2, TEST_CLIENT_2, TEST_SERVER_2);
+    });
+
+    it('should succeed end-to-end with fixed client and server keys (sha512)', function () {
+        testSrp('sha512', TEST_SALT_2, TEST_CLIENT_2, TEST_SERVER_2);
     });
 
     it('should produce mismatched session keys for a wrong password', function () {

@@ -12,6 +12,8 @@ declare module 'node-firebird' {
     export const AUTH_PLUGIN_LEGACY: string;
     export const AUTH_PLUGIN_SRP: string;
     export const AUTH_PLUGIN_SRP256: string;
+    export const AUTH_PLUGIN_SRP384: string;
+    export const AUTH_PLUGIN_SRP512: string;
 
     export const WIRE_CRYPT_ENABLE: number;
     export const WIRE_CRYPT_DISABLE: number;
