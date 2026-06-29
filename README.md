@@ -309,6 +309,29 @@ Firebird.attach(options, function (err, db) {
 });
 ```
 
+### SQL-Standard ROW Type (Firebird 6.0+)
+
+Firebird 6.0+ supports the SQL-standard `ROW` type representing composite records / tuples (e.g. `ROW(id INT, name VARCHAR(20))`). Since the database server compiles row value expressions into individual scalar columns/parameters at the wire interface, you can pass individual parameters or tuple arrays natively:
+
+```js
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
+
+  // Use a row value expression / tuple comparison
+  db.query(
+    'SELECT * FROM USERS WHERE (ID, NAME) = (ROW(?, ?))',
+    [1, 'Alice'],
+    function (err, rows) {
+      if (err) throw err;
+      console.log(rows);
+      db.detach();
+    }
+  );
+});
+```
+
+For PSQL block declarations (triggers, procedures), you can declare and use `ROW`/`RECORD` variables (such as `DECLARE VARIABLE myrow ROW(id INT, name VARCHAR(20))`) directly within the compiled SQL strings executed via `db.query` or `db.execute`.
+
 ### BLOB (stream)
 
 ```js

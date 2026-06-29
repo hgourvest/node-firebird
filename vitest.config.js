@@ -25,7 +25,8 @@ module.exports = defineConfig({
             'test/sql-schemas.js',
             'test/tablespaces.js',
             'test/json.js',
-            'test/row-type.js'
+            'test/row-type.js',
+            'test/collations.js'
         ],
     },
 });

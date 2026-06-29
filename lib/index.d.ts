@@ -54,6 +54,18 @@ declare module 'node-firebird' {
         relationAlias?: string;
         /** Owner (user) of the source relation. */
         owner?: string;
+        /**
+         * **Firebird 6.0+ (Protocol 20+)**
+         *
+         * Character Set ID extracted from packed subType for string/character types.
+         */
+        charSetId?: number;
+        /**
+         * **Firebird 6.0+ (Protocol 20+)**
+         *
+         * Collation ID extracted from packed subType for string/character types.
+         */
+        collationId?: number;
     }
 
     /** A transaction sees changes done by uncommitted transactions. */

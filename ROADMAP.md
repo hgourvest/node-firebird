@@ -198,7 +198,7 @@ Before or alongside the TypeScript work, refactor the prototype-based codebase t
 - **Tablespaces:** ✅ Implemented — physical tablespace controls (creation, alteration, dropping) and schema partitioning namespace association (Protocol 20+).
 - **Native `JSON` Data Type:** ✅ Implemented — client-side automatic JSON object/array serialization and deserialization via `jsonAsObject` connection option (Protocol 20+).
 - **SQL-Standard `ROW` Type:** ✅ Implemented — full support for SQL-standard Row value expressions, tuple constructors, and PSQL `RECORD`/`ROWTYPE` variables (Protocol 20+).
-- **Enhanced Collation Support:** ❌ TODO — collations declared as part of the data type.
+- **Enhanced Collation Support:** ✅ Implemented — unpacking `charSetId` and `collationId` from packed `subType` metadata field for string columns (Protocol 20+).
 
 ---
 

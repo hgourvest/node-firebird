@@ -18,7 +18,7 @@ describe('Timezone Support (Firebird 4.0+)', () => {
         try {
             db = await fromCallback(cb => Firebird.attach(config, cb));
             // Check if server supports timezone types
-            await fromCallback(cb => db.query('SELECT CAST('12:00:00 UTC' AS TIME WITH TIME ZONE) FROM RDB$DATABASE', cb));
+            await fromCallback(cb => db.query("SELECT CAST('12:00:00 UTC' AS TIME WITH TIME ZONE) FROM RDB$DATABASE", cb));
             supportsTimezone = true;
         } catch (err) {
             console.warn('Firebird server does not support Timezone types, skipping integration tests.');
