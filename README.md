@@ -75,6 +75,12 @@ options.wireCrypt = Firebird.WIRE_CRYPT_ENABLE; // default; set to Firebird.WIRE
 options.pluginName = undefined; // optional, auto-negotiated; can be set to Firebird.AUTH_PLUGIN_SRP256, Firebird.AUTH_PLUGIN_SRP, or Firebird.AUTH_PLUGIN_LEGACY
 options.dbCryptConfig = undefined; // optional; database encryption key for encrypted databases. Use 'base64:<value>' for base64-encoded keys or plain text
 options.connectTimeout = 10000; // optional; timeout in ms for a single pool.get() attach operation (default: no timeout)
+options.parallelWorkers = undefined; // optional; request multiple thread workers for maintenance/index tasks (FB >= 5)
+options.maxInlineBlobSize = undefined; // optional; threshold size in bytes for inline blob transmission (default 65535, FB >= 5.0.3)
+options.maxNegotiatedProtocols = 10; // optional; limit maximum protocol versions negotiated (default 10 for compatibility, set to 11 for FB >= 6.0)
+options.defaultSchema = undefined; // optional; sets session CURRENT_SCHEMA at connect time (FB >= 6.0)
+options.searchPath = undefined; // optional; ordered list/array of schemas to resolve unqualified object references (FB >= 6.0)
+options.jsonAsObject = false; // optional; automatically stringify parameters and parse query results that contain JSON (FB >= 6.0)
 ```
 
 ### Classic
@@ -175,6 +181,10 @@ sequenceDiagram
 - `db.sequentially(query, [params], function(row, index), function(err), options)` - sequentially query
 - `db.detach(function(err))` detach a database
 - `db.transaction(options, function(err, transaction))` create transaction
+- `db.createTablespace(name, filePath, function(err, result))` - Create a physical tablespace (FB >= 6.0)
+- `db.alterTablespace(name, filePath, function(err, result))` - Alter an existing tablespace physical location (FB >= 6.0)
+- `db.dropTablespace(name, function(err, result))` - Drop a tablespace (FB >= 6.0)
+- `db.createSchema(schemaName, [tablespaceName], function(err, result))` - Create a schema/namespace, optionally binding it to a tablespace (FB >= 6.0)
 
 ### Transaction options
 
@@ -227,6 +237,70 @@ Firebird.attach(options, function (err, db) {
         ['Peter'],
         function (err, result) {
           console.log(result);
+          db.detach();
+        }
+      );
+    }
+  );
+});
+```
+
+### Tablespaces and Schema Partitioning (Firebird 6.0+)
+
+For Firebird 6.0+ (Protocol 20+), you can create and manage physical tablespace locations and logical schema namespaces, optionally partitioning schemas into specific physical tablespaces.
+
+```js
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
+
+  // 1. Create a physical tablespace mapping to a physical storage location
+  db.createTablespace('FAST_TS', '/ssd/fast_data.ts', function (err, result) {
+    if (err) throw err;
+    console.log('Tablespace FAST_TS created successfully');
+
+    // 2. Create a schema namespace and partition it into the FAST_TS tablespace
+    db.createSchema('MYSCHEMA', 'FAST_TS', function (err, result) {
+      if (err) throw err;
+      console.log('Schema MYSCHEMA partitioned to FAST_TS');
+
+      // 3. Drop tablespace when no longer needed
+      // db.dropTablespace('FAST_TS', function (err, result) { ... });
+
+      db.detach();
+    });
+  });
+});
+```
+
+### Native JSON Data Type Support (Firebird 6.0+)
+
+By enabling the `jsonAsObject` connection parameter, the driver will automatically serialize JavaScript objects/arrays passed as query parameters to JSON strings, and automatically parse returned JSON text/BLOB columns back into JavaScript objects/arrays.
+
+```js
+const options = {
+    // ...other connection options
+    jsonAsObject: true,
+    blobAsText: true  // recommended to read text BLOBs as strings
+};
+
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
+
+  const data = { name: 'Alice', age: 30, roles: ['admin', 'user'] };
+
+  db.query(
+    'INSERT INTO USERS (ID, PROFILE_JSON) VALUES (?, ?)',
+    [1, data],
+    function (err, result) {
+      if (err) throw err;
+
+      db.query(
+        'SELECT PROFILE_JSON FROM USERS WHERE ID = ?',
+        [1],
+        function (err, result) {
+          if (err) throw err;
+          // PROFILE_JSON is automatically parsed back to a JavaScript object
+          console.log(result[0].profile_json); // { name: 'Alice', age: 30, roles: ['admin', 'user'] }
           db.detach();
         }
       );

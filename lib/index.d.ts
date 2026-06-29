@@ -16,6 +16,46 @@ declare module 'node-firebird' {
     export const WIRE_CRYPT_ENABLE: number;
     export const WIRE_CRYPT_DISABLE: number;
 
+    /**
+     * Describes a single column in a prepared statement's result set or
+     * parameter list.  The properties here are populated by the
+     * `isc_info_sql_*` response items returned by the Firebird server during
+     * op_prepare_statement.
+     *
+     * On Firebird 6.0+ (Protocol 20) `relationSchema` is additionally
+     * populated when the column comes from a table that lives in a
+     * named schema.
+     */
+    export interface ColumnMetadata {
+        /** Internal Firebird SQL type code (before nullability bit is masked). */
+        type: number;
+        /** SQL sub-type (e.g. BLOB sub-type 1 = TEXT). */
+        subType: number;
+        /** Numeric scale for fixed-point types (negative, e.g. NUMERIC(9,2) → -2). */
+        scale: number;
+        /** Maximum byte length for character / binary columns. */
+        length: number;
+        /** Whether the column accepts NULL values. */
+        nullable: boolean;
+        /** Column / parameter name as declared in the DDL. */
+        field?: string;
+        /** Source relation (table / view) name. */
+        relation?: string;
+        /**
+         * **Firebird 6.0+ (Protocol 20+)**
+         * Schema that owns the source relation.  `undefined` or empty string
+         * for legacy (pre-6.0) servers or columns not drawn from a named
+         * schema (e.g. computed expressions).
+         */
+        relationSchema?: string;
+        /** Column alias as it appears in the SELECT list. */
+        alias?: string;
+        /** Alias of the source relation / sub-query. */
+        relationAlias?: string;
+        /** Owner (user) of the source relation. */
+        owner?: string;
+    }
+
     /** A transaction sees changes done by uncommitted transactions. */
     export const ISOLATION_READ_UNCOMMITTED: number[];
     /** A transaction sees only data committed before the statement has been executed. */
@@ -56,6 +96,10 @@ declare module 'node-firebird' {
         drop(callback: SimpleCallback): void;
         escape(value: any): string;
         attachEvent(callback: any): this;
+        createTablespace(name: string, filePath: string, callback?: QueryCallback): Database;
+        alterTablespace(name: string, filePath: string, callback?: QueryCallback): Database;
+        dropTablespace(name: string, callback?: QueryCallback): Database;
+        createSchema(schemaName: string, tablespaceName?: string | QueryCallback, callback?: QueryCallback): Database;
     }
 
     export interface Transaction {
@@ -156,6 +200,43 @@ declare module 'node-firebird' {
          * expected Firebird server response time under load.
          */
         connectTimeout?: number;
+        /**
+         * **Firebird 6.0+ only (Protocol 20+)**
+         *
+         * Sets the session's current schema at connection time.  Equivalent to
+         * executing `SET SCHEMA <name>` immediately after connecting.
+         *
+         * Unqualified object references (tables, procedures, etc.) that do not
+         * match any schema in the `searchPath` fall back to `PUBLIC`.
+         *
+         * Example: `defaultSchema: 'myapp'`
+         */
+        defaultSchema?: string;
+        /**
+         * **Firebird 6.0+ only (Protocol 20+)**
+         *
+         * Comma-separated (or array of) schema names used to resolve
+         * unqualified object references, tried in order from left to right.
+         * Equivalent to PostgreSQL's `search_path`.
+         *
+         * Examples:
+         * ```ts
+         * searchPath: 'myapp,PUBLIC'
+         * searchPath: ['myapp', 'PUBLIC']
+         * ```
+         *
+         * When omitted the server uses its own configured default
+         * (typically `PUBLIC` then `SYSTEM`).
+         */
+        searchPath?: string | string[];
+        /**
+         * **Firebird 6.0+ only (Protocol 20+)**
+         *
+         * Automatically stringifies JavaScript objects/arrays passed as query
+         * parameters to JSON strings, and automatically parses returned JSON
+         * text/BLOB columns back into JavaScript objects/arrays.
+         */
+        jsonAsObject?: boolean;
     }
 
     export interface SvcMgrOptions extends Options {

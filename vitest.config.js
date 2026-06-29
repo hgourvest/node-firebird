@@ -21,7 +21,11 @@ module.exports = defineConfig({
             'test/decfloat.js',
             'test/mock-server.js',
             'test/pool-fixes.js',
-            'test/blob-chunks.js'
+            'test/blob-chunks.js',
+            'test/sql-schemas.js',
+            'test/tablespaces.js',
+            'test/json.js',
+            'test/row-type.js'
         ],
     },
 });

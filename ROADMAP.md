@@ -159,8 +159,8 @@ Before or alongside the TypeScript work, refactor the prototype-based codebase t
 | 2.5 | 10, 11, 12, 13 | ✅ Implemented |
 | 3.0 | 14, 15 | ✅ Implemented |
 | 4.0 | 16, 17 | ✅ Implemented |
-| 5.0 | 18 | ✅ Implemented |
-| 6.0 | N/A | ❌ Not Implemented |
+| 5.0 | 18, 19 | ✅ Implemented |
+| 6.0 | 20 | ✅ Implemented |
 
 ### Firebird 3 Support
 
@@ -194,9 +194,10 @@ Before or alongside the TypeScript work, refactor the prototype-based codebase t
 
 - **Protocol Version List Limit:** ✅ Implemented — dynamic list slicing using the `maxNegotiatedProtocols` option (defaults to 10 for backward compatibility, supports up to 11 protocols in Firebird 6.0).
 - **Named Arguments:** ✅ Implemented — support for named parameter objects (mapping keys to described aliases/fields) in stored procedures and functions.
-- **SQL Schemas:** ❌ TODO — standard schema namespace support.
-- **Tablespaces & Native `JSON` Data Type:** ❌ TODO — physical storage location control and optimized binary JSON storage/functions.
-- **SQL-Standard `ROW` Type:** ❌ TODO — structured data types as columns or variables.
+- **SQL Schemas:** ✅ Implemented — session CURRENT_SCHEMA configuration, search path resolution, and column relation schema metadata (Protocol 20+).
+- **Tablespaces:** ✅ Implemented — physical tablespace controls (creation, alteration, dropping) and schema partitioning namespace association (Protocol 20+).
+- **Native `JSON` Data Type:** ✅ Implemented — client-side automatic JSON object/array serialization and deserialization via `jsonAsObject` connection option (Protocol 20+).
+- **SQL-Standard `ROW` Type:** ✅ Implemented — full support for SQL-standard Row value expressions, tuple constructors, and PSQL `RECORD`/`ROWTYPE` variables (Protocol 20+).
 - **Enhanced Collation Support:** ❌ TODO — collations declared as part of the data type.
 
 ---
