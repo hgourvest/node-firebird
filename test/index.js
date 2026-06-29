@@ -438,8 +438,8 @@ describe('Database', function() {
         // protocolVersion is set in beforeAll, so skip must be evaluated lazily
         // inside beforeEach (not at describe-block setup time) to avoid running
         // the infinite-loop test on Firebird 3 which would permanently block the queue.
-        beforeEach(function(ctx) {
-            if (protocolVersion < Const.PROTOCOL_VERSION16) ctx.skip();
+        beforeEach(({ skip }) => {
+            if (protocolVersion < Const.PROTOCOL_VERSION16) skip();
         });
 
         it('should query with sufficient timeout', async function (test) {
@@ -967,11 +967,11 @@ describe('GDSCode in errors', function () {
     });
 
     describe('Bidirectional Cursors (Firebird 5+)', function () {
-        it('should support bidirectional scrollable cursors', async function () {
+        it('should support bidirectional scrollable cursors', async function ({ skip }) {
             const db = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
             if (db.connection.accept.protocolVersion < Const.PROTOCOL_VERSION18) {
                 await fromCallback(cb => db.detach(cb));
-                this.skip();
+                skip();
                 return;
             }
 
@@ -1050,11 +1050,11 @@ describe('GDSCode in errors', function () {
     });
 
     describe('DML Returning Multiple Rows (Firebird 5+)', function () {
-        it('should support UPDATE and DELETE RETURNING multiple rows', async function () {
+        it('should support UPDATE and DELETE RETURNING multiple rows', async function ({ skip }) {
             const db = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
             if (db.connection.accept.protocolVersion < Const.PROTOCOL_VERSION18) {
                 await fromCallback(cb => db.detach(cb));
-                this.skip();
+                skip();
                 return;
             }
 
@@ -1108,11 +1108,11 @@ describe('GDSCode in errors', function () {
     });
 
     describe('SKIP LOCKED (Firebird 5+)', function () {
-        it('should support SELECT WITH LOCK SKIP LOCKED', async function () {
+        it('should support SELECT WITH LOCK SKIP LOCKED', async function ({ skip }) {
             const db1 = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
             if (db1.connection.accept.protocolVersion < Const.PROTOCOL_VERSION18) {
                 await fromCallback(cb => db1.detach(cb));
-                this.skip();
+                skip();
                 return;
             }
 
@@ -1181,11 +1181,11 @@ describe('GDSCode in errors', function () {
     });
 
     describe('Parallel Workers (Firebird 5+)', function () {
-        it('should support setting parallelWorkers in DPB', async function () {
+        it('should support setting parallelWorkers in DPB', async function ({ skip }) {
             const db = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
             if (db.connection.accept.protocolVersion < Const.PROTOCOL_VERSION18) {
                 await fromCallback(cb => db.detach(cb));
-                this.skip();
+                skip();
                 return;
             }
             await fromCallback(cb => db.detach(cb));
