@@ -211,11 +211,12 @@ describe('Test Srp client', function () {
      */
     function testSrp(algo, salt, client, server) {
         var clientKeys = client ? Srp.clientSeed(client) : Srp.clientSeed();
-        var serverKeys = server ? Srp.serverSeed(USER, PASSWORD, salt, server) : Srp.serverSeed(USER, PASSWORD, salt);
+        var serverKeys = server ? Srp.serverSeed(USER, PASSWORD, salt, server, algo) : Srp.serverSeed(USER, PASSWORD, salt, undefined, algo);
 
         const serverSessionKey = Srp.serverSession(
             USER, PASSWORD, salt,
-            clientKeys.public, serverKeys.public, serverKeys.private
+            clientKeys.public, serverKeys.public, serverKeys.private,
+            algo
         );
 
         const proof = Srp.clientProof(
@@ -238,11 +239,12 @@ describe('Test Srp client', function () {
      */
     function testSrpUser(algo, salt, client, user, password) {
         var clientKeys = Srp.clientSeed(client);
-        var serverKeys = Srp.serverSeed(user, password, salt);
+        var serverKeys = Srp.serverSeed(user, password, salt, undefined, algo);
 
         const serverSessionKey = Srp.serverSession(
             user, password, salt,
-            clientKeys.public, serverKeys.public, serverKeys.private
+            clientKeys.public, serverKeys.public, serverKeys.private,
+            algo
         );
 
         const proof = Srp.clientProof(
