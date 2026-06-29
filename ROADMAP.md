@@ -199,6 +199,9 @@ Before or alongside the TypeScript work, refactor the prototype-based codebase t
 - **Native `JSON` Data Type:** ✅ Implemented — client-side automatic JSON object/array serialization and deserialization via `jsonAsObject` connection option (Protocol 20+).
 - **SQL-Standard `ROW` Type:** ✅ Implemented — full support for SQL-standard Row value expressions, tuple constructors, and PSQL `RECORD`/`ROWTYPE` variables (Protocol 20+).
 - **Enhanced Collation Support:** ✅ Implemented — unpacking `charSetId` and `collationId` from packed `subType` metadata field for string columns (Protocol 20+).
+- **Srp384 and Srp512 Authentication Plugins:** ❌ Planned — support for the newer SHA-384 and SHA-512 based Secure Remote Password (SRP) authentication plugins.
+- **ChaCha64 Wire Encryption:** ❌ Planned — support for the `ChaCha64` symmetric encryption algorithm in the wire protocol as a secure alternative to the deprecated `Arc4` (RC4) cipher.
+- **Creation with Different Owner (Issue #7718):** ❌ Planned — support for specifying a custom database owner during database creation.
 
 ---
 
