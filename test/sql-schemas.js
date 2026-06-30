@@ -522,10 +522,15 @@ describe('Firebird 6.0 — SQL Schemas support', function () {
             assert.ok(Const.PROTOCOL_VERSION20 & Const.FB_PROTOCOL_FLAG);
         });
 
-        it('PROTOCOL_VERSION20 should be the highest version in SUPPORTED_PROTOCOL', function () {
+        it('PROTOCOL_VERSION19 should be the highest version in SUPPORTED_PROTOCOL (P20 capped)', function () {
+            // Protocol 20 is intentionally excluded from SUPPORTED_PROTOCOL to avoid
+            // Firebird 6.0 prepare-statement hangs. P19 is the current maximum.
             const versions = Const.SUPPORTED_PROTOCOL.map((p) => p[0]);
             const maxVer   = Math.max(...versions);
-            assert.strictEqual(maxVer, Const.PROTOCOL_VERSION20);
+            assert.strictEqual(maxVer, Const.PROTOCOL_VERSION19,
+                'PROTOCOL_VERSION19 should be the highest negotiated version (P20 intentionally capped)');
+            // P20 constant is still exported for future use
+            assert.ok(Const.PROTOCOL_VERSION20, 'PROTOCOL_VERSION20 constant should still be defined');
         });
     });
 

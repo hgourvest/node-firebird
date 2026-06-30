@@ -28,7 +28,10 @@ describe('Test Firebird 3.0, 4.0, 5.0, and 6.0 protocol support', function () {
         assert.ok(Const.PROTOCOL_VERSION20 & Const.FB_PROTOCOL_FLAG, 'Should have FB protocol flag');
     });
 
-    it('should include protocols 14 through 20 in SUPPORTED_PROTOCOL', function () {
+    it('should include protocols 14 through 19 in SUPPORTED_PROTOCOL (P20 intentionally capped)', function () {
+        // Protocol 20 (Firebird 6.0) is intentionally excluded from SUPPORTED_PROTOCOL because
+        // protocol 20 causes statement prepare hangs under the current wire implementation.
+        // The PROTOCOL_VERSION20 constant is still exported for reference/future use.
         var versions = Const.SUPPORTED_PROTOCOL.map(function (p) { return p[0]; });
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION14) !== -1, 'Protocol 14 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION15) !== -1, 'Protocol 15 should be supported');
@@ -36,8 +39,9 @@ describe('Test Firebird 3.0, 4.0, 5.0, and 6.0 protocol support', function () {
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION17) !== -1, 'Protocol 17 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION18) !== -1, 'Protocol 18 should be supported');
         assert.ok(versions.indexOf(Const.PROTOCOL_VERSION19) !== -1, 'Protocol 19 should be supported');
-        assert.ok(versions.indexOf(Const.PROTOCOL_VERSION20) !== -1, 'Protocol 20 should be supported');
-        assert.strictEqual(Const.SUPPORTED_PROTOCOL.length, 11, 'Should support 11 protocol versions');
+        assert.ok(versions.indexOf(Const.PROTOCOL_VERSION20) === -1, 'Protocol 20 should NOT be in SUPPORTED_PROTOCOL (P19 cap in effect)');
+        assert.ok(Const.PROTOCOL_VERSION20, 'PROTOCOL_VERSION20 constant should still be defined');
+        assert.strictEqual(Const.SUPPORTED_PROTOCOL.length, 10, 'Should advertise 10 protocol versions (P10–P19)');
     });
 
     it('should support Srp256 authentication plugin', function () {
@@ -261,6 +265,8 @@ describe('Test Firebird 3.0, 4.0, 5.0, and 6.0 protocol support', function () {
         });
 
         it('should respect maxNegotiatedProtocols option and slice protocol list correctly', function () {
+            // SUPPORTED_PROTOCOL contains 10 entries (P10-P19). P20 is intentionally
+            // excluded to avoid Firebird 6.0 prepare-statement hangs.
             // Helper function to test sliced protocols length
             function getProtocolsLength(options) {
                 var maxProtocols = options.maxNegotiatedProtocols !== undefined ? options.maxNegotiatedProtocols : 10;
@@ -271,14 +277,14 @@ describe('Test Firebird 3.0, 4.0, 5.0, and 6.0 protocol support', function () {
                 return protocolsToSend.length;
             }
 
-            // Default behavior: maxNegotiatedProtocols = 10, should return 10
+            // Default behavior: maxNegotiatedProtocols = 10, total = 10, should return 10
             assert.strictEqual(getProtocolsLength({}), 10);
             
-            // Explicit 10: should return 10
+            // Explicit 10: total is exactly 10, should return 10
             assert.strictEqual(getProtocolsLength({ maxNegotiatedProtocols: 10 }), 10);
 
-            // Explicit 11 (Firebird 6.0 limit): should return 11 (since total defined is 11)
-            assert.strictEqual(getProtocolsLength({ maxNegotiatedProtocols: 11 }), 11);
+            // Explicit 11: total is only 10, clamped to 10
+            assert.strictEqual(getProtocolsLength({ maxNegotiatedProtocols: 11 }), 10);
 
             // Explicit 5: should return 5
             assert.strictEqual(getProtocolsLength({ maxNegotiatedProtocols: 5 }), 5);
