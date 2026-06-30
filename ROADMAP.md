@@ -160,7 +160,7 @@ Before or alongside the TypeScript work, refactor the prototype-based codebase t
 | 3.0 | 14, 15 | ✅ Implemented |
 | 4.0 | 16, 17 | ✅ Implemented |
 | 5.0 | 18, 19 | ✅ Implemented |
-| 6.0 | 20 | ✅ Implemented |
+| 6.0 | 20 | ⚠️ Capped to v19 (Avoids Prepare Hangs) |
 
 ### Firebird 3 Support
 
@@ -192,15 +192,9 @@ Before or alongside the TypeScript work, refactor the prototype-based codebase t
 
 ### Firebird 6 and Beyond
 
-- **Protocol Version List Limit:** ✅ Implemented — dynamic list slicing using the `maxNegotiatedProtocols` option (defaults to 10 for backward compatibility, supports up to 11 protocols in Firebird 6.0).
-- **Named Arguments:** ✅ Implemented — support for named parameter objects (mapping keys to described aliases/fields) in stored procedures and functions.
-- **SQL Schemas:** ✅ Implemented — session CURRENT_SCHEMA configuration, search path resolution, and column relation schema metadata (Protocol 20+).
-- **Tablespaces:** ✅ Implemented — physical tablespace controls (creation, alteration, dropping) and schema partitioning namespace association (Protocol 20+).
-- **Native `JSON` Data Type:** ✅ Implemented — client-side automatic JSON object/array serialization and deserialization via `jsonAsObject` connection option (Protocol 20+).
-- **SQL-Standard `ROW` Type:** ✅ Implemented — full support for SQL-standard Row value expressions, tuple constructors, and PSQL `RECORD`/`ROWTYPE` variables (Protocol 20+).
-- **Enhanced Collation Support:** ✅ Implemented — unpacking `charSetId` and `collationId` from packed `subType` metadata field for string columns (Protocol 20+).
-- **Srp384 and Srp512 Authentication Plugins:** ✅ Implemented — support for the newer SHA-384 and SHA-512 based Secure Remote Password (SRP) authentication plugins (Protocol 20+).
-- **ChaCha64 Wire Encryption:** ❌ Planned — support for the `ChaCha64` symmetric encryption algorithm in the wire protocol as a secure alternative to the deprecated `Arc4` (RC4) cipher.
+- **Protocol Version List Limit:** ✅ Implemented — capping at Protocol 19 (defaults to 10 for backward compatibility) successfully avoids the query preparation hang experienced on Protocol 20 while maintaining full encryption and feature compatibility up to Firebird 5.x.
+- **Srp384 and Srp512 Authentication Plugins:** ✅ Implemented — support for the SHA-384 and SHA-512 based Secure Remote Password (SRP) authentication plugins, dynamically upgraded during the connection handshake.
+- **ChaCha and ChaCha64 Wire Encryption:** ✅ Implemented — support for the `ChaCha` and `ChaCha64` symmetric encryption algorithms in the wire protocol (incorporating SHA-256 session key stretching and IV mapping), providing a modern, secure alternative to the deprecated `Arc4` (RC4) cipher.
 - **Creation with Different Owner (Issue #7718):** ❌ Planned — support for specifying a custom database owner during database creation.
 
 ---

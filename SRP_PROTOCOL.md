@@ -123,12 +123,29 @@ Client                                         Server
   ◀─────────────────────────────────────────────
 ```
 
-### SRP256 (Srp256 plugin — FB4/FB5 only)
+### Higher SRP Plugins (Srp256, Srp384, Srp512)
 
-The wire sequence is identical to SRP (above). The only difference is:
+The connection handshake dynamically upgrades to higher plugins based on what the server supports (as listed in the `op_cond_accept` response). The differences are:
+- **Hashing Algorithm:** The hash algorithm for generating the client/server proofs (`M1` and `M2`) shifts to the respective SHA variant:
+  - `Srp256` -> **SHA-256**
+  - `Srp384` -> **SHA-384**
+  - `Srp512` -> **SHA-512**
+- **Session Key Derivation:** Despite using SHA-256/384/512 for the mutual authentication proof exchange, both client and server derive the final symmetric session key `K` using **SHA-1** (as per Firebird engine design).
 
-- The hash algorithm for `M1` / `M2` computation switches from **SHA-1** to **SHA-256**.
-- The plugin name in `op_cond_accept` is `"Srp256"` instead of `"Srp"`.
+---
+
+## Wire Encryption (Arc4, ChaCha, ChaCha64)
+
+If wire encryption is enabled (e.g., `wireCrypt: 1`), once SRP mutual authentication is successful, the client initiates the encryption handshake:
+
+1. **Client sends `op_crypt` (plaintext):** Client requests a specific encryption cipher (preferred order: `ChaCha64` -> `ChaCha` -> `Arc4`) based on the server's advertised encryption plugins.
+2. **Server responds with `op_response`:**
+   - For `Arc4`, the server sends a confirmation response.
+   - For `ChaCha` / `ChaCha64`, the server response contains a random **Initialization Vector (IV)** in its buffer (8 bytes for `ChaCha64`, 12 bytes for `ChaCha`).
+3. **Key Stretching:** For `ChaCha` / `ChaCha64`, the SHA-1 session key `K` is stretched to 32 bytes using SHA-256 to form the symmetric key: `key = SHA256(K)`.
+4. **Cipher Initialization:**
+   - **Arc4:** RC4 stream cipher initialized directly with the raw session key `K`.
+   - **ChaCha / ChaCha64:** ChaCha20 stream cipher initialized with the 32-byte stretched key and the server-supplied IV (which is padded with a counter prefix/suffix as required by standard OpenSSL formats).
 
 ---
 
@@ -156,11 +173,11 @@ The wire sequence is identical to SRP (above). The only difference is:
 - `op_response_piggyback` usage more prevalent during `EventConnection` teardown.
 - BigInt arithmetic in SRP key generation can be significantly **slower** on resource-constrained CI runners (see [Timing Issue](#timing-issue-and-fix) below).
 
-### Firebird 6 (Protocol 17, in development)
+### Firebird 6 (Protocol 20, max negotiated 19)
 
-- Retains Protocol Version 17.
-- Continues to support `Srp256` and `Srp` plugins.
-- No client-visible protocol changes from Firebird 5 at this time.
+- Firebird 6.0 introduces Protocol Version 20.
+- Due to a known statement allocation/preparation hang under Protocol 20, the driver caps its maximum negotiated version to **Protocol 19** (Firebird 5.x compatibility mode).
+- Under Protocol 19, the driver retains full compatibility with Firebird 6.0 databases while executing queries and encryption operations flawlessly.
 
 ---
 
