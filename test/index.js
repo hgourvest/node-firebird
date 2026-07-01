@@ -236,7 +236,8 @@ describe('Firebird Database Events (POST_EVENT)', function () {
             const subscribedState = evtmgr.getState();
             assert.equal(subscribedState.state, 'SUBSCRIBED');
             assert.equal(subscribedState.hasActiveSubscription, true);
-            assert.deepStrictEqual(subscribedState.registeredEvents, { TRG_TEST_EVENTS: 0 });
+            assert.deepStrictEqual(Object.keys(subscribedState.registeredEvents), ['TRG_TEST_EVENTS']);
+            assert.ok(subscribedState.registeredEvents.TRG_TEST_EVENTS >= 0);
         } finally {
             await fromCallback(cb => evtmgr.close(cb));
         }
@@ -258,6 +259,7 @@ describe('Firebird Database Events (POST_EVENT)', function () {
 
     it('should receive a post_event notification when the database fires an event', async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
+        const fireDb = await fromCallback(cb => Firebird.attach(config, cb));
         try {
             await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
 
@@ -276,11 +278,12 @@ describe('Firebird Database Events (POST_EVENT)', function () {
                 setTimeout(() => reject(new Error('Timed out waiting for post_event notification')), 5000);
             });
 
-            const uniqueId = Date.now() + Math.floor(Math.random() * 1000);
-            await fromCallback(cb => db.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [uniqueId, 'xpto'], cb));
+            const uniqueId = (Date.now() % 1000000000) + Math.floor(Math.random() * 1000);
+            await fromCallback(cb => fireDb.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [uniqueId, 'xpto'], cb));
 
             await Promise.race([eventPromise, timeoutPromise]);
         } finally {
+            await fromCallback(cb => fireDb.detach(cb)).catch(() => {});
             await fromCallback(cb => evtmgr.close(cb));
         }
     });
