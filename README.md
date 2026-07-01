@@ -618,8 +618,6 @@ Firebird.attach(options, function (err, db) {
 
 Firebird database events are **asynchronous** notifications triggered by `POST_EVENT` inside PSQL triggers or stored procedures. They travel over a separate aux connection and are handled through `FbEventManager`.
 
-> **Note:** Full POST_EVENT reception is not yet implemented. `attachEvent` and `registerEvent` are available, but actual event delivery requires completing the `op_que_events`/`op_event` wire-protocol implementation.
-
 ```js
 Firebird.attach(options, function (err, db) {
   if (err) throw err;

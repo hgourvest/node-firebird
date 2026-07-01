@@ -189,12 +189,10 @@ describe('Firebird Database Events (POST_EVENT)', function () {
     // Use FbEventManager.registerEvent() to subscribe to named events and
     // listen for the 'post_event' emitter event to receive notifications.
     //
-    // NOTE: Full POST_EVENT reception (op_que_events wire protocol) is not yet
-    // implemented – the "should receive an event" test is skipped until complete.
-
     const table_sql = 'CREATE TABLE TEST_EVENTS (ID INT NOT NULL CONSTRAINT PK_EVENTS PRIMARY KEY, NAME VARCHAR(50))';
 
     let db;
+    let nextTestEventId = 1;
 
     beforeAll(async function () {
         db = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
@@ -219,63 +217,84 @@ describe('Firebird Database Events (POST_EVENT)', function () {
 
     it('should create an event manager connection and verify initial state via getState()', async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
-
-        // After attachEvent: IDLE – EventConnection open, no active subscription
-        const idleState = evtmgr.getState();
-        assert.equal(idleState.state, 'IDLE');
-        assert.equal(idleState.hasActiveSubscription, false);
-        assert.deepStrictEqual(idleState.registeredEvents, {});
-        assert.equal(idleState.isEventConnectionOpen, true);
-        assert.equal(idleState.isDatabaseConnectionClosed, false);
-
-        // SUBSCRIBED state (post registerEvent / op_que_events) is not tested here
-        // because the full POST_EVENT wire protocol is not yet implemented.
-        // See the skip block below ('should register a named event subscription').
-
-        await fromCallback(cb => evtmgr.close(cb));
+        try {
+            // After attachEvent: IDLE – EventConnection open, no active subscription
+            const idleState = evtmgr.getState();
+            assert.equal(idleState.state, 'IDLE');
+            assert.equal(idleState.hasActiveSubscription, false);
+            assert.deepStrictEqual(idleState.registeredEvents, {});
+            assert.equal(idleState.isEventConnectionOpen, true);
+            assert.equal(idleState.isDatabaseConnectionClosed, false);
+        } finally {
+            await fromCallback(cb => evtmgr.close(cb));
+        }
     });
 
-    it.skip('should register a named event subscription', async function () {
-        // TODO: registerEvent sends op_que_events; Firebird 3 never responds on the
-        // main connection because the full POST_EVENT wire protocol is not yet
-        // implemented – skip until complete.
+    it('should register a named event subscription', async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
-        await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
-        await fromCallback(cb => evtmgr.close(cb));
+        try {
+            await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
+            const subscribedState = evtmgr.getState();
+            assert.equal(subscribedState.state, 'SUBSCRIBED');
+            assert.equal(subscribedState.hasActiveSubscription, true);
+            assert.deepStrictEqual(Object.keys(subscribedState.registeredEvents), ['TRG_TEST_EVENTS']);
+            assert.ok(subscribedState.registeredEvents.TRG_TEST_EVENTS >= 0);
+        } finally {
+            await fromCallback(cb => evtmgr.close(cb));
+        }
     });
 
-    it.skip('should unregister a named event subscription', async function () {
-        // TODO: unregisterEvent sends op_cancel_events; skip until the full
-        // POST_EVENT wire protocol is verified end-to-end.
+    it('should unregister a named event subscription', async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
-        await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
-        await fromCallback(cb => evtmgr.unregisterEvent(['TRG_TEST_EVENTS'], cb));
-        await fromCallback(cb => evtmgr.close(cb));
+        try {
+            await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
+            await fromCallback(cb => evtmgr.unregisterEvent(['TRG_TEST_EVENTS'], cb));
+            const idleState = evtmgr.getState();
+            assert.equal(idleState.state, 'IDLE');
+            assert.equal(idleState.hasActiveSubscription, false);
+            assert.deepStrictEqual(idleState.registeredEvents, {});
+        } finally {
+            await fromCallback(cb => evtmgr.close(cb));
+        }
     });
 
-    it.skip('should receive a post_event notification when the database fires an event', async function () {
-        // TODO: Real Firebird database events (POST_EVENT / op_que_events) are not
-        // fully implemented yet – skip until the feature is complete.
+    it('should receive a post_event notification when the database fires an event', async function () {
         const evtmgr = await fromCallback(cb => db.attachEvent(cb));
-        await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
+        const fireDb = await fromCallback(cb => Firebird.attach(config, cb));
+        try {
+            await fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb));
 
-        const eventPromise = new Promise((resolve, reject) => {
-            evtmgr.on('post_event', (name, count) => {
-                try {
-                    assert.equal(name, 'TRG_TEST_EVENTS');
-                    assert.ok(count > 0);
-                    resolve();
-                } catch (e) {
-                    reject(e);
-                }
+            const eventPromise = new Promise((resolve, reject) => {
+                evtmgr.on('post_event', (name, count) => {
+                    try {
+                        assert.equal(name, 'TRG_TEST_EVENTS');
+                        assert.ok(count > 0);
+                        resolve();
+                    } catch (e) {
+                        reject(e);
+                    }
+                });
             });
-        });
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Timed out waiting for post_event notification')), 5000);
+            });
 
-        const uniqueId = Math.floor(Date.now() / 1000);
-        await fromCallback(cb => db.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [uniqueId, 'xpto'], cb));
+            const uniqueId = nextTestEventId++;
+            await fromCallback(cb => fireDb.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [uniqueId, 'xpto'], cb));
 
-        await eventPromise;
-        await fromCallback(cb => evtmgr.close(cb));
+            await Promise.race([eventPromise, timeoutPromise]);
+        } finally {
+            let cleanupError;
+            try {
+                await fromCallback(cb => fireDb.detach(cb));
+            } catch (err) {
+                cleanupError = err;
+            }
+            await fromCallback(cb => evtmgr.close(cb));
+            if (cleanupError) {
+                throw cleanupError;
+            }
+        }
     });
 });
 
