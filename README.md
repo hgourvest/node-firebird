@@ -616,7 +616,9 @@ Firebird.attach(options, function (err, db) {
 
 ### Firebird Database Events (POST_EVENT)
 
-Firebird database events are **asynchronous** notifications triggered by `POST_EVENT` inside PSQL triggers or stored procedures. They travel over a separate aux connection and are handled through `FbEventManager`.
+Firebird database events are **asynchronous** notifications triggered by `POST_EVENT` inside PSQL
+triggers or stored procedures. They travel over a separate "aux" connection (opened via
+`db.attachEvent()`) and are managed through a `FbEventManager` instance.
 
 ```js
 Firebird.attach(options, function (err, db) {
@@ -626,7 +628,8 @@ Firebird.attach(options, function (err, db) {
   db.attachEvent(function (err, evtmgr) {
     if (err) throw err;
 
-    // 2. Subscribe to one or more named events
+    // 2. Subscribe to one or more named events (names must match POST_EVENT('name') in your
+    //    PSQL triggers/procedures). Resolves once op_que_events is acknowledged by the server.
     evtmgr.registerEvent(['MY_EVENT'], function (err) {
       if (err) throw err;
 
@@ -637,10 +640,20 @@ Firebird.attach(options, function (err, db) {
       });
     });
 
-    // 4. Unsubscribe from events when no longer needed
+    // 4. Unsubscribe from one or more events. Passing all currently registered names cancels
+    //    the subscription (sends op_cancel_events); the manager re-subscribes automatically if
+    //    other event names remain registered.
     // evtmgr.unregisterEvent(['MY_EVENT'], function (err) { ... });
 
-    // 5. Release the aux connection when done
+    // 5. Inspect the current subscription state for debugging: returns
+    //    { state, hasActiveSubscription, registeredEvents, eventId,
+    //      isEventConnectionOpen, isDatabaseConnectionClosed }.
+    //    state is one of 'IDLE' (aux connection open, no active subscription),
+    //    'SUBSCRIBED' (op_que_events acknowledged) or 'CLOSED'.
+    // const state = evtmgr.getState();
+
+    // 6. Release the aux connection when done. Cancels any active subscription first, then
+    //    gracefully closes the aux socket.
     // evtmgr.close(function (err) { ... });
   });
 });
