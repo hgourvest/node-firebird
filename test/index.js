@@ -192,6 +192,7 @@ describe('Firebird Database Events (POST_EVENT)', function () {
     const table_sql = 'CREATE TABLE TEST_EVENTS (ID INT NOT NULL CONSTRAINT PK_EVENTS PRIMARY KEY, NAME VARCHAR(50))';
 
     let db;
+    let eventRowId = 1;
 
     beforeAll(async function () {
         db = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
@@ -278,7 +279,7 @@ describe('Firebird Database Events (POST_EVENT)', function () {
                 setTimeout(() => reject(new Error('Timed out waiting for post_event notification')), 5000);
             });
 
-            const uniqueId = (Date.now() % 1000000000) + Math.floor(Math.random() * 1000);
+            const uniqueId = eventRowId++;
             await fromCallback(cb => fireDb.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [uniqueId, 'xpto'], cb));
 
             await Promise.race([eventPromise, timeoutPromise]);
