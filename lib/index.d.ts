@@ -411,8 +411,8 @@ declare module 'node-firebird' {
         detach(callback?: SimpleCallback, force?: boolean): void;
         backup(options: BackupOptions, callback: ReadableCallback): void;
         nbackup(options: BackupOptions, callback: ReadableCallback): void;
-        restore(options: NRestoreOptions, callback: ReadableCallback): void;
-        nrestore(options: any, callback: Function): void;
+        restore(options: RestoreOptions, callback: ReadableCallback): void;
+        nrestore(options: NRestoreOptions, callback: ReadableCallback): void;
         setDialect(db: string, dialect: 1 | 3, callback: ReadableCallback): void;
         setSweepinterval(db: string, interval: number, callback: Function): void; // gfix -h INTERVAL
         setCachebuffer(db: string, nbpages: any, callback: ReadableCallback): void; // gfix -b NBPAGES
