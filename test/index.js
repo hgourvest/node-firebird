@@ -47,6 +47,32 @@ describe('Connection', function () {
         });
     });
 
+    // https://github.com/hgourvest/node-firebird/issues/269
+    // If the connection is lost right after a request is written but before
+    // its response arrives, the callback used to hang forever: it just sat
+    // orphaned in the connection's internal queue.
+    it('should invoke the commit callback with an error when the connection is lost mid-flight', { timeout: 5000 }, async function () {
+        const db = await fromCallback(cb => Firebird.attachOrCreate(config, cb));
+        const transaction = await fromCallback(cb => db.transaction(Firebird.ISOLATION_READ_COMMITTED, cb));
+
+        const commitError = await new Promise((resolve, reject) => {
+            transaction.commit(function (err) {
+                if (err)
+                    resolve(err);
+                else
+                    reject(new Error('Expected commit to fail when the connection is lost mid-flight'));
+            });
+            // Kill the socket right after the commit request was written but
+            // before the server's response can come back.
+            db.connection._socket.destroy();
+        });
+
+        assert.ok(commitError instanceof Error);
+
+        await new Promise(resolve => db.once('reconnect', resolve));
+        await fromCallback(cb => db.detach(cb));
+    });
+
     var testCreateConfig = Config.extends(config, {database: config.database.replace(/\.fdb/, '2.fdb')});
     it('should create', async function() {
         const db = await fromCallback(cb => Firebird.create(testCreateConfig, cb));
