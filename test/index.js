@@ -547,6 +547,20 @@ describe('Database', function() {
                 cb));
         });
 
+        it('should insert with string from buffer', async function () {
+            const row = await fromCallback(cb => db.query(
+                'INSERT INTO test (ID, NAME, CREATED) VALUES(?, ?, ?) RETURNING ID',
+                [6, Buffer.from('Firebird 6'), '2014-12-12 13:59'],
+                cb));
+            assert.equal(row['id'], 6);
+
+            const rows = await fromCallback(cb => db.query('SELECT NAME FROM test WHERE ID = 6', cb));
+            assert.equal(rows[0].name, 'Firebird 6');
+
+            // Clean up to avoid affecting other shared tests
+            await fromCallback(cb => db.query('DELETE FROM test WHERE ID = 6', cb));
+        });
+
         describe('verify', function () {
             it('should select data from inserts', async function () {
                 const rows = await fromCallback(cb => db.query('SELECT * FROM test', cb));

@@ -44,8 +44,8 @@ These items come directly from current open issues and should be tracked as road
 - **[Issue #313](https://github.com/hgourvest/node-firebird/issues/313) — Sequential heap limit / allocation failed**
   Goal: reduce memory pressure and document safe usage patterns.
   Deliverables:
-  - Validate that `sequentially` does not retain rows unintentionally.
-  - Provide streaming patterns and "do/don't" guidance in docs.
+  - Validate that `sequentially` does not retain rows unintentionally. ✅ Covered by existing regression test (`test/index.js` — "should not buffer all streamed rows in sequentially callback result").
+  - Provide streaming patterns and "do/don't" guidance in docs. ✅ Added — see [README.md § Streaming a big data](README.md#streaming-a-big-data), including a backpressure example using the `on(row, index, next)` / Promise form.
 
 ### P1 — Behavior fixes / sharp edges
 
@@ -61,15 +61,22 @@ These items come directly from current open issues and should be tracked as road
   - Document and/or fix idle cleanup behavior.
   - Add observable events/metrics: "connection closed due to idle timeout", etc.
 
+- **[Issue #164](https://github.com/hgourvest/node-firebird/issues/164) — Insert data with charset `NONE` (or `ISO8859_1`)** ✅ Resolved
+  Goal: allow binary-safe writes to non-UTF8 text columns without corrupting bytes on the way through Node's string layer.
+  Deliverables:
+  - Added `SQLParamBuffer` (`lib/wire/xsqlvar.js`) + `XdrWriter.addParamBuffer` (`lib/wire/serialize.js`): when a `Buffer` is passed as a parameter for a non-BLOB column, its raw bytes are written directly instead of being coerced through `Buffer#toString()` (which previously forced a UTF-8 decode and could corrupt data on `NONE`/`WIN1252`/`ISO8859_1` connections).
+  - Regression test added: `test/index.js` — "should insert with string from buffer".
+  - This is the direct fix for the workaround requested in [#336](https://github.com/hgourvest/node-firebird/issues/336) ("write the buffer directly to the database without any other transliteration") — combine with `encoding: 'NONE'` to pass already-encoded bytes straight through.
+
 ### P2 — Questions / documentation gaps (triage)
 
 These may be closed with a clear explanation or resolved with a small doc/code fix.
 
-- **[Issue #353](https://github.com/hgourvest/node-firebird/issues/353)** — LIST() function support question
-- **[Issue #348](https://github.com/hgourvest/node-firebird/issues/348)** — Protocol version hard-coded?
-- **[Issue #335](https://github.com/hgourvest/node-firebird/issues/335)** — BLOB loading slowly
-- **[Issue #336](https://github.com/hgourvest/node-firebird/issues/336)** — Default encoding option (UTF-8 vs latin1)
-- **[Issue #332](https://github.com/hgourvest/node-firebird/issues/332)** — LIKE clause error in SELECT
+- **[Issue #353](https://github.com/hgourvest/node-firebird/issues/353)** — LIST() function support question ✅ Resolved (closed upstream via `blobAsText`); now documented in [README.md § FAQ](README.md#faq)
+- **[Issue #348](https://github.com/hgourvest/node-firebird/issues/348)** — Protocol version hard-coded? ✅ Resolved (protocol negotiation shipped since the issue was filed); now documented in [README.md § FAQ](README.md#faq)
+- **[Issue #335](https://github.com/hgourvest/node-firebird/issues/335)** — BLOB loading slowly ⚠️ Open upstream, but the fix (`blobChunkSize`/`blobReadChunkSize`) already ships — documented in [README.md § FAQ](README.md#faq)
+- **[Issue #336](https://github.com/hgourvest/node-firebird/issues/336)** — Default encoding option (UTF-8 vs latin1) ✅ Resolved (`options.encoding` ships); now documented in [README.md § FAQ](README.md#faq), including the transliteration-mismatch caveat raised in the issue thread
+- **[Issue #332](https://github.com/hgourvest/node-firebird/issues/332)** — LIKE clause error in SELECT ⚠️ Open upstream (server-side DSQL behavior, not reproducible on Firebird 6.0); workaround documented in [README.md § FAQ](README.md#faq)
 - **[Issue #320](https://github.com/hgourvest/node-firebird/issues/320)** — Deno compatibility ✅ Resolved
 
 ---
@@ -80,14 +87,14 @@ The library already works with Express, but "support" should mean **documented, 
 
 ### Deliverables
 
-- **New docs section: "Using node-firebird with Express.js"**
-  - Recommended architecture: create a single pool at app startup and reuse it.
-  - Request lifecycle pattern: acquire connection → run queries → always release in `finally`.
-  - Transaction middleware example (commit on success, rollback on error).
-  - Error handling: map Firebird errors to HTTP status codes without exposing internals.
-  - BLOB streaming example: stream BLOBs directly to `res` and ensure `db.detach()` on `finish`/`close`.
+- **New docs section: "Using node-firebird with Express.js"** ✅ Added — see [README.md](README.md#using-node-firebird-with-expressjs)
+  - Recommended architecture: create a single pool at app startup and reuse it. ✅
+  - Request lifecycle pattern: acquire connection → run queries → always release in `finally`. ✅ (via an idempotent `withConnection` helper, since callback code has no native `finally`)
+  - Transaction middleware example (commit on success, rollback on error). ✅
+  - Error handling: map Firebird errors to HTTP status codes without exposing internals. ✅ (using the existing `GDSCode` constants from `lib/gdscodes.js`)
+  - BLOB streaming example: stream BLOBs directly to `res` and ensure `db.detach()` on `finish`/`close`. ✅
 
-- **Optional helper utilities (non-breaking additions)**
+- **Optional helper utilities (non-breaking additions)** — not yet implemented; the docs currently show equivalent hand-rolled helpers (`withConnection`, `transactional`) instead.
   - `pool.withConnection(async (db) => { ... })` — guarantees release even on error.
   - `db.withTransaction(async (tx) => { ... })` — auto-commit or auto-rollback.
 
@@ -95,8 +102,8 @@ The library already works with Express, but "support" should mean **documented, 
 
 Provide at least **two copy-paste ready examples**:
 
-1. **Standard JSON API endpoint** — query rows and return JSON, with proper connection release.
-2. **BLOB streaming download endpoint** — pipe a BLOB column to the HTTP response, with cleanup on client disconnect.
+1. **Standard JSON API endpoint** — query rows and return JSON, with proper connection release. ✅
+2. **BLOB streaming download endpoint** — pipe a BLOB column to the HTTP response, with cleanup on client disconnect. ✅
 
 ---
 
@@ -213,7 +220,7 @@ These are open pull requests that are close to being merged and represent near-t
 | Target | Items |
 | :--- | :--- |
 | Next patch | P0 bug fixes: #387, #357, #343, #341 |
-| Next minor | Express.js docs + helpers; TS Phase A typings; in-flight PR #385; Protocol 17 + DECFLOAT shipped in #383 |
+| Next minor | Express.js docs ✅ done, helpers still pending; TS Phase A typings; in-flight PR #385; Protocol 17 + DECFLOAT shipped in #383 |
 | Future minor | TS Phase B (promise wrappers); P1 + P2 issues; Protocol 18 / Firebird 5 |
 | Future major | ESM/CJS rework; TS Phase C generics; full class-based refactor (only if breaking) |
 

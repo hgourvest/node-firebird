@@ -1,8 +1,10 @@
 const path = require('path');
 
+const crypto = require('crypto');
 const currentDate = new Date();
 const testDir = path.resolve(__dirname);
-const dbName = 'test-' + currentDate.getTime() + '.fdb';
+const uniqueId = crypto.randomBytes(4).toString('hex');
+const dbName = 'test-' + currentDate.getTime() + '-' + uniqueId + '.fdb';
 
 exports.default = {
     database: path.join(process.env.FIREBIRD_DATA || testDir, dbName),

@@ -501,6 +501,8 @@ Firebird.attach(options, function (err, db) {
 
 ### Streaming a big data
 
+`db.query` / `db.execute` buffer the **entire** result set into memory as an array before your callback runs — fine for small/medium results, but a poor fit for big tables or unbounded exports (this is what causes "Sequential heap limit / allocation failed"-style errors on very large result sets). `db.sequentially` / `transaction.sequentially` stream rows one at a time to an `on(row, index)` callback instead: node-firebird never accumulates the rows itself, so memory use stays flat regardless of table size (the `rows` argument passed to the completion callback is always `[]`).
+
 ```js
 Firebird.attach(options, function (err, db) {
   if (err) throw err;
@@ -520,6 +522,34 @@ Firebird.attach(options, function (err, db) {
   );
 });
 ```
+
+#### Backpressure
+
+Rows are still fetched from the server in batches (200 rows per round-trip) as fast as your `on` callback returns. If you're forwarding each row to something that can fall behind (an HTTP response, a file write stream, a rate-limited API), declare `on` with a third `next` parameter — or return a `Promise` — and node-firebird will wait for you to call it (or for the promise to resolve) before fetching or processing the next row:
+
+```js
+db.sequentially(
+  'SELECT * FROM BIGTABLE',
+  function (row, index, next) {
+    // Only ask for the next row once the downstream write has drained.
+    if (outputStream.write(JSON.stringify(row) + '\n')) {
+      next();
+    } else {
+      outputStream.once('drain', next);
+    }
+  },
+  function (err) {
+    db.detach();
+  }
+);
+```
+
+#### Do / Don't
+
+- **Do** use `sequentially` for large tables, full-table exports, or any query whose row count you can't bound in advance.
+- **Do** use the 3-arg `on(row, index, next)` form (or return a `Promise` from `on`) when writing rows to something that applies its own backpressure, so unprocessed rows can't pile up faster than they're consumed.
+- **Don't** use `db.query` / `db.execute` for big or unbounded result sets — both build the full array in memory before your callback ever runs.
+- **Don't** assume the 2-arg `on(row, index)` form throttles you — it only guarantees node-firebird itself won't buffer rows; if your handler does async work without waiting on it (e.g. fire-and-forget writes), buffering can still build up on the *consumer* side.
 
 ### Transactions
 
@@ -1144,6 +1174,312 @@ pool.get(function(err, db) {
 // Close all pool connections and reject pending requests
 process.on('SIGTERM', function() {
     pool.destroy();
+});
+```
+
+## Using node-firebird with Express.js
+
+node-firebird works well with Express, but because the driver is connection/pool based rather than an ORM with automatic connection management, a few request-lifecycle patterns keep connections from leaking under load. This section documents the recommended architecture, referenced from the [roadmap](ROADMAP.md#2-expressjs-support-first-class-integration).
+
+### Recommended architecture: one pool per app, created at startup
+
+Create a single `Firebird.pool(...)` when the app boots and reuse it for the lifetime of the process. Do **not** call `Firebird.pool()` or `Firebird.attach()` inside a request handler — that opens a new socket (or an entire new pool) on every request and will exhaust server and database resources under load.
+
+```js
+// db.js
+const Firebird = require('node-firebird');
+
+const options = {
+  host: '127.0.0.1',
+  database: '/var/lib/firebird/data/app.fdb',
+  user: 'SYSDBA',
+  password: 'masterkey',
+  connectTimeout: 5000,
+};
+
+// Size the pool to your expected concurrency, not to the number of requests.
+const pool = Firebird.pool(10, options);
+
+module.exports = pool;
+```
+
+```js
+// app.js
+const express = require('express');
+const pool = require('./db');
+
+const app = express();
+
+// ...routes...
+
+const server = app.listen(3000);
+
+// Close the pool (and reject any in-flight pool.get() calls) on shutdown.
+process.on('SIGTERM', function () {
+  server.close(function () {
+    pool.destroy();
+  });
+});
+```
+
+### Request lifecycle: acquire → query → always release
+
+Every request that touches the database must release its connection back to the pool exactly once, on every code path: success, query error, or a synchronous throw. There is no native `finally` across async callbacks, so a small helper plays that role:
+
+```js
+// withConnection.js
+function withConnection(pool, handler) {
+  return function (req, res, next) {
+    pool.get(function (err, db) {
+      if (err) return next(err);
+
+      var finished = false;
+
+      // Safe to call more than once; only the first call has any effect.
+      function done(err) {
+        if (finished) return;
+        finished = true;
+        db.detach();
+        if (err) next(err);
+      }
+
+      try {
+        handler(db, req, res, done);
+      } catch (err) {
+        done(err);
+      }
+    });
+  };
+}
+
+module.exports = withConnection;
+```
+
+```js
+app.get('/users', withConnection(pool, function (db, req, res, done) {
+  db.query('SELECT ID, ALIAS FROM USERS', function (err, rows) {
+    if (err) return done(err);
+    res.json(rows);
+    done();
+  });
+}));
+```
+
+### Transaction middleware: commit on success, rollback on error
+
+For write endpoints, acquire a connection and start a transaction in middleware, expose it as `req.tx`, and let the route handler decide whether to commit or roll back:
+
+```js
+function transactional(pool) {
+  return function (req, res, next) {
+    pool.get(function (err, db) {
+      if (err) return next(err);
+
+      db.transaction(function (err, tx) {
+        if (err) {
+          db.detach();
+          return next(err);
+        }
+
+        req.tx = tx;
+
+        // Call on success — commits, releases the connection, then responds.
+        req.commit = function (payload) {
+          tx.commit(function (err) {
+            db.detach();
+            if (err) return next(err);
+            res.json(payload);
+          });
+        };
+
+        // Call on failure — rolls back, releases the connection, then
+        // forwards the error to Express's error-handling middleware.
+        req.rollbackOnError = function (err) {
+          tx.rollback(function () {
+            db.detach();
+            next(err);
+          });
+        };
+
+        next();
+      });
+    });
+  };
+}
+
+app.post('/orders', transactional(pool), function (req, res, next) {
+  req.tx.query(
+    'INSERT INTO ORDERS (CUSTOMER, TOTAL) VALUES (?, ?) RETURNING ID',
+    [req.body.customer, req.body.total],
+    function (err, result) {
+      if (err) return req.rollbackOnError(err);
+      req.commit(result);
+    }
+  );
+});
+```
+
+### Error handling: map Firebird errors to HTTP status codes
+
+Firebird errors surface as a plain `Error` with `.message`, `.gdscode`, and `.gdsparams` (see `lib/callback.js`). Map the codes you care about — exported as named constants from `node-firebird/lib/gdscodes` — to HTTP status codes in your error-handling middleware, and log the original error server-side only. Don't forward `err.message` as-is to clients: it can contain SQL text, table/column names, or file paths.
+
+```js
+const { GDSCode } = require('node-firebird/lib/gdscodes');
+
+function mapFirebirdErrorToStatus(err) {
+  switch (err.gdscode) {
+    case GDSCode.UNIQUE_KEY_VIOLATION:
+      return 409; // Conflict
+    case GDSCode.LOCK_CONFLICT:
+      return 423; // Locked
+    default:
+      return 500;
+  }
+}
+
+// Express error-handling middleware (register last, with 4 arguments).
+app.use(function (err, req, res, next) {
+  console.error(err); // full detail goes to server logs only
+
+  res.status(mapFirebirdErrorToStatus(err)).json({
+    error: err.gdscode === GDSCode.UNIQUE_KEY_VIOLATION ? 'Duplicate record' : 'Request failed',
+  });
+});
+```
+
+### BLOB streaming: pipe a BLOB column straight to the response
+
+Blob columns come back from `db.query`/`transaction.query` as functions (see [Reading Blobs](#reading-blobs-asynchronous)). Call the column function to get an `EventEmitter` you can `.pipe()` straight into `res`, and release the connection once streaming ends, errors, *or* the client disconnects early.
+
+```js
+app.get('/users/:id/picture', withConnection(pool, function (db, req, res, done) {
+  db.query(
+    'SELECT USERPICTURE FROM USERS WHERE ID = ?',
+    [req.params.id],
+    function (err, rows) {
+      if (err) return done(err);
+      if (!rows.length) {
+        res.sendStatus(404);
+        return done();
+      }
+
+      rows[0].userpicture(function (err, name, blobStream) {
+        if (err) return done(err);
+
+        res.type('application/octet-stream');
+
+        // done() is idempotent — whichever of these fires first releases
+        // the connection; the rest are no-ops.
+        blobStream.once('end', function () { done(); });
+        blobStream.once('error', done);
+        res.once('close', function () { done(); });
+
+        blobStream.pipe(res);
+      });
+    }
+  );
+}));
+```
+
+## FAQ
+
+Answers to recurring questions from the [issue tracker](https://github.com/hgourvest/node-firebird/issues).
+
+#### Can I use aggregate functions like `LIST()`? I get "no database to handle" when I call the result.
+
+Yes — `LIST()` is plain SQL and needs no special driver support. The error happens because `LIST()` returns a text blob (subtype 1), and blob columns come back from `db.query`/`transaction.query` as **async reader functions** bound to the transaction the query ran in (see [Reading Blobs](#reading-blobs-asynchronous)). Calling that function without a transaction — or with a different one — is what throws "no database to handle".
+
+The simplest fix is `blobAsText: true`, which returns subtype-1 blobs as plain strings automatically, no callback needed:
+
+```js
+const options = { /* ...other options... */ blobAsText: true };
+
+Firebird.attach(options, function (err, db) {
+  if (err) throw err;
+  db.query('SELECT LIST(RDB$FIELD_NAME) AS COLUMNS FROM RDB$RELATION_FIELDS', function (err, rows) {
+    if (err) throw err;
+    console.log(rows[0].columns); // plain string, not a function
+    db.detach();
+  });
+});
+```
+
+If you need to read it manually instead, pass the **same** transaction the query used:
+
+```js
+db.transaction(function (err, tx) {
+  tx.query('SELECT LIST(RDB$FIELD_NAME) AS COLUMNS FROM RDB$RELATION_FIELDS', function (err, rows) {
+    rows[0].columns(tx, function (err, name, e) {
+      let collected = '';
+      e.on('data', (chunk) => (collected += chunk));
+      e.on('end', () => console.log(collected));
+    });
+  });
+});
+```
+
+#### Is the wire protocol version hard-coded?
+
+No. node-firebird negotiates the highest protocol version both the client and server support, up to `options.maxNegotiatedProtocols` (default `10`, i.e. Protocol 19 — see [Protocol Implementation Status](ROADMAP.md#4-protocol-implementation-status) in the roadmap for the full version table). Raise it if you're on Firebird 6.0 and want to attempt Protocol 20:
+
+```js
+options.maxNegotiatedProtocols = 11; // offers Protocol 20 as well as 19
+```
+
+The default is capped at 10 (Protocol 19) rather than the full list because Protocol 20 has a known query-preparation hang on some Firebird 6.0 builds — see the "Firebird 6 and Beyond" note in [ROADMAP.md](ROADMAP.md#4-protocol-implementation-status).
+
+#### BLOB reads/writes are very slow, especially for large files over a remote connection
+
+This is almost always network round-trips, not the database. By default, blobs are streamed in small (1024-byte) segments; for a multi-megabyte file over a non-local connection that's thousands of round-trips. Raise `blobChunkSize` / `blobReadChunkSize` (up to the protocol max of `65535`) to fetch/send far larger segments per round-trip — see [Optimizing BLOB Read/Write Chunk Sizes](#optimizing-blob-readwrite-chunk-sizes):
+
+```js
+options.blobChunkSize = 65535;
+options.blobReadChunkSize = 65535;
+```
+
+If your server and client are on the same host, this won't matter much — the slowdown is latency-bound, not throughput-bound.
+
+#### How do I use an encoding other than UTF-8 (e.g. WIN1252/Latin1)?
+
+Set `options.encoding` — no source changes required (see [Character Set & Encoding Support](#character-set--encoding-support) for the full mapping table):
+
+```js
+options.encoding = 'WIN1252'; // or 'ISO8859_1', 'LATIN1', 'ASCII', 'NONE'
+```
+
+`options.encoding` must match the character set the *database itself* was created with. If you set an encoding that doesn't match the database's charset, Firebird will reject transliteration of characters that don't exist in both charsets with an error like `Cannot transliterate character between character sets` — that's the server protecting you from silent data corruption, not a driver bug. When in doubt, check the database's `RDB$CHARACTER_SETS` / connection charset rather than guessing.
+
+If your database uses `charset NONE` (no transliteration at all — the server stores whatever bytes it's given) and you need full control over the byte encoding yourself, pass a `Buffer` instead of a string for text-column parameters. node-firebird writes `Buffer` values through unchanged, bypassing Node's UTF-8 string handling entirely — combine with a transliteration library like [`iconv-lite`](https://www.npmjs.com/package/iconv-lite) to produce the bytes:
+
+```js
+const iconv = require('iconv-lite');
+options.encoding = 'NONE';
+
+db.query(
+  'INSERT INTO NOTES (ID, BODY) VALUES (?, ?)',
+  [1, iconv.encode('Café', 'win1252')], // pre-encoded bytes, written as-is
+  function (err) { /* ... */ }
+);
+```
+
+#### I get "Dynamic SQL Error" (string truncation) using `LIKE` with a pattern longer than the column
+
+```
+SELECT * FROM ACTORS WHERE NAME LIKE 'James Wick%'  -- NAME is VARCHAR(10), literal is 11 chars
+```
+
+On some Firebird server versions, the optimizer infers a literal's type from the column it's compared against and can raise a truncation error at compile time if an inline string literal is longer than the column's declared length — even though the same query works fine as a parameterized query. This is server-side SQL compilation behavior, not something node-firebird controls; it did not reproduce against the Firebird 6.0 server used by this project's own test suite, so it appears to be limited to certain older engine versions/optimizer paths.
+
+The reliable fix, which also happens to be the general best practice (see [Parametrized Queries](#parametrized-queries)), is to pass the pattern as a parameter instead of inlining it:
+
+```js
+// Instead of embedding the literal in the SQL text:
+db.query("SELECT * FROM ACTORS WHERE NAME LIKE 'James Wick%'", ...);
+
+// Bind it as a parameter:
+db.query('SELECT * FROM ACTORS WHERE NAME LIKE ?', ['James Wick%'], function (err, rows) {
+  if (err) throw err;
+  console.log(rows);
 });
 ```
 
