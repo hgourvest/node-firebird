@@ -1,4 +1,14 @@
-var crypto = require('crypto');
+import crypto from 'crypto';
+
+export interface KeyPair {
+    public: bigint;
+    private: bigint;
+}
+
+export interface ClientProof {
+    clientSessionKey: bigint;
+    authData: bigint;
+}
 
 const SRP_KEY_SIZE = 128,
   SRP_KEY_MAX = BigInt('340282366920938463463374607431768211456'), // 1 << SRP_KEY_SIZE
@@ -18,8 +28,8 @@ const PRIME = {
     k: BigInt('1277432915985975349439481660349303019122249719989')
 };
 
-const kCache = {};
-function getK(hashAlgo) {
+const kCache: Record<string, bigint> = {};
+function getK(hashAlgo: string): bigint {
     if (!kCache[hashAlgo]) {
         kCache[hashAlgo] = BigInt('0x' + getHash(hashAlgo, pad(PRIME.N), pad(PRIME.g)));
     }
@@ -32,7 +42,7 @@ function getK(hashAlgo) {
  * @param a BigInt Client private key.
  * @returns {{private: BigInt, public: BigInt}}
  */
-exports.clientSeed = function(a = toBigInt(crypto.randomBytes(SRP_KEY_SIZE)) % PRIME.N) {
+export function clientSeed(a: bigint = toBigInt(crypto.randomBytes(SRP_KEY_SIZE)) % PRIME.N): KeyPair {
     // a must be in [0, N): clientSession() reduces the exponent (a + ux) mod N
     // to match the Firebird engine, but A = g^a is computed from the raw a.
     // When random a >= N (~10% of 1024-bit values), the proof diverges from
@@ -57,29 +67,29 @@ exports.clientSeed = function(a = toBigInt(crypto.randomBytes(SRP_KEY_SIZE)) % P
  * @param b BigInt Server private key.
  * @returns {{private: BigInt, public: BigInt}}
  */
-exports.serverSeed = function(user, password, salt, b, hashAlgo = 'sha1') {
+export function serverSeed(user: string, password: string, salt: Buffer, b?: bigint | string, hashAlgo: string = 'sha1'): KeyPair {
     if (typeof b === 'string') {
         hashAlgo = b;
         b = undefined;
     }
-    if (b === undefined || b === null) {
-        b = toBigInt(crypto.randomBytes(SRP_KEY_SIZE));
-    }
+    const bKey: bigint = (b === undefined || b === null)
+        ? toBigInt(crypto.randomBytes(SRP_KEY_SIZE))
+        : b as bigint;
     var v = getVerifier(user, password, salt, 'sha1');
-    var gb = modPow(PRIME.g, b, PRIME.N);
+    var gb = modPow(PRIME.g, bKey, PRIME.N);
     var k = getK('sha1');
     var kv = (k * v) % PRIME.N;
     var B = (kv + gb) % PRIME.N;
 
     dump('v', v);
-    dump('b', b);
-    dump('gb', b);
+    dump('b', bKey);
+    dump('gb', bKey);
     dump('kv', v);
     dump('B', B);
 
     return {
         public: B,
-        private: b
+        private: bKey
     };
 }
 
@@ -94,7 +104,7 @@ exports.serverSeed = function(user, password, salt, b, hashAlgo = 'sha1') {
  * @param b BigInt Server private key.
  * @returns {BigInt}
  */
-exports.serverSession = function(user, password, salt, A, B, b, hashAlgo = 'sha1') {
+export function serverSession(user: string, password: string, salt: Buffer, A: bigint, B: bigint, b: bigint, hashAlgo: string = 'sha1'): bigint {
     var u = getScramble(A, B, 'sha1');
     var v = getVerifier(user, password, salt, 'sha1');
     var vu = modPow(v, u, PRIME.N);
@@ -111,7 +121,7 @@ exports.serverSession = function(user, password, salt, A, B, b, hashAlgo = 'sha1
 /**
  * M = H(H(N) xor H(g), H(I), s, A, B, K)
  */
-exports.clientProof = function(user, password, salt, A, B, a, hashAlgo = 'sha1') {
+export function clientProof(user: string, password: string, salt: Buffer, A: bigint, B: bigint, a: bigint, hashAlgo: string = 'sha1'): ClientProof {
     var K = clientSession(user, password, salt, A, B, a, 'sha1');
     var n1, n2;
 
@@ -138,21 +148,20 @@ exports.clientProof = function(user, password, salt, A, B, a, hashAlgo = 'sha1')
 /**
  *  Pad hex string.
  */
-function hexPad(hex) {
+export function hexPad(hex: string): string {
     if (hex.length % 2 !== 0) {
         hex = '0' + hex;
     }
 
     return hex;
 }
-exports.hexPad = hexPad;
 
 /**
  * The SRP prime modulus N (1024-bit, same value used by Firebird).
  * Exported so tests and tooling can assert key-size invariants without
  * duplicating the constant.
  */
-exports.PRIME_N = PRIME.N;
+export const PRIME_N: bigint = PRIME.N;
 
 /**
  * Pad key with SRP_KEY_SIZE.
@@ -160,7 +169,7 @@ exports.PRIME_N = PRIME.N;
  * @param n BigInt Key to pad.
  * @returns Buffer
  */
-function pad(n) {
+function pad(n: bigint): Buffer {
     var buff = Buffer.from(hexPad(n.toString(16)), 'hex');
 
     if (buff.length > SRP_KEY_SIZE) {
@@ -181,7 +190,7 @@ function pad(n) {
  * @param B BigInt Server public key.
  * @returns {BigInt}
  */
-function getScramble(A, B, hashAlgo = 'sha1') {
+function getScramble(A: bigint, B: bigint, hashAlgo: string = 'sha1'): bigint {
     return BigInt('0x' + getHash(hashAlgo, pad(A), pad(B)));
 }
 
@@ -200,7 +209,7 @@ function getScramble(A, B, hashAlgo = 'sha1') {
  * @param B BigInt Server public key.
  * @param a BigInt Client private key.
  */
-function clientSession(user, password, salt, A, B, a, hashAlgo = 'sha1') {
+function clientSession(user: string, password: string, salt: Buffer, A: bigint, B: bigint, a: bigint, hashAlgo: string = 'sha1'): bigint {
     var u = getScramble(A, B, 'sha1');
     var x = getUserHash(user, salt, password, 'sha1');
     var gx = modPow(PRIME.g, x, PRIME.N);
@@ -242,7 +251,7 @@ function clientSession(user, password, salt, A, B, a, hashAlgo = 'sha1') {
  * @param password string Connection password.
  * @returns {BigInt}
  */
-function getUserHash(user, salt, password, hashAlgo = 'sha1') {
+function getUserHash(user: string, salt: Buffer, password: string, hashAlgo: string = 'sha1'): bigint {
     var hash1 = getHash(hashAlgo, user.toUpperCase(), ':', password);
     var hash2 = getHash(hashAlgo, salt, toBuffer(hash1));
 
@@ -257,7 +266,7 @@ function getUserHash(user, salt, password, hashAlgo = 'sha1') {
  * @param salt  BigInt Connection salt.
  * @returns {BigInt}
  */
-function getVerifier(user, password, salt, hashAlgo = 'sha1') {
+function getVerifier(user: string, password: string, salt: Buffer, hashAlgo: string = 'sha1'): bigint {
     return modPow(PRIME.g, getUserHash(user, salt, password, hashAlgo), PRIME.N);
 }
 
@@ -268,7 +277,7 @@ function getVerifier(user, password, salt, hashAlgo = 'sha1') {
  * @param data any[] Data to hash.
  * @returns {string}
  */
-function getHash(algo, ...data) {
+function getHash(algo: string, ...data: (string | Buffer)[]): string {
     var hash = crypto.createHash(algo);
 
     for (var d of data) {
@@ -284,7 +293,7 @@ function getHash(algo, ...data) {
  * @param bigInt
  * @returns {*}
  */
-function toBuffer(bigInt) {
+function toBuffer(bigInt: bigint | string): Buffer {
     return Buffer.from(typeof bigInt === 'bigint' ? hexPad(bigInt.toString(16)) : bigInt, 'hex');
 }
 
@@ -294,7 +303,7 @@ function toBuffer(bigInt) {
  * @param hex
  * @returns {BigInt}
  */
-function toBigInt(hex) {
+function toBigInt(hex: Buffer | string): bigint {
     return BigInt('0x' + (Buffer.isBuffer(hex) ? hex.toString('hex') : hex));
 }
 
@@ -304,7 +313,7 @@ function toBigInt(hex) {
  * @param key
  * @param value
  */
-function dump(key, value) {
+function dump(key: string, value: any): void {
     if (DEBUG) {
         if (typeof value === 'bigint') {
             value = value.toString(16);
@@ -317,7 +326,7 @@ function dump(key, value) {
 /**
  * Calculates (base ^ exp) % mod using native BigInt.
  */
-function modPow(base, exp, mod) {
+function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
     let result = 1n;
     base = base % mod;
     while (exp > 0n) {

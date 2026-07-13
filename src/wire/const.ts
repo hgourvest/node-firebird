@@ -12,7 +12,7 @@ const defaultOptions = {
     DEFAULT_LOWERCASE_KEYS : false,
     DEFAULT_PAGE_SIZE : 4096,
     DEFAULT_SVC_NAME : 'service_mgr',
-    DEFAULT_ENCODING : 'UTF8',
+    DEFAULT_ENCODING : 'utf8' as BufferEncoding,
     DEFAULT_FETCHSIZE : 200,
 };
 
@@ -297,10 +297,6 @@ const sqlType = {
     SQL_DEC34 : 32762, // >= 4.0 - DECFLOAT(34) - 16 bytes, IEEE 754 Decimal128
     SQL_BOOLEAN : 32764, // >: 3.0
     SQL_NULL : 32766, // >= 2.5
-    SQL_TIMESTAMP_TZ_EX : 32748,
-    SQL_TIME_TZ_EX : 32750,
-    SQL_TIMESTAMP_TZ : 32754,
-    SQL_TIME_TZ : 32756,
 };
 
 const blobType = {
@@ -332,7 +328,6 @@ const blr = {
     blr_int128 : 26, // >: 4.0
     blr_dec64 : 24, // >= 4.0 - DECFLOAT(16), IEEE 754 Decimal64
     blr_dec128 : 25, // >= 4.0 - DECFLOAT(34), IEEE 754 Decimal128
-    blr_timestamp_tz : 28, // >= 4.0 - timestamp with time zone
     blr_time_tz : 29, // >= 4.0 - time with time zone
     blr_blob2 : 17, // >: 2.0
     blr_domain_name : 18, // >: 2.1
@@ -847,6 +842,7 @@ const serviceStatistics = {
     isc_spb_sts_record_versions : 0x20,
     isc_spb_sts_table : 0x40,
     isc_spb_sts_nocreation : 0x80,
+    isc_spb_sts_encryption : 0x100,
 };
 
 /* Trace Service */
@@ -856,7 +852,7 @@ const serviceTrace = {
     isc_spb_trc_cfg : 3,
 };
 
-module.exports = Object.freeze({
+const Const = Object.freeze({
     ...acceptType,
     ...authPlugin,
     ...authOptions,
@@ -894,3 +890,5 @@ module.exports = Object.freeze({
     ...tpb,
     ...transactionIsolation,
 });
+
+export = Const;

@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "target": "es2022",
+        "lib": ["es2022"],
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "outDir": "lib",
+        "rootDir": "src",
+        "declaration": true,
+        "sourceMap": false,
+        "resolveJsonModule": true,
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true,
+        "useDefineForClassFields": false,
+        "strict": false,
+        "noImplicitAny": false,
+        "noImplicitThis": false,
+        "types": ["node"],
+        "newLine": "lf"
+    },
+    "include": ["src"]
+}

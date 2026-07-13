@@ -42,6 +42,29 @@ npm install node-firebird
 var Firebird = require('node-firebird');
 ```
 
+TypeScript is fully supported — the driver itself is written in TypeScript and
+ships its own type declarations:
+
+```ts
+import * as Firebird from 'node-firebird';
+import type { Options, Database } from 'node-firebird';
+```
+
+### Development
+
+The sources live in `src/` (TypeScript) and are compiled to `lib/` (CommonJS +
+`.d.ts`) by the native TypeScript 7 compiler:
+
+```bash
+npm install        # installs deps and builds lib/ via the prepare script
+npm run build      # compile src/ -> lib/
+npm run typecheck  # type-check sources and unit tests without emitting
+npm test           # build + run the vitest suite (unit + integration)
+```
+
+The integration tests expect a Firebird server on `127.0.0.1:3050`
+(SYSDBA/masterkey); the unit tests under `test/unit/` run without a server.
+
 ### Methods
 
 - `Firebird.escape(value) -> return {String}` - prevent for SQL Injections

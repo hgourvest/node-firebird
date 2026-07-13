@@ -41,7 +41,7 @@ const DECIMAL128_SNAN_HIGH = 0x7E00000000000000n;
  * @param {number|string|BigInt} value - The value to encode
  * @returns {Buffer} - 8-byte buffer containing the Decimal64 encoding
  */
-function encodeDecimal64(value) {
+export function encodeDecimal64(value: number | string | bigint | Buffer | null | undefined): Buffer {
     // Handle special cases
     if (value === null || value === undefined) {
         return Buffer.alloc(8);
@@ -156,7 +156,7 @@ function encodeDecimal64(value) {
  * @param {Buffer} buffer - 8-byte buffer containing the Decimal64 encoding
  * @returns {string|number} - Decoded value as string or special value
  */
-function decodeDecimal64(buffer) {
+export function decodeDecimal64(buffer: Buffer): string | number {
     if (buffer.length !== 8) {
         throw new Error('Decimal64 buffer must be 8 bytes');
     }
@@ -240,7 +240,7 @@ function decodeDecimal64(buffer) {
  * @param {number|string|BigInt} value - The value to encode
  * @returns {Buffer} - 16-byte buffer containing the Decimal128 encoding
  */
-function encodeDecimal128(value) {
+export function encodeDecimal128(value: number | string | bigint | Buffer | null | undefined): Buffer {
     // Handle special cases
     if (value === null || value === undefined) {
         return Buffer.alloc(16);
@@ -366,7 +366,7 @@ function encodeDecimal128(value) {
  * @param {Buffer} buffer - 16-byte buffer containing the Decimal128 encoding
  * @returns {string|number} - Decoded value as string or special value
  */
-function decodeDecimal128(buffer) {
+export function decodeDecimal128(buffer: Buffer): string | number {
     if (buffer.length !== 16) {
         throw new Error('Decimal128 buffer must be 16 bytes');
     }
@@ -454,7 +454,7 @@ function decodeDecimal128(buffer) {
  * @param {number} size - Buffer size in bytes
  * @returns {Buffer}
  */
-function bigIntToBuffer(value, size) {
+function bigIntToBuffer(value: bigint, size: number): Buffer {
     const buf = Buffer.alloc(size);
     let val = BigInt(value.toString());
     for (let i = size - 1; i >= 0; i--) {
@@ -469,7 +469,7 @@ function bigIntToBuffer(value, size) {
  * @param {Buffer} buffer
  * @returns {BigInt}
  */
-function bufferToBigInt(buffer) {
+function bufferToBigInt(buffer: Buffer): bigint {
     let result = 0n;
     for (let i = 0; i < buffer.length; i++) {
         result = (result << 8n) | BigInt(buffer[i]);
@@ -484,17 +484,10 @@ function bufferToBigInt(buffer) {
  * @param {number} offset
  * @param {number} size
  */
-function bufferWriteBigInt(buffer, value, offset, size) {
+function bufferWriteBigInt(buffer: Buffer, value: bigint, offset: number, size: number): void {
     let val = BigInt(value.toString());
     for (let i = offset + size - 1; i >= offset; i--) {
         buffer[i] = Number(val & 0xFFn);
         val >>= 8n;
     }
 }
-
-module.exports = {
-    encodeDecimal64,
-    decodeDecimal64,
-    encodeDecimal128,
-    decodeDecimal128
-};

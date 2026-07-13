@@ -285,26 +285,24 @@ function body(schedule, eSwap0, eSwap1) {
     return out;
 }
 
-function crypt(original, salt) {
-    if (!(original instanceof Buffer)) {
-        original = Buffer.from(original);
-    }
+export function crypt(original: string | Buffer, salt: string): string {
+    const orig: Buffer = original instanceof Buffer ? original : Buffer.from(original);
 
     if (!salt) {
         throw new Error("Invalid salt value: " + salt);
     }
 
     var buffer = Buffer.alloc(13);
-    var charZero = salt[0].charCodeAt();
-    var charOne = salt[1].charCodeAt();
+    var charZero = salt[0].charCodeAt(0);
+    var charOne = salt[1].charCodeAt(0);
     buffer[0] = charZero;
     buffer[1] = charOne;
     var eSwap0 = CON_SALT[charZero];
     var eSwap1 = CON_SALT[charOne] << 4;
 
     var key = Buffer.alloc(8);
-    for (var i = 0; i < key.length && i < original.length; i++) {
-        var iChar = original[i];
+    for (var i = 0; i < key.length && i < orig.length; i++) {
+        var iChar = orig[i];
         key[i] = iChar << 1;
     }
 
@@ -336,8 +334,4 @@ function crypt(original, salt) {
     }
 
     return buffer.toString('ascii');
-}
-
-module.exports = {
-    crypt : crypt
 }

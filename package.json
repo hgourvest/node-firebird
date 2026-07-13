@@ -21,18 +21,26 @@
         "Popa Marius Adrian <mapopa@gmail.com>",
         "Peter Širka <petersirka@gmail.com>"
     ],
-    "main": "./lib",
+    "main": "./lib/index.js",
     "types": "./lib/index.d.ts",
+    "files": [
+        "lib",
+        "src"
+    ],
     "license": "MPL-2.0",
     "scripts": {
+        "build": "tsc -p tsconfig.json && node -e \"require('fs').copyFileSync('src/firebird.msg','lib/firebird.msg')\"",
+        "prepare": "npm run build",
+        "pretest": "npm run build",
+        "typecheck": "tsc -p tsconfig.test.json",
         "test": "vitest run",
         "lint": "oxlint"
     },
-    "dependencies": {
-    },
     "devDependencies": {
+        "@types/node": "^26.1.1",
         "coveralls-next": "^6.0.1",
         "oxlint": "^0.15.11",
+        "typescript": "^7.0.2",
         "vitest": "^4.0.18"
     }
 }

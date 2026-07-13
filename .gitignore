@@ -1,5 +1,6 @@
 # Project ignores
 node_modules/
+/lib/
 test/*.fdb
 test/*.fbk
 *.fdb

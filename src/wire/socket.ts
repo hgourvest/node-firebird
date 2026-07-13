@@ -1,13 +1,17 @@
-const net = require("net");
-const zlib = require("zlib");
-const crypto = require("crypto");
+import net from "net";
+import zlib from "zlib";
+import crypto from "crypto";
 
 /**
  * Arc4 stream cipher for Firebird wire encryption.
  * Uses the SRP session key to create RC4 encryption/decryption streams.
  */
 class Arc4 {
-    constructor(key) {
+    _s: Uint8Array;
+    _i: number;
+    _j: number;
+
+    constructor(key: Buffer | Uint8Array) {
         this._s = new Uint8Array(256);
         this._i = 0;
         this._j = 0;
@@ -31,7 +35,7 @@ class Arc4 {
      * Transform (encrypt/decrypt) data in place.
      * RC4 is symmetric - encrypt and decrypt are the same operation.
      */
-    transform(data) {
+    transform(data: Buffer | Uint8Array): Buffer {
         var out = Buffer.alloc(data.length);
         for (var n = 0; n < data.length; n++) {
             this._i = (this._i + 1) & 0xFF;
@@ -53,7 +57,9 @@ class Arc4 {
  * ChaChaCipher wrapper around Node.js crypto.createCipheriv / createDecipheriv.
  */
 class ChaChaCipher {
-    constructor(key, iv, ivlen, isEncrypt) {
+    _cipher: crypto.Cipheriv | crypto.Decipheriv;
+
+    constructor(key: Buffer, iv: Buffer, ivlen: number, isEncrypt: boolean) {
         const opensslIv = Buffer.alloc(16);
         if (ivlen === 8) {
             iv.copy(opensslIv, 8, 0, 8);
@@ -74,7 +80,7 @@ class ChaChaCipher {
         }
     }
 
-    transform(data) {
+    transform(data: Buffer): Buffer {
         return this._cipher.update(data);
     }
 }
@@ -83,7 +89,20 @@ class ChaChaCipher {
  * Socket proxy.
  */
 class Socket {
-    constructor(port, host) {
+    static Arc4 = Arc4;
+
+    _socket: net.Socket;
+    compress: boolean;
+    compressor: zlib.Deflate | null;
+    compressorBuffer: Buffer[];
+    decompressor: zlib.Inflate | null;
+    decompressorBuffer: Buffer[];
+    buffer: Buffer | null;
+    encrypt: boolean;
+    encryptCipher: any;
+    decryptCipher: any;
+
+    constructor(port: number, host: string) {
         this._socket = net.createConnection(port, host);
         this._socket.setNoDelay(true);
         this._socket.setKeepAlive(true, 60000); // 1 minute delay to detect dead/stale connections
@@ -96,17 +115,17 @@ class Socket {
         this.encryptCipher = null;
         this.decryptCipher = null;
 
-        return new Proxy(this._socket, this);
+        return new Proxy(this._socket, this as any) as any;
     }
 
     /**
      * Decompress and/or decrypt data when received.
      * Override on data event.
      */
-    on(event, cb) {
+    on(event: string, cb: (...args: any[]) => void): void {
         if (event === 'data') {
             const mainCb = cb;
-            cb = (data) => {
+            cb = (data: Buffer) => {
                 // Decrypt first if encryption is enabled
                  if (this.encrypt) {
                     data = this.decryptCipher.transform(data);
@@ -134,7 +153,7 @@ class Socket {
     /**
      * Compress and/or encrypt data before sending to socket.
      */
-    write(data, defer = false) {
+    write(data: Buffer | Uint8Array, defer = false): void {
         if (process.env.FIREBIRD_DEBUG) {
             console.log('[fb-debug] socket.write: length=%d bytes=%s encrypt=%s defer=%s',
                 data.length, Buffer.from(data).toString('hex'), this.encrypt, defer);
@@ -183,7 +202,7 @@ class Socket {
     /**
      * Enable compression/decompression on the fly.
      */
-    enableCompression() {
+    enableCompression(): void {
         this.compress = true;
 
         // Create decompressor instance
@@ -208,7 +227,7 @@ class Socket {
      * @param {string} [pluginName='Arc4'] - The selected encryption plugin.
      * @param {Buffer} [iv] - The initialization vector (needed for ChaCha/ChaCha64).
      */
-    enableEncryption(sessionKey, pluginName = 'Arc4', iv) {
+    enableEncryption(sessionKey: Buffer, pluginName: string = 'Arc4', iv?: Buffer): void {
         this.encrypt = true;
         if (pluginName === 'Arc4') {
             this.encryptCipher = new Arc4(sessionKey);
@@ -227,7 +246,7 @@ class Socket {
     /**
      * Proxy trap.
      */
-    get(target, field) {
+    get(target: any, field: string | symbol): any {
         if (field in this) {
             return this[field].bind(this);
         }
@@ -240,5 +259,4 @@ class Socket {
     }
 }
 
-module.exports = Socket;
-module.exports.Arc4 = Arc4;
+export = Socket;

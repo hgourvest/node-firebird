@@ -68,7 +68,9 @@ jobs:
     - name: Build
       shell: bash
       run: |
-        npm ci         
+        npm ci
+        npm run build
+        npm run typecheck
 
     - name: Test (Linux)      
       run: |

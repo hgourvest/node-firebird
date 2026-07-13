@@ -1,5 +1,6 @@
-const {doCallback, doError} = require('../callback');
-const Const = require('./const');
+import { doCallback, doError } from '../callback';
+import { noop } from '../utils';
+import Const from './const';
 
 /***************************************
  *
@@ -8,12 +9,17 @@ const Const = require('./const');
  ***************************************/
 
 class Transaction {
-    constructor(connection) {
+    connection: any;
+    db: any;
+    handle: number;
+    [key: string]: any;
+
+    constructor(connection: any) {
         this.connection = connection;
         this.db = connection.db;
     }
 
-    newStatement(query, callback) {
+    newStatement(query: string, callback: (err: any, statement?: any) => void): void {
         var cnx = this.connection;
         var self = this;
         var query_cache = cnx.getCachedQuery(query);
@@ -25,7 +31,7 @@ class Transaction {
         }
     }
 
-    execute(query, params, callback, options) {
+    execute(query: string, params?: any, callback?: any, options?: any): void {
         if (params instanceof Function) {
             options = callback;
             callback = params;
@@ -33,19 +39,19 @@ class Transaction {
         }
 
         var self = this;
-        this.newStatement(query, function(err, statement) {
+        this.newStatement(query, function(err: any, statement: any) {
 
             if (err) {
                 doError(err, callback);
                 return;
             }
 
-            function dropError(err) {
+            function dropError(err: any) {
                 statement.release();
                 doCallback(err, callback);
             }
 
-            statement.execute(self, params, function(err, ret) {
+            statement.execute(self, params, function(err: any, ret: any) {
                 if (err) {
                     dropError(err);
                     return;
@@ -53,7 +59,7 @@ class Transaction {
 
                 switch (statement.type) {
                     case Const.isc_info_sql_stmt_select:
-                        statement.fetchAll(self, function(err, r) {
+                        statement.fetchAll(self, function(err: any, r: any) {
                             if (err) {
                                 dropError(err);
                                 return;
@@ -77,7 +83,7 @@ class Transaction {
 
                             break;
                         } else if (statement.output.length) {
-                            statement.fetch(self, 1, function(err, ret) {
+                            statement.fetch(self, 1, function(err: any, ret: any) {
                                 if (err) {
                                     dropError(err);
                                     return;
@@ -104,7 +110,7 @@ class Transaction {
         });
     }
 
-    sequentially(query, params, on, callback, options = {}) {
+    sequentially(query: string, params?: any, on?: any, callback?: any, options: any = {}): this {
         if (params instanceof Function) {
             options = callback;
             callback = on;
@@ -122,9 +128,9 @@ class Transaction {
         }
 
         var self = this;
-        var _on = function(row, i, meta, next) {
+        var _on = function(row: any, i: number, meta: any, next: (err?: any) => void) {
             var done = false;
-            var finish = function(err) {
+            var finish = function(err?: any) {
                 if (done) {
                     return;
                 }
@@ -168,7 +174,7 @@ class Transaction {
         return self;
     }
 
-    query(query, params, callback, options = {}) {
+    query(query: string, params?: any, callback?: any, options: any = {}): void {
         if (params instanceof Function) {
             callback = params;
             params = undefined;
@@ -186,21 +192,21 @@ class Transaction {
         this.execute(query, params, callback, options);
     }
 
-    commit(callback) {
+    commit(callback?: (err?: any) => void): void {
         this.connection.commit(this, callback);
     }
 
-    rollback(callback) {
+    rollback(callback?: (err?: any) => void): void {
         this.connection.rollback(this, callback);
     }
 
-    commitRetaining(callback) {
+    commitRetaining(callback?: (err?: any) => void): void {
         this.connection.commitRetaining(this, callback);
     }
 
-    rollbackRetaining(callback) {
+    rollbackRetaining(callback?: (err?: any) => void): void {
         this.connection.rollbackRetaining(this, callback);
     }
 }
 
-module.exports = Transaction;
+export = Transaction;

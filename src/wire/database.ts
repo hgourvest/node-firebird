@@ -1,9 +1,9 @@
-const Events = require('events');
-const { doError } = require('../callback');
-const { escape } = require('../utils');
-const Const = require('./const');
-const EventConnection = require('./eventConnection');
-const FbEventManager = require('./fbEventManager');
+import Events from 'events';
+import { doError } from '../callback';
+import { escape } from '../utils';
+import Const from './const';
+import EventConnection from './eventConnection';
+import FbEventManager from './fbEventManager';
 
 /***************************************
  *
@@ -40,7 +40,7 @@ const FbEventManager = require('./fbEventManager');
  *
  ***************************************/
 
-function readblob(blob, callback) {
+function readblob(blob: any, callback: (err: any, data?: any) => void): void {
     if (blob === undefined || blob === null) {
         callback(null, blob);
         return;
@@ -51,7 +51,7 @@ function readblob(blob, callback) {
         return;
     }
 
-    blob(function(err, name, e) {
+    blob(function(err: any, name: any, e: any) {
         if (err) {
             callback(err);
             return;
@@ -62,10 +62,10 @@ function readblob(blob, callback) {
             return;
         }
 
-        const chunks = [];
+        const chunks: Buffer[] = [];
         let chunksLength = 0;
 
-        e.on('data', function(chunk) {
+        e.on('data', function(chunk: Buffer) {
             chunksLength += chunk.length;
             chunks.push(chunk);
         });
@@ -74,20 +74,20 @@ function readblob(blob, callback) {
             callback(null, Buffer.concat(chunks, chunksLength));
         });
 
-        e.on('error', function(streamErr) {
+        e.on('error', function(streamErr: any) {
             callback(streamErr);
         });
     });
 }
 
-function fetchBlobSyncRow(row, meta, callback) {
+function fetchBlobSyncRow(row: any, meta: any[], callback: (err: any, row?: any) => void): void {
     if (!row || !meta || !meta.length) {
         callback(null, row);
         return;
     }
 
     const rowKeys = Object.keys(row);
-    const blobColumns = [];
+    const blobColumns: string[] = [];
 
     for (let i = 0; i < meta.length; i++) {
         if (meta[i] && meta[i].type === Const.SQL_BLOB && rowKeys[i] !== undefined) {
@@ -101,10 +101,10 @@ function fetchBlobSyncRow(row, meta, callback) {
     }
 
     let pending = blobColumns.length;
-    let blobErr;
+    let blobErr: any;
 
     blobColumns.forEach(function(columnName) {
-        readblob(row[columnName], function(err, data) {
+        readblob(row[columnName], function(err: any, data: any) {
             if (err && !blobErr) {
                 blobErr = err;
             }
@@ -118,18 +118,21 @@ function fetchBlobSyncRow(row, meta, callback) {
 }
 
 class Database extends Events.EventEmitter {
-    constructor(connection) {
+    connection: any;
+    eventid: number;
+
+    constructor(connection: any) {
         super();
         this.connection = connection;
         connection.db = this;
         this.eventid = 1;
     }
 
-    escape(value) {
+    escape(value: any): string {
         return escape(value, this.connection.accept.protocolVersion);
     }
 
-    detach(callback, force) {
+    detach(callback?: (err?: any, obj?: any) => void, force?: boolean): this {
         var self = this;
 
         if (!force && self.connection._pending.length > 0) {
@@ -139,7 +142,7 @@ class Database extends Events.EventEmitter {
         }
 
         if (self.connection._pooled === false) {
-            self.connection.detach(function (err, obj) {
+            self.connection.detach(function (err: any, obj: any) {
 
                 self.connection.disconnect();
                 self.emit('detach', false);
@@ -157,31 +160,31 @@ class Database extends Events.EventEmitter {
         return self;
     }
 
-    transaction(options, callback) {
+    transaction(options: any, callback?: (err: any, transaction?: any) => void): this {
         return this.startTransaction(options, callback);
     }
 
-    startTransaction(options, callback) {
+    startTransaction(options: any, callback?: (err: any, transaction?: any) => void): this {
         this.connection.startTransaction(options, callback);
         return this;
     }
 
-    newStatement(query, callback) {
-        this.startTransaction(function(err, transaction) {
+    newStatement(query: string, callback: (err: any, statement?: any) => void): this {
+        this.startTransaction(function(err: any, transaction: any) {
 
             if (err) {
                 callback(err);
                 return;
             }
 
-            transaction.newStatement(query, function(err, statement) {
+            transaction.newStatement(query, function(err: any, statement: any) {
 
                 if (err) {
                     callback(err);
                     return;
                 }
 
-                transaction.commit(function(err) {
+                transaction.commit(function(err: any) {
                     callback(err, statement);
                 });
             });
@@ -190,7 +193,7 @@ class Database extends Events.EventEmitter {
         return this;
     }
 
-    execute(query, params, callback, options) {
+    execute(query: string, params?: any, callback?: any, options?: any): this {
         if (params instanceof Function) {
             options = callback;
             callback = params;
@@ -199,14 +202,14 @@ class Database extends Events.EventEmitter {
 
         var self = this;
 
-        self.connection.startTransaction(function(err, transaction) {
+        self.connection.startTransaction(function(err: any, transaction: any) {
 
             if (err) {
                 doError(err, callback);
                 return;
             }
 
-            transaction.execute(query, params, function(err, result, meta, isSelect) {
+            transaction.execute(query, params, function(err: any, result: any, meta: any, isSelect: boolean) {
 
                 if (err) {
                     transaction.rollback(function() {
@@ -215,7 +218,7 @@ class Database extends Events.EventEmitter {
                     return;
                 }
 
-                transaction.commit(function(err) {
+                transaction.commit(function(err: any) {
                     if (callback)
                         callback(err, result, meta, isSelect);
                 });
@@ -226,7 +229,7 @@ class Database extends Events.EventEmitter {
         return self;
     }
 
-    sequentially(query, params, on, callback, options = {}) {
+    sequentially(query: string, params?: any, on?: any, callback?: any, options: any = {}): this {
         if (params instanceof Function) {
             options = callback;
             callback = on;
@@ -244,9 +247,9 @@ class Database extends Events.EventEmitter {
         }
 
         var self = this;
-        var _on = function(row, i, meta, next) {
+        var _on = function(row: any, i: number, meta: any, next: (err?: any) => void) {
             var done = false;
-            var finish = function(err) {
+            var finish = function(err?: any) {
                 if (done) {
                     return;
                 }
@@ -254,7 +257,7 @@ class Database extends Events.EventEmitter {
                 next(err);
             };
 
-            fetchBlobSyncRow(row, meta, function(blobErr) {
+            fetchBlobSyncRow(row, meta, function(blobErr: any) {
                 if (blobErr) {
                     finish(blobErr);
                     return;
@@ -297,7 +300,7 @@ class Database extends Events.EventEmitter {
         return self;
     }
 
-    query(query, params, callback, options = {}) {
+    query(query: string, params?: any, callback?: any, options: any = {}): this {
         if (params instanceof Function) {
             options = callback || {};
             callback = params;
@@ -315,17 +318,17 @@ class Database extends Events.EventEmitter {
         return self;
     }
 
-    drop(callback) {
+    drop(callback?: (err?: any) => void): void {
         return this.connection.dropDatabase(callback);
     }
 
-    attachEvent(callback) {
+    attachEvent(callback: (err: any, evt?: any) => void): this {
         var self = this;
         const eventid = self.eventid++;
         if (process.env.FIREBIRD_DEBUG) {
             console.log('[fb-debug] Database.attachEvent: calling auxConnection, eventid=%d queue=%d', eventid, self.connection._queue.length);
         }
-        this.connection.auxConnection(eventid, function (err, socket_info) {
+        this.connection.auxConnection(eventid, function (err: any, socket_info: any) {
 
             if (err) {
                 if (process.env.FIREBIRD_DEBUG) {
@@ -344,7 +347,7 @@ class Database extends Events.EventEmitter {
                 : socket_info.host;
 
             const eventConnection = new EventConnection(
-                host, socket_info.port, function(err) {
+                host, socket_info.port, function(err?: any) {
                 if (err) {
                     if (process.env.FIREBIRD_DEBUG) {
                         console.log('[fb-debug] Database.attachEvent: EventConnection error:', err.message);
@@ -357,7 +360,7 @@ class Database extends Events.EventEmitter {
                     console.log('[fb-debug] Database.attachEvent: EventConnection connected, creating FbEventManager eventid=%d', eventid);
                 }
 
-                const evt = new FbEventManager(self, eventConnection, eventid, function (err) {
+                const evt = new FbEventManager(self, eventConnection, eventid, function (err: any) {
                     if (err) {
                         doError(err, callback);
                         return;
@@ -383,7 +386,7 @@ class Database extends Events.EventEmitter {
      * @param {function} [callback] - Asynchronous completion callback.
      * @returns {Database}
      */
-    createTablespace(name, filePath, callback) {
+    createTablespace(name: string, filePath: string, callback?: any): this {
         const sql = `CREATE TABLESPACE ${name} FILE '${filePath}'`;
         return this.execute(sql, [], callback);
     }
@@ -397,7 +400,7 @@ class Database extends Events.EventEmitter {
      * @param {function} [callback] - Asynchronous completion callback.
      * @returns {Database}
      */
-    alterTablespace(name, filePath, callback) {
+    alterTablespace(name: string, filePath: string, callback?: any): this {
         const sql = `ALTER TABLESPACE ${name} SET FILE TO '${filePath}'`;
         return this.execute(sql, [], callback);
     }
@@ -410,7 +413,7 @@ class Database extends Events.EventEmitter {
      * @param {function} [callback] - Asynchronous completion callback.
      * @returns {Database}
      */
-    dropTablespace(name, callback) {
+    dropTablespace(name: string, callback?: any): this {
         const sql = `DROP TABLESPACE ${name}`;
         return this.execute(sql, [], callback);
     }
@@ -425,7 +428,7 @@ class Database extends Events.EventEmitter {
      * @param {function} [callback] - Asynchronous completion callback.
      * @returns {Database}
      */
-    createSchema(schemaName, tablespaceName, callback) {
+    createSchema(schemaName: string, tablespaceName?: string | ((err?: any) => void), callback?: any): this {
         if (typeof tablespaceName === 'function') {
             callback = tablespaceName;
             tablespaceName = undefined;
@@ -438,4 +441,4 @@ class Database extends Events.EventEmitter {
     }
 }
 
-module.exports = Database;
+export = Database;
