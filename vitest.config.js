@@ -9,6 +9,7 @@ module.exports = defineConfig({
         maxWorkers: 1,
         isolate: false,
         include: [
+            'test/unit/*.test.ts',
             'test/arc4.js',
             'test/protocol.js',
             'test/srp.js',

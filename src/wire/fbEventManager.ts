@@ -64,11 +64,18 @@
 // ───────────────────────────────────────────────────────────────
 //   Server → Client : op_event  (fired by Firebird POST_EVENT trigger)
 
-const Events = require('events');
-const { doError } = require('../callback');
+import Events from 'events';
+import { doError } from '../callback';
 
 class FbEventManager extends Events.EventEmitter {
-    constructor(db, eventconnection, eventid, callback) {
+    db: any;
+    eventconnection: any;
+    events: Record<string, number>;
+    eventid: number;
+    _subscriptionVersion: number;
+    _hasActiveSubscription: boolean;
+
+    constructor(db: any, eventconnection: any, eventid: number, callback: (err: any, ret?: any) => void) {
         super();
         this.db = db;
         this.eventconnection = eventconnection;
@@ -105,7 +112,7 @@ class FbEventManager extends Events.EventEmitter {
      *   isDatabaseConnectionClosed: boolean
      * }}
      */
-    getState() {
+    getState(): { state: string; hasActiveSubscription: boolean; registeredEvents: Record<string, number>; eventId: number; isEventConnectionOpen: boolean; isDatabaseConnectionClosed: boolean } {
         const evtConnOpen = this.eventconnection
             ? !this.eventconnection._isClosed
             : false;
@@ -117,7 +124,7 @@ class FbEventManager extends Events.EventEmitter {
         // Transitional states (SUBSCRIBING / CANCELLING / CLOSING) are not
         // individually flagged; callers that need finer granularity can
         // inspect hasActiveSubscription and isEventConnectionOpen together.
-        let state;
+        let state: string;
         if (dbConnClosed || !evtConnOpen) {
             state = 'CLOSED';
         } else if (this._hasActiveSubscription) {
@@ -136,7 +143,7 @@ class FbEventManager extends Events.EventEmitter {
         };
     }
 
-    _createEventLoop(callback) {
+    _createEventLoop(callback: (err: any, ret?: any) => void): void {
         var self = this;
         var cnx = this.db.connection;
         this.eventconnection.emgr = this;
@@ -157,7 +164,7 @@ class FbEventManager extends Events.EventEmitter {
             if (!self._hasActiveSubscription || Object.keys(self.events).length === 0) {
                 return;
             }
-            cnx.queEvents(self.events, self.eventid, function (err) {
+            cnx.queEvents(self.events, self.eventid, function (err: any) {
                 if (err) {
                     doError(err, callback);
                     return;
@@ -166,13 +173,13 @@ class FbEventManager extends Events.EventEmitter {
             });
         }
 
-        this.eventconnection.eventcallback = function (err, ret) {
+        this.eventconnection.eventcallback = function (err: any, ret?: any) {
             if (err || (self.eventid !== ret.eventid)) {
                 doError(err || new Error('Bad eventid'), callback);
                 return;
             }
 
-            ret.events.forEach(function (event) {
+            ret.events.forEach(function (event: { name: string; count: number }) {
                 self.emit('post_event', event.name, event.count);
             });
 
@@ -186,7 +193,7 @@ class FbEventManager extends Events.EventEmitter {
         process.nextTick(function() { callback(null); });
     }
 
-    _changeEvent(callback) {
+    _changeEvent(callback: (err: any, ret?: any) => void): void {
         var self = this;
         const changeVersion = ++self._subscriptionVersion;
 
@@ -206,7 +213,7 @@ class FbEventManager extends Events.EventEmitter {
             // subscription active before sending queEvents so that this early
             // op_event can re-queue the next one-shot request.
             self._hasActiveSubscription = true;
-            self.db.connection.queEvents(self.events, self.eventid, function (err, ret) {
+            self.db.connection.queEvents(self.events, self.eventid, function (err: any, ret?: any) {
                 if (err) {
                     if (self._subscriptionVersion === changeVersion) {
                         self._hasActiveSubscription = false;
@@ -220,7 +227,7 @@ class FbEventManager extends Events.EventEmitter {
 
         if (self._hasActiveSubscription) {
             // Cancel the current subscription before setting up a new one.
-            self.db.connection.closeEvents(this.eventid, function (err) {
+            self.db.connection.closeEvents(this.eventid, function (err: any) {
                 if (err) {
                     doError(err, callback);
                     return;
@@ -235,7 +242,7 @@ class FbEventManager extends Events.EventEmitter {
         }
     }
 
-    registerEvent(events, callback) {
+    registerEvent(events: string[], callback: (err: any, ret?: any) => void): any {
         var self = this;
 
         if (self.db.connection._isClosed || self.eventconnection._isClosed)
@@ -245,7 +252,7 @@ class FbEventManager extends Events.EventEmitter {
         self._changeEvent(callback);
     }
 
-    unregisterEvent(events, callback) {
+    unregisterEvent(events: string[], callback: (err: any, ret?: any) => void): any {
         var self = this;
 
         if (self.db.connection._isClosed || self.eventconnection._isClosed)
@@ -255,7 +262,7 @@ class FbEventManager extends Events.EventEmitter {
         self._changeEvent(callback);
     }
 
-    close(callback) {
+    close(callback?: (err?: any) => void): void {
         var self = this;
 
         if (process.env.FIREBIRD_DEBUG) {
@@ -275,7 +282,7 @@ class FbEventManager extends Events.EventEmitter {
         // queEvents calls – the server internally fails on the RST error and does not
         // clean up its event state in time for the next subscription request.
         // A 200 ms safety timer fires as a fallback if Firebird never sends its FIN.
-        function endAndWaitForClose(cb) {
+        function endAndWaitForClose(cb?: (err?: any) => void) {
             var sock = self.eventconnection && self.eventconnection._socket;
             if (!sock || sock.destroyed) {
                 if (process.env.FIREBIRD_DEBUG) {
@@ -285,8 +292,8 @@ class FbEventManager extends Events.EventEmitter {
                 return;
             }
             var fired = false;
-            var timer;
-            function done(source) {
+            var timer: NodeJS.Timeout;
+            function done(source: string) {
                 if (!fired) {
                     fired = true;
                     clearTimeout(timer);
@@ -313,7 +320,7 @@ class FbEventManager extends Events.EventEmitter {
             return;
         }
 
-        self.db.connection.closeEvents(this.eventid, function (err) {
+        self.db.connection.closeEvents(this.eventid, function (err: any) {
             if (err) {
                 doError(err, callback);
                 return;
@@ -325,4 +332,4 @@ class FbEventManager extends Events.EventEmitter {
     }
 }
 
-module.exports = FbEventManager;
+export = FbEventManager;

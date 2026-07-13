@@ -1522,10 +1522,10 @@ const GDSCode = {
     FBSVCMGR_SWITCH_UNKNOWN: 336986118
 };
 
-+function makeEnum(_enum) {
-    for (k in _enum)
++function makeEnum(_enum: any) {
+    for (var k in _enum)
         _enum[_enum[k]] = k;
     Object.freeze(_enum);
 }(GDSCode);
 
-module.exports = { GDSCode };
+export { GDSCode };

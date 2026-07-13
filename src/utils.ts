@@ -1,12 +1,13 @@
-const MessagesError = require('./firebird.msg.json');
-const Const = require('./wire/const');
+import messagesJson from './firebird.msg.json';
+import Const from './wire/const';
+import type { FbStatusItem } from './callback';
+
+const MessagesError = messagesJson as Record<string, string>;
 
 /**
  * Parse date from string
- * @param {String} str
- * @return {Date}
  */
-const parseDate = (str) => {
+export const parseDate = (str: string): Date => {
     const self = str.trim();
     const arr = self.indexOf(' ') === -1 ? self.split('T') : self.split(' ');
     let index = arr[0].indexOf(':');
@@ -106,10 +107,8 @@ const parseDate = (str) => {
 
 /**
  * Get Error Message per gdscode
- * @param {{gdscode: Number, params: Any[]}[]} status
- * @returns {String} - Error message
  */
-const lookupMessages = (status) => {
+export const lookupMessages = (status: FbStatusItem[]): string => {
     const messages = status.map((item) => {
         let text = MessagesError[item.gdscode];
         if (text === undefined) {
@@ -127,11 +126,10 @@ const lookupMessages = (status) => {
 
 /**
  * Escape value
- * @param {Object} value
- * @param {Number} protocolVersion (optional, default: PROTOCOL_VERSION13)
- * @return {String}
+ * @param value value to escape
+ * @param protocolVersion optional, default: PROTOCOL_VERSION13
  */
-const escape = function(value, protocolVersion) {
+export const escape = function(value: any, protocolVersion?: number): string {
 
     if (value === null || value === undefined)
         return 'NULL';
@@ -154,11 +152,4 @@ const escape = function(value, protocolVersion) {
     throw new Error('Escape supports only primitive values.');
 };
 
-function noop() {}
-
-module.exports = {
-    escape,
-    lookupMessages,
-    noop,
-    parseDate,
-};
+export function noop(): void {}

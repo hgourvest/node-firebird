@@ -4,8 +4,22 @@
  *
  ***************************************/
 
+import type { Callback } from './callback';
+
+type AttachFn = (options: any, callback: Callback) => void;
+
 class Pool {
-    constructor(attach, max, options) {
+    attach: AttachFn;
+    internaldb: any[];
+    pooldb: any[];
+    dbinuse: number;
+    _creating: number;
+    max: number;
+    pending: Callback[];
+    options: any;
+    _destroyed: boolean;
+
+    constructor(attach: AttachFn, max: number, options: any) {
         this.attach    = attach;
         this.internaldb = []; // connections created by the pool (for destroy)
         this.pooldb    = []; // connections available in the pool (idle)
@@ -17,7 +31,7 @@ class Pool {
         this._destroyed = false; // true after destroy() — prevents further use
     }
 
-    get(callback) {
+    get(callback: Callback): this {
         // [Fix 2] Reject immediately if the pool has already been destroyed.
         if (this._destroyed) {
             callback(new Error('Pool has been destroyed'), null);
@@ -29,7 +43,7 @@ class Pool {
         return self;
     }
 
-    check() {
+    check(): this {
         var self = this;
 
         // [Fix 2] Do not serve requests on a destroyed pool.
@@ -59,7 +73,7 @@ class Pool {
             self._creating++;
 
             var timedOut = false;
-            var timer    = null;
+            var timer: NodeJS.Timeout | null = null;
 
             // [Fix 1] Optional per-attach timeout.
             // If attach() does not call back within connectTimeout ms (e.g. because
@@ -138,7 +152,7 @@ class Pool {
         return self;
     }
 
-    destroy(callback) {
+    destroy(callback?: (err?: any) => void): void {
         var self = this;
         self._destroyed = true;
 
@@ -157,7 +171,7 @@ class Pool {
             callback();
         }
 
-        function detachCallback(err) {
+        function detachCallback(err?: any) {
             if (err) {
                 if (callback) {
                     callback(err);
@@ -192,4 +206,4 @@ class Pool {
     }
 }
 
-module.exports = Pool;
+export = Pool;

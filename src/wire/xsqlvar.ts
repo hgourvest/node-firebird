@@ -1,4 +1,5 @@
-const Const= require('./const');
+import Const from './const';
+import type { XdrReader, XdrWriter, BlrWriter } from './serialize';
 
 /***************************************
  *
@@ -42,7 +43,7 @@ const FirebirdCharsetWidths = {
     'EUCJ': 2
 };
 
-function getFirebirdCharsetWidth(charset) {
+function getFirebirdCharsetWidth(charset?: string): number {
     if (!charset) return 4;
     const upper = charset.toUpperCase();
     return FirebirdCharsetWidths[upper] || 1;
@@ -55,17 +56,43 @@ function getFirebirdCharsetWidth(charset) {
  * @param {object|null} options  Connection options object (may be falsy).
  * @returns {string}             A Node.js-compatible encoding string.
  */
-function resolveTextEncoding(options) {
+function resolveTextEncoding(options?: any): BufferEncoding {
     const encoding = (options && options.encoding)
         ? options.encoding.toUpperCase()
         : Const.DEFAULT_ENCODING;
-    return FirebirdToNodeEncoding[encoding] || Const.DEFAULT_ENCODING.toLowerCase();
+    return (FirebirdToNodeEncoding[encoding] || Const.DEFAULT_ENCODING.toLowerCase()) as BufferEncoding;
 }
 
 //------------------------------------------------------
 
-class SQLVarText {
-    decode(data, lowerV13, options) {
+/**
+ * Common shape of all SQLVar descriptor objects.  The metadata properties
+ * are populated externally (in connection.ts) from the op_prepare_statement
+ * describe response before decode()/calcBlr() are called.
+ */
+export abstract class SQLVarBase {
+    type: number;
+    subType: number;
+    scale: number;
+    length: number;
+    nullable: boolean;
+    field?: string;
+    relation?: string;
+    relationSchema?: string;
+    alias?: string;
+    relationAlias?: string;
+    owner?: string;
+    charSetId?: number;
+    collationId?: number;
+
+    abstract decode(data: XdrReader, lowerV13: boolean, options?: any): any;
+    abstract calcBlr(blr: BlrWriter): void;
+}
+
+//------------------------------------------------------
+
+export class SQLVarText extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean, options?: any) {
         let ret;
         const textEncoding = resolveTextEncoding(options);
         if (this.subType > 1) {
@@ -97,7 +124,7 @@ class SQLVarText {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_text);
         blr.addWord(this.length);
     }
@@ -105,13 +132,13 @@ class SQLVarText {
 
 //------------------------------------------------------
 
-class SQLVarNull extends SQLVarText {
+export class SQLVarNull extends SQLVarText {
 }
 
 //------------------------------------------------------
 
-class SQLVarString {
-    decode(data, lowerV13, options) {
+export class SQLVarString extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean, options?: any) {
         let ret;
         const textEncoding = resolveTextEncoding(options);
         if (this.subType > 1) {
@@ -131,7 +158,7 @@ class SQLVarString {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_varying);
         blr.addWord(this.length);
     }
@@ -139,8 +166,8 @@ class SQLVarString {
 
 //------------------------------------------------------
 
-class SQLVarQuad {
-    decode(data, lowerV13) {
+export class SQLVarQuad extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readQuad();
 
         if (!lowerV13 || !data.readInt()) {
@@ -149,7 +176,7 @@ class SQLVarQuad {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_quad);
         blr.addShort(this.scale);
     }
@@ -157,8 +184,8 @@ class SQLVarQuad {
 
 //------------------------------------------------------
 
-class SQLVarBlob extends SQLVarQuad {
-    calcBlr(blr) {
+export class SQLVarBlob extends SQLVarQuad {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_quad);
         blr.addShort(0);
     }
@@ -166,8 +193,8 @@ class SQLVarBlob extends SQLVarQuad {
 
 //------------------------------------------------------
 
-class SQLVarArray extends SQLVarQuad {
-    calcBlr(blr) {
+export class SQLVarArray extends SQLVarQuad {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_quad);
         blr.addShort(0);
     }
@@ -175,8 +202,8 @@ class SQLVarArray extends SQLVarQuad {
 
 //------------------------------------------------------
 
-class SQLVarInt {
-    decode(data, lowerV13) {
+export class SQLVarInt extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readInt();
 
         if (this.scale) {
@@ -190,7 +217,7 @@ class SQLVarInt {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_long);
         blr.addShort(this.scale);
     }
@@ -198,8 +225,8 @@ class SQLVarInt {
 
 //------------------------------------------------------
 
-class SQLVarShort extends SQLVarInt {
-    calcBlr(blr) {
+export class SQLVarShort extends SQLVarInt {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_short);
         blr.addShort(this.scale);
     }
@@ -207,8 +234,8 @@ class SQLVarShort extends SQLVarInt {
 
 //------------------------------------------------------
 
-class SQLVarInt64 {
-    decode(data, lowerV13) {
+export class SQLVarInt64 extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readInt64();
 
         if (this.scale) {
@@ -221,7 +248,7 @@ class SQLVarInt64 {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_int64);
         blr.addShort(this.scale);
     }
@@ -229,12 +256,13 @@ class SQLVarInt64 {
 
 //------------------------------------------------------
 
-class SQLVarInt128 {
-    decode(data, lowerV13) {
+export class SQLVarInt128 extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var retBigInt = BigInt(data.readInt128())
+        let ret: string | number;
 
         if (retBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
-            var ret = retBigInt.toString();
+            ret = retBigInt.toString();
 
             var integerPart = ret.slice(0, Math.abs(this.scale) * -1)
             var decimalPart = ret.slice(Math.abs(this.scale) * -1)
@@ -243,7 +271,7 @@ class SQLVarInt128 {
 
             ret = `${integerPart}.${decimalPart}`
         } else {
-            var ret = Number(retBigInt);
+            ret = Number(retBigInt);
             ret = ret / ScaleDivisor[Math.abs(this.scale)];
         }
 
@@ -254,7 +282,7 @@ class SQLVarInt128 {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_int128);
         blr.addShort(this.scale);
     }
@@ -262,8 +290,8 @@ class SQLVarInt128 {
 
 //------------------------------------------------------
 
-class SQLVarDecFloat16 {
-    decode(data, lowerV13) {
+export class SQLVarDecFloat16 extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readDecFloat16();
 
         if (!lowerV13 || !data.readInt()) {
@@ -273,7 +301,7 @@ class SQLVarDecFloat16 {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_dec64);
         blr.addShort(0);
     }
@@ -281,8 +309,8 @@ class SQLVarDecFloat16 {
 
 //------------------------------------------------------
 
-class SQLVarDecFloat34 {
-    decode(data, lowerV13) {
+export class SQLVarDecFloat34 extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readDecFloat34();
 
         if (!lowerV13 || !data.readInt()) {
@@ -292,7 +320,7 @@ class SQLVarDecFloat34 {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_dec128);
         blr.addShort(0);
     }
@@ -300,8 +328,8 @@ class SQLVarDecFloat34 {
 
 //------------------------------------------------------
 
-class SQLVarFloat {
-    decode(data, lowerV13) {
+export class SQLVarFloat extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readFloat();
 
         if (!lowerV13 || !data.readInt()) {
@@ -311,15 +339,15 @@ class SQLVarFloat {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_float);
     }
 }
 
 //------------------------------------------------------
 
-class SQLVarDouble {
-    decode(data, lowerV13) {
+export class SQLVarDouble extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readDouble();
 
         if (!lowerV13 || !data.readInt()) {
@@ -329,15 +357,15 @@ class SQLVarDouble {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_double);
     }
 }
 
 //------------------------------------------------------
 
-class SQLVarDate {
-    decode(data, lowerV13) {
+export class SQLVarDate extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readInt();
 
         if (!lowerV13 || !data.readInt()) {
@@ -349,15 +377,15 @@ class SQLVarDate {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_sql_date);
     }
 }
 
 //------------------------------------------------------
 
-class SQLVarTime {
-    decode(data, lowerV13) {
+export class SQLVarTime extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readUInt();
 
         if (!lowerV13 || !data.readInt()) {
@@ -368,15 +396,15 @@ class SQLVarTime {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_sql_time);
     }
 }
 
 //------------------------------------------------------
 
-class SQLVarTimeStamp {
-    decode(data, lowerV13) {
+export class SQLVarTimeStamp extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var date = data.readInt();
         var time = data.readUInt();
 
@@ -389,15 +417,15 @@ class SQLVarTimeStamp {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_timestamp);
     }
 }
 
 //------------------------------------------------------
 
-class SQLVarTimeTz {
-    decode(data, lowerV13) {
+export class SQLVarTimeTz extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var time = data.readUInt();
         data.readInt(); // skip timezone info
 
@@ -409,15 +437,15 @@ class SQLVarTimeTz {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_sql_time_tz);
     }
 }
 
 //------------------------------------------------------
 
-class SQLVarTimeTzEx extends SQLVarTimeTz {
-    decode(data, lowerV13) {
+export class SQLVarTimeTzEx extends SQLVarTimeTz {
+    decode(data: XdrReader, lowerV13: boolean) {
         var time = data.readUInt();
         data.readInt(); // skip timezone info
         data.readInt(); // skip ext_offset
@@ -430,15 +458,15 @@ class SQLVarTimeTzEx extends SQLVarTimeTz {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_ex_time_tz);
     }
 }
 
 //------------------------------------------------------
 
-class SQLVarTimeStampTz {
-    decode(data, lowerV13) {
+export class SQLVarTimeStampTz extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var date = data.readInt();
         var time = data.readUInt();
         data.readInt(); // skip timezone info
@@ -452,15 +480,15 @@ class SQLVarTimeStampTz {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_timestamp_tz);
     }
 }
 
 //------------------------------------------------------
 
-class SQLVarTimeStampTzEx extends SQLVarTimeStampTz {
-    decode(data, lowerV13) {
+export class SQLVarTimeStampTzEx extends SQLVarTimeStampTz {
+    decode(data: XdrReader, lowerV13: boolean) {
         var date = data.readInt();
         var time = data.readUInt();
         data.readInt(); // skip timezone info
@@ -475,15 +503,15 @@ class SQLVarTimeStampTzEx extends SQLVarTimeStampTz {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_ex_timestamp_tz);
     }
 }
 
 //------------------------------------------------------
 
-class SQLVarBoolean {
-    decode(data, lowerV13) {
+export class SQLVarBoolean extends SQLVarBase {
+    decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readInt();
 
         if (!lowerV13 || !data.readInt()) {
@@ -492,24 +520,26 @@ class SQLVarBoolean {
         return null;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_bool);
     }
 }
 
 //------------------------------------------------------
 
-class SQLParamInt {
-    constructor(value) {
+export class SQLParamInt {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_long);
         blr.addShort(0);
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
             data.addInt(this.value);
         } else {
@@ -521,17 +551,19 @@ class SQLParamInt {
 
 //------------------------------------------------------
 
-class SQLParamInt64 {
-    constructor(value) {
+export class SQLParamInt64 {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_int64);
         blr.addShort(0);
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
             data.addInt64(this.value);
         } else {
@@ -543,17 +575,19 @@ class SQLParamInt64 {
 
 //------------------------------------------------------
 
-class SQLParamInt128 {
-    constructor(value) {
+export class SQLParamInt128 {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_int128);
         blr.addShort(0);
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
             data.addInt128(this.value);
         } else {
@@ -565,17 +599,19 @@ class SQLParamInt128 {
 
 //------------------------------------------------------
 
-class SQLParamDecFloat16 {
-    constructor(value) {
+export class SQLParamDecFloat16 {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_dec64);
         blr.addShort(0);
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
             data.addDecFloat16(this.value);
         } else {
@@ -587,17 +623,19 @@ class SQLParamDecFloat16 {
 
 //------------------------------------------------------
 
-class SQLParamDecFloat34 {
-    constructor(value) {
+export class SQLParamDecFloat34 {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_dec128);
         blr.addShort(0);
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
             data.addDecFloat34(this.value);
         } else {
@@ -609,12 +647,14 @@ class SQLParamDecFloat34 {
 
 //------------------------------------------------------
 
-class SQLParamDouble {
-    constructor(value) {
+export class SQLParamDouble {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
             data.addDouble(this.value);
         } else {
@@ -623,19 +663,21 @@ class SQLParamDouble {
         }
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_double);
     }
 }
 
 //------------------------------------------------------
 
-class SQLParamString {
-    constructor(value) {
+export class SQLParamString {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
             data.addText(this.value, Const.DEFAULT_ENCODING);
         } else {
@@ -643,7 +685,7 @@ class SQLParamString {
         }
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_text);
         var len = this.value ? Buffer.byteLength(this.value, Const.DEFAULT_ENCODING) : 0;
         blr.addWord(len);
@@ -652,12 +694,14 @@ class SQLParamString {
 
 //------------------------------------------------------
 
-class SQLParamBuffer {
-    constructor(value) {
+export class SQLParamBuffer {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
             data.addParamBuffer(this.value);
         } else {
@@ -665,7 +709,7 @@ class SQLParamBuffer {
         }
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_text);
         var len = this.value ? this.value.length : 0;
         blr.addWord(len);
@@ -674,12 +718,14 @@ class SQLParamBuffer {
 
 //------------------------------------------------------
 
-class SQLParamQuad {
-    constructor(value) {
+export class SQLParamQuad {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
             data.addInt(this.value.high);
             data.addInt(this.value.low);
@@ -690,7 +736,7 @@ class SQLParamQuad {
         }
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_quad);
         blr.addShort(0);
     }
@@ -698,12 +744,14 @@ class SQLParamQuad {
 
 //------------------------------------------------------
 
-class SQLParamDate {
-    constructor(value) {
+export class SQLParamDate {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
 
             var value = this.value.getTime() - this.value.getTimezoneOffset() * MsPerMinute;
@@ -726,19 +774,21 @@ class SQLParamDate {
         }
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_timestamp);
     }
 }
 
 //------------------------------------------------------
 
-class SQLParamBool {
-    constructor(value) {
+export class SQLParamBool {
+    value: any;
+
+    constructor(value: any) {
         this.value = value;
     }
 
-    encode(data) {
+    encode(data: XdrWriter): void {
         if (this.value != null) {
             data.addInt(this.value ? 1 : 0);
         } else {
@@ -747,43 +797,8 @@ class SQLParamBool {
         }
     }
 
-    calcBlr(blr) {
+    calcBlr(blr: BlrWriter): void {
         blr.addByte(Const.blr_short);
         blr.addShort(0);
     }
 }
-
-module.exports = {
-    SQLVarArray,
-    SQLVarDate,
-    SQLVarBlob,
-    SQLVarBoolean,
-    SQLVarDouble,
-    SQLVarInt,
-    SQLVarInt64,
-    SQLVarInt128,
-    SQLVarDecFloat16,
-    SQLVarDecFloat34,
-    SQLVarFloat,
-    SQLVarNull,
-    SQLVarShort,
-    SQLVarString,
-    SQLVarText,
-    SQLVarTime,
-    SQLVarTimeStamp,
-    SQLVarTimeTz,
-    SQLVarTimeTzEx,
-    SQLVarTimeStampTz,
-    SQLVarTimeStampTzEx,
-    SQLParamBool,
-    SQLParamDate,
-    SQLParamDouble,
-    SQLParamInt,
-    SQLParamInt64,
-    SQLParamInt128,
-    SQLParamDecFloat16,
-    SQLParamDecFloat34,
-    SQLParamQuad,
-    SQLParamString,
-    SQLParamBuffer,
-};

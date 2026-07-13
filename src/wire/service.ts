@@ -1,8 +1,8 @@
-const Events = require('events');
-const stream = require('stream');
-const Const = require('./const');
-const {BlrReader} = require('./serialize');
-const {doError} = require('../callback');
+import Events from 'events';
+import stream from 'stream';
+import Const from './const';
+import { BlrReader } from './serialize';
+import { doError } from '../callback';
 
 /***************************************
  *
@@ -10,22 +10,22 @@ const {doError} = require('../callback');
  *
  ***************************************/
 
-function isEmpty(obj){
+function isEmpty(obj: any): boolean {
     for(var p in obj) return false;
     return true;
 }
 
-const SHUTDOWN_KIND = {
+const SHUTDOWN_KIND: Record<number, number> = {
     0: Const.isc_spb_prp_shutdown_db,
     1: Const.isc_spb_prp_deny_new_transactions,
     2: Const.isc_spb_prp_deny_new_attachments
 };
-const SHUTDOWNEX_KIND = {
+const SHUTDOWNEX_KIND: Record<number, number> = {
     0: Const.isc_spb_prp_force_shutdown,
     1: Const.isc_spb_prp_transactions_shutdown,
     2: Const.isc_spb_prp_attachments_shutdown
 };
-const SHUTDOWNEX_MODE = {
+const SHUTDOWNEX_MODE: Record<number, number> = {
     //0: isc_spb_prp_sm_normal,
     1: Const.isc_spb_prp_sm_multi,
     2: Const.isc_spb_prp_sm_single,
@@ -41,20 +41,25 @@ const ShutdownKind = { FORCED: 0, DENY_TRANSACTION: 1, DENY_ATTACHMENT: 2 };
  ***************************************/
 
 class ServiceManager extends Events.EventEmitter {
-    constructor(connection) {
+    static ShutdownMode = ShutdownMode;
+    static ShutdownKind = ShutdownKind;
+
+    connection: any;
+
+    constructor(connection: any) {
         super();
         this.connection = connection;
         connection.svc = this;
     }
 
-    _createOutputStream(optread, buffersize, callback) {
+    _createOutputStream(optread: string | null | undefined, buffersize: number | null | undefined, callback: (err: any, stream?: stream.Readable) => void): void {
         var self = this;
         optread = optread || 'byline';
         var t = new stream.Readable({ objectMode: optread === 'byline' }); // chunk by line
-        t.__proto__._read = function () {
+        (t as any).__proto__._read = function (this: stream.Readable) {
             var selfread = this;
             var fct = optread === 'byline' ? self.readline : self.readeof;
-            fct.call(self, { buffersize: buffersize }, function (err, data) {
+            fct.call(self, { buffersize: buffersize }, function (err: any, data: any) {
                 if (err) {
                     selfread.push(err.message, Const.DEFAULT_ENCODING);
                     return;
@@ -69,7 +74,7 @@ class ServiceManager extends Events.EventEmitter {
         callback(null, t);
     }
 
-    _infosmapping = {
+    _infosmapping: Record<string | number, string> = {
         "50"/*isc_info_svc_svr_db_info*/ : "dbinfo",
         "51"/*isc_info_svc_get_license*/ : "licenses",
         "52"/*isc_info_svc_get_license_mask*/ : "licenseoptions",
@@ -92,7 +97,7 @@ class ServiceManager extends Events.EventEmitter {
         "78"/*isc_info_svc_stdin*/ : ""
     };
 
-    _processcapabilities(blr, res) {
+    _processcapabilities(blr: BlrReader, res: any): void {
         var capArray = [
             "WAL_SUPPORT",
             "MULTI_CLIENT_SUPPORT",
@@ -106,7 +111,7 @@ class ServiceManager extends Events.EventEmitter {
             "SERVER_CONFIG_SUPPORT",
             "QUOTED_FILENAME_SUPPORT"
         ];
-        var dbcapa = res[this._infosmapping[57]] = [];
+        var dbcapa: string[] = res[this._infosmapping[57]] = [];
         var caps = blr.readInt32();
     
         for (var i = 0; i < capArray.length; ++i)
@@ -114,9 +119,9 @@ class ServiceManager extends Events.EventEmitter {
                 dbcapa.push(capArray[i]);
     }
 
-    _processdbinfo(blr, res) {
+    _processdbinfo(blr: BlrReader, res: any): void {
         var tinfo = blr.readByteCode();
-        var dbinfo = res[this._infosmapping[50]] = {};
+        var dbinfo: any = res[this._infosmapping[50]] = {};
     
         dbinfo.database = [];
         for (; tinfo != Const.isc_info_flag_end; tinfo = blr.readByteCode()) {
@@ -134,7 +139,7 @@ class ServiceManager extends Events.EventEmitter {
         }
     }
 
-    _processquery(buffer, callback) {
+    _processquery(buffer: Buffer, callback: (err: any, res?: any) => void): void {
         if (!Buffer.isBuffer(buffer)) {
             doError(new Error('Malformed service-manager response: missing BLR buffer'), callback);
             return;
@@ -143,7 +148,7 @@ class ServiceManager extends Events.EventEmitter {
         try {
             var br = new BlrReader(buffer);
             var tinfo = br.readByteCode();
-            var res = {};
+            var res: any = {};
             res.result = 0;
             for (; tinfo !== Const.isc_info_end; tinfo = br.readByteCode()) {
                 switch (tinfo) {
@@ -163,7 +168,7 @@ class ServiceManager extends Events.EventEmitter {
                         break;
                     case Const.isc_info_svc_limbo_trans:
                         // not implemented
-                        for (; tinfo !== isc_info_flag_end; tinfo = br.readByteCode())
+                        for (; tinfo !== Const.isc_info_flag_end; tinfo = br.readByteCode())
                             break;
                     case Const.isc_info_svc_get_users:
                         br.pos += 2
@@ -237,11 +242,11 @@ class ServiceManager extends Events.EventEmitter {
             }
             callback(null, res);
         } catch (err) {
-            doError(new Error('Malformed service-manager response: ' + err.message), callback);
+            doError(new Error('Malformed service-manager response: ' + (err as Error).message), callback);
         }
     }
 
-    detach(callback, force) {
+    detach(callback?: (err?: any, obj?: any) => void, force?: boolean): this {
         var self = this;
     
         if (!force && self.connection._pending.length > 0) {
@@ -250,7 +255,7 @@ class ServiceManager extends Events.EventEmitter {
             return self;
         }
     
-        self.connection.svcdetach(function (err, obj) {
+        self.connection.svcdetach(function (err: any, obj: any) {
     
             self.connection.disconnect();
             self.emit('detach', false);
@@ -263,7 +268,7 @@ class ServiceManager extends Events.EventEmitter {
         return self;
     }
 
-    backup(options, callback) {
+    backup(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
         var verbose = options.verbose || false;
         // format of bckfile {filename:'name', sizefile:''} sizefile is length of part in bytes
@@ -318,7 +323,7 @@ class ServiceManager extends Events.EventEmitter {
         if (verbose)
             blr.addByte(Const.isc_spb_verbose);
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -327,7 +332,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    nbackup(options, callback) {
+    nbackup(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
         var bckfile = options.backupfile || options.file || null;
         var level = options.level || 0; // nb day for incremental
@@ -355,7 +360,7 @@ class ServiceManager extends Events.EventEmitter {
         if (notriggers) opts = opts | Const.isc_spb_nbk_no_triggers;
         blr.addByteInt32(Const.isc_spb_options, opts);
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -364,7 +369,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    restore(options, callback) {
+    restore(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
         var bckfiles = options.backupfiles || options.files || null; // format bckfiles ['file1', 'file2', 'file3']
         // for convenience
         if (bckfiles) bckfiles = bckfiles.constructor !== Array?[bckfiles]:bckfiles;
@@ -426,7 +431,7 @@ class ServiceManager extends Events.EventEmitter {
         if (verbose)
             blr.addByte(Const.isc_spb_verbose);
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -435,7 +440,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    nrestore(options, callback) {
+    nrestore(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
         var bckfiles = options.backupfiles || options.files || null; // format bckfiles ['file1', 'file2', 'file3']
         // for convenience
         if (bckfiles) bckfiles = bckfiles.constructor !== Array?[bckfiles]:bckfiles;
@@ -458,7 +463,7 @@ class ServiceManager extends Events.EventEmitter {
         }
         blr.addString2(Const.isc_spb_dbname, dbpath, Const.DEFAULT_ENCODING);
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -467,7 +472,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    _fixpropertie(options, callback) {
+    _fixpropertie(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
         var dialect = options.dialect || null;
         var sweep = options.sweepinterval || null;
@@ -524,7 +529,7 @@ class ServiceManager extends Events.EventEmitter {
         if (opts)
             blr.addByteInt32(Const.isc_spb_options, opts);
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -533,23 +538,23 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    setDialect(db, dialect, callback) {
+    setDialect(db: string, dialect: number, callback: any): void {
         this._fixpropertie({ database: db, dialect: dialect }, callback);
     }
 
-    setSweepinterval(db, sweepinterval, callback) {
+    setSweepinterval(db: string, sweepinterval: number, callback: any): void {
         this._fixpropertie({ database: db, sweepinterval: sweepinterval }, callback);
     }
 
-    setCachebuffer(db, nbpages, callback) {
+    setCachebuffer(db: string, nbpages: number, callback: any): void {
         this._fixpropertie({ database: db, nbpagebuffers: nbpages }, callback);
     }
 
-    BringOnline(db, callback) {
+    BringOnline(db: string, callback: any): void {
         this._fixpropertie({ database: db, bringonline: true }, callback);
     }
 
-    Shutdown(db, kind, delay, mode, callback) {
+    Shutdown(db: string, kind: number, delay: number, mode?: any, callback?: any): void {
         // mode parameter is for server version >= 2.0
         if (mode instanceof Function) {
             callback = mode;
@@ -559,27 +564,27 @@ class ServiceManager extends Events.EventEmitter {
         this._fixpropertie({ database: db, shutdown: kind, shutdowndelay: delay, shutdownmode: mode }, callback);
     }
 
-    setShadow(db, val, callback) {
+    setShadow(db: string, val: boolean, callback: any): void {
         this._fixpropertie({ database: db, activateshadow : val }, callback);
     }
 
-    setForcewrite(db, val, callback) {
+    setForcewrite(db: string, val: boolean, callback: any): void {
         this._fixpropertie({ database: db, forcewrite : val }, callback);
     }
 
-    setReservespace(db, val, callback) {
+    setReservespace(db: string, val: boolean, callback: any): void {
         this._fixpropertie({ database: db, reservespace : val }, callback);
     }
 
-    setReadonlyMode(db, callback) {
+    setReadonlyMode(db: string, callback: any): void {
         this._fixpropertie({ database: db, accessmode : 0 }, callback);
     }
 
-    setReadwriteMode(db, callback) {
+    setReadwriteMode(db: string, callback: any): void {
         this._fixpropertie({ database: db, accessmode : 1 }, callback);
     }
 
-    validate(options, callback) {
+    validate(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
         var checkdb = options.checkdb || false;
         var ignorechecksums = options.ignorechecksums || false;
@@ -612,7 +617,7 @@ class ServiceManager extends Events.EventEmitter {
         if (icu) opts = opts | Const.isc_spb_rpr_icu;
         blr.addByteInt32(Const.isc_spb_options, opts);
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -621,7 +626,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    commit(db, transactid, callback) {
+    commit(db: string, transactid: number, callback: any): void {
         var dbpath = db || this.connection.options.filename || this.connection.options.database;
         if (dbpath == null || dbpath.length === 0) {
             doError(new Error('No database specified'), callback);
@@ -634,7 +639,7 @@ class ServiceManager extends Events.EventEmitter {
         blr.addString2(Const.isc_spb_dbname, dbpath, Const.DEFAULT_ENCODING);
         blr.addByteInt32(Const.isc_spb_rpr_commit_trans, transactid);
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -643,7 +648,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    rollback(db, transactid, callback) {
+    rollback(db: string, transactid: number, callback: any): void {
         var dbpath = db || this.connection.options.filename || this.connection.options.database;
         if (dbpath == null || dbpath.length === 0) {
             doError(new Error('No database specified'), callback);
@@ -656,7 +661,7 @@ class ServiceManager extends Events.EventEmitter {
         blr.addString2(Const.isc_spb_dbname, dbpath, Const.DEFAULT_ENCODING);
         blr.addByteInt32(Const.isc_spb_rpr_rollback_trans, transactid);
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -665,7 +670,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    recover(db, transactid, callback) {
+    recover(db: string, transactid: number, callback: any): void {
         var dbpath = db || this.connection.options.filename || this.connection.options.database;
         if (dbpath == null || dbpath.length === 0) {
             doError(new Error('No database specified'), callback);
@@ -678,7 +683,7 @@ class ServiceManager extends Events.EventEmitter {
         blr.addString2(Const.isc_spb_dbname, dbpath, Const.DEFAULT_ENCODING);
         blr.addByteInt32(Const.isc_spb_rpr_recover_two_phase, transactid);
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -687,7 +692,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    getStats(options, callback) {
+    getStats(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
         var record = options.record || false;
         var nocreation = options.nocreation || false;
@@ -720,7 +725,7 @@ class ServiceManager extends Events.EventEmitter {
             blr.addByteInt32(Const.isc_spb_options, opts);
         if (objects) blr.addString2(Const.isc_spb_command_line, objects, Const.DEFAULT_ENCODING);
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -730,13 +735,13 @@ class ServiceManager extends Events.EventEmitter {
     
     }
 
-    getLog(options, callback) {
+    getLog(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
         var self = this;
         var blr = this.connection._blr;
         var optread = options.optread || 'byline';
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_get_fb_log);
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -745,13 +750,13 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    getUsers(username, callback) {
+    getUsers(username: string | null, callback: any): void {
         var self = this;
         var blr = this.connection._blr;
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_display_user);
         if (username) blr.addString2(Const.isc_spb_sec_username, username, Const.DEFAULT_ENCODING);
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -760,7 +765,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    addUser(username, password, options, callback) {
+    addUser(username: string, password: string, options: any, callback: any): void {
         var rolename = options.rolename || null;
         var groupname = options.groupname || null;
         var firsname = options.firstname || null;
@@ -785,7 +790,7 @@ class ServiceManager extends Events.EventEmitter {
         if (admin != null) blr.addByteInt32(Const.isc_spb_sec_admin, admin);
     
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -794,7 +799,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    editUser(username, options, callback) {
+    editUser(username: string, options: any, callback: any): void {
         var rolename = options.rolename || null;
         var groupname = options.groupname || null;
         var firsname = options.firstname || null;
@@ -819,7 +824,7 @@ class ServiceManager extends Events.EventEmitter {
         if (admin != null) blr.addByteInt32(Const.isc_spb_sec_admin, admin);
     
         var self = this;
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -828,15 +833,15 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    removeUser(username, rolename, callback) {
+    removeUser(username: string, rolename: string | null, callback: any): void {
         var blr = this.connection._blr;
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_delete_user);
         blr.addString2(Const.isc_spb_sec_username, username, Const.DEFAULT_ENCODING);
         if (rolename) blr.addString2(Const.isc_dpb_sql_role_name, rolename, Const.DEFAULT_ENCODING);
     
-        var self = this, options = {};
-        this.connection.svcstart(blr, function (err, data) {
+        var self = this, options: any = {};
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -845,10 +850,10 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    getFbserverInfos(infos, options, callback) {
+    getFbserverInfos(infos: any, options: any, callback: any): void {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 1;
-        var opts = {
+        var opts: Record<string, number> = {
             "dbinfo" : Const.isc_info_svc_svr_db_info,
             "fbconfig" : Const.isc_info_svc_get_config,
             "svcversion" : Const.isc_info_svc_version,
@@ -862,13 +867,13 @@ class ServiceManager extends Events.EventEmitter {
         };
         // if infos is empty all options are asked to the service
     
-        var tops = [], empty = isEmpty(infos);
+        var tops: number[] = [], empty = isEmpty(infos);
         for (let popts in opts)
             if (empty || infos[popts])
                 tops.push(opts[popts]);
     
         var self = this;
-        this.connection.svcquery(tops, buffersize, timeout, function (err, data) {
+        this.connection.svcquery(tops, buffersize, timeout, function (err: any, data: any) {
             if (err || !data.buffer) {
                 doError(new Error(err||'Bad query return'), callback);
                 return;
@@ -877,7 +882,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    startTrace(options, callback) {
+    startTrace(options: any, callback: any): void {
         var self = this;
         var blr = this.connection._blr;
         var configfile = options.configfile || '';
@@ -896,7 +901,7 @@ class ServiceManager extends Events.EventEmitter {
         blr.addByte(Const.isc_action_svc_trace_start);
         blr.addString2(Const.isc_spb_trc_cfg, configfile, Const.DEFAULT_ENCODING);
         blr.addString2(Const.isc_spb_trc_name, tracename, Const.DEFAULT_ENCODING);
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -905,7 +910,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    suspendTrace(options, callback) {
+    suspendTrace(options: any, callback: any): void {
         var self = this;
         var blr = this.connection._blr;
         var traceid = options.traceid || null;
@@ -918,7 +923,7 @@ class ServiceManager extends Events.EventEmitter {
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_trace_suspend);
         blr.addByteInt32(Const.isc_spb_trc_id, traceid);
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -927,7 +932,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    resumeTrace(options, callback) {
+    resumeTrace(options: any, callback: any): void {
         var self = this;
         var blr = this.connection._blr;
         var traceid = options.traceid || null;
@@ -940,7 +945,7 @@ class ServiceManager extends Events.EventEmitter {
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_trace_resume);
         blr.addByteInt32(Const.isc_spb_trc_id, traceid);
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -949,7 +954,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    stopTrace(options, callback) {
+    stopTrace(options: any, callback: any): void {
         var self = this;
         var blr = this.connection._blr;
         var traceid = options.traceid || null;
@@ -962,7 +967,7 @@ class ServiceManager extends Events.EventEmitter {
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_trace_stop);
         blr.addByteInt32(Const.isc_spb_trc_id, traceid);
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -971,12 +976,12 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    getTraceList(options, callback) {
+    getTraceList(options: any, callback: any): void {
         var self = this;
         var blr = this.connection._blr;
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_trace_list);
-        this.connection.svcstart(blr, function (err, data) {
+        this.connection.svcstart(blr, function (err: any, data: any) {
             if (err) {
                 doError(new Error(err), callback);
                 return;
@@ -985,7 +990,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    readline(options, callback) {
+    readline(options: any, callback: any): void {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
@@ -998,7 +1003,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    readeof(options, callback) {
+    readeof(options: any, callback: any): void {
         var buffersize = options.buffersize || (8 * 1024);
         var timeout = options.timeout || 60;
         var self = this;
@@ -1011,7 +1016,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    hasRunningAction(options, callback) {
+    hasRunningAction(options: any, callback: any): void {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
@@ -1024,7 +1029,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    readusers(options, callback) {
+    readusers(options: any, callback: any): void {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
@@ -1037,7 +1042,7 @@ class ServiceManager extends Events.EventEmitter {
         });
     }
 
-    readlimbo(options, callback) {
+    readlimbo(options: any, callback: any): void {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
@@ -1052,7 +1057,4 @@ class ServiceManager extends Events.EventEmitter {
 
 }
 
-ServiceManager.ShutdownMode = ShutdownMode;
-ServiceManager.ShutdownKind = ShutdownKind;
-
-module.exports = ServiceManager;
+export = ServiceManager;

@@ -1,7 +1,7 @@
 
-const { encodeDecimal64, decodeDecimal64, encodeDecimal128, decodeDecimal128 } = require('../ieee754-decimal');
+import { encodeDecimal64, decodeDecimal64, encodeDecimal128, decodeDecimal128 } from '../ieee754-decimal';
 
-function align(n) {
+function align(n: number): number {
     return (n + 3) & ~3;
 }
 
@@ -14,13 +14,16 @@ function align(n) {
 const
     MAX_STRING_SIZE = 255;
 
-class BlrWriter {
-    constructor(size) {
+export class BlrWriter {
+    buffer: Buffer;
+    pos: number;
+
+    constructor(size?: number) {
         this.buffer = Buffer.alloc(size || 32);
         this.pos = 0;
     }
 
-    ensure(len) {
+    ensure(len: number): void {
         var newlen = this.buffer.length;
 
         while (newlen < this.pos + len)
@@ -31,48 +34,47 @@ class BlrWriter {
 
         var b = Buffer.alloc(newlen);
         this.buffer.copy(b);
-        delete(this.buffer);
         this.buffer = b;
     }
 
-    addByte(b) {
+    addByte(b: number): void {
         this.ensure(1);
         this.buffer.writeUInt8(b, this.pos);
         this.pos++;
     }
 
-    addShort(b) {
+    addShort(b: number): void {
         this.ensure(1);
         this.buffer.writeInt8(b, this.pos);
         this.pos++;
     }
 
-    addSmall(b) {
+    addSmall(b: number): void {
         this.ensure(2);
         this.buffer.writeInt16LE(b, this.pos);
         this.pos += 2;
     }
 
-    addWord(b) {
+    addWord(b: number): void {
         this.ensure(2);
         this.buffer.writeUInt16LE(b, this.pos);
         this.pos += 2;
     }
 
-    addInt32(b) {
+    addInt32(b: number): void {
         this.ensure(4);
         this.buffer.writeUInt32LE(b, this.pos);
         this.pos += 4;
     }
 
-    addByteInt32(c, b) {
+    addByteInt32(c: number, b: number): void {
         this.addByte(c);
         this.ensure(4);
         this.buffer.writeUInt32LE(b, this.pos);
         this.pos += 4;
     }
 
-    addNumeric(c, v) {
+    addNumeric(c: number, v: number): void {
         if (v < 256){
             this.ensure(3);
             this.buffer.writeUInt8(c, this.pos);
@@ -93,7 +95,7 @@ class BlrWriter {
         this.pos += 4;
     }
 
-    addBytes(b) {
+    addBytes(b: number[] | Buffer): void {
         this.ensure(b.length);
         for (var i = 0, length = b.length; i < length; i++) {
             this.buffer.writeUInt8(b[i], this.pos);
@@ -101,7 +103,7 @@ class BlrWriter {
         }
     }
 
-    addString(c, s, encoding) {
+    addString(c: number, s: string, encoding: BufferEncoding): void {
         this.addByte(c);
 
         var len = Buffer.byteLength(s, encoding);
@@ -115,14 +117,14 @@ class BlrWriter {
         this.pos += len;
     }
 
-    addBuffer(b) {
+    addBuffer(b: Buffer): void {
         this.addWord(b.length);
         this.ensure(b.length);
         b.copy(this.buffer, this.pos);
         this.pos += b.length;
     }
 
-    addString2(c, s, encoding) {
+    addString2(c: number, s: string, encoding: BufferEncoding): void {
         this.addByte(c);
 
         var len = Buffer.byteLength(s, encoding);
@@ -136,7 +138,7 @@ class BlrWriter {
         this.pos += len;
     }
 
-    addMultiblockPart(c, s, encoding) {
+    addMultiblockPart(c: number, s: string, encoding: BufferEncoding): void {
         var buff = Buffer.from(s, encoding);
         var remaining = buff.length;
         var step = 0;
@@ -164,8 +166,11 @@ class BlrWriter {
  *
  ***************************************/
 
-class BlrReader {
-    constructor(buffer) {
+export class BlrReader {
+    buffer: Buffer;
+    pos: number;
+
+    constructor(buffer: Buffer) {
         this.buffer = buffer;
         this.pos = 0;
     }
@@ -198,7 +203,7 @@ class BlrReader {
         return value;
     }
 
-    readString(encoding) {
+    readString(encoding?: BufferEncoding): string {
         var len = this.buffer.readUInt16LE(this.pos);
         var str;
 
@@ -211,8 +216,8 @@ class BlrReader {
         return str;
     }
 
-    readSegment() {
-        var ret, tmp;
+    readSegment(): Buffer {
+        var ret: Buffer | undefined, tmp: Buffer;
         var len = this.buffer.readUInt16LE(this.pos);
 
         this.pos += 2;
@@ -248,13 +253,16 @@ class BlrReader {
  *
  ***************************************/
 
-class XdrWriter {
-    constructor(size) {
+export class XdrWriter {
+    buffer: Buffer;
+    pos: number;
+
+    constructor(size?: number) {
         this.buffer = Buffer.alloc(size || 32);
         this.pos = 0;
     }
 
-    ensure(len) {
+    ensure(len: number): void {
         var newlen = this.buffer.length;
 
         while (newlen < this.pos + len)
@@ -265,17 +273,16 @@ class XdrWriter {
 
         var b = Buffer.alloc(newlen);
         this.buffer.copy(b);
-        delete(this.buffer);
         this.buffer = b;
     }
 
-    addInt(value) {
+    addInt(value: number): void {
         this.ensure(4);
         this.buffer.writeInt32BE(value, this.pos);
         this.pos += 4;
     }
 
-    addInt64(value) {
+    addInt64(value: number): void {
         this.ensure(8);
         // Note: precision is limited to Number.MAX_SAFE_INTEGER (±2^53-1).
         // Values outside this range lose precision, which matches the previous
@@ -284,7 +291,7 @@ class XdrWriter {
         this.pos += 8;
     }
 
-    addInt128(value) {
+    addInt128(value: number | bigint | string): void {
         this.ensure(16);
 
         const bigValue = BigInt(value);
@@ -298,7 +305,7 @@ class XdrWriter {
         this.pos += 8;
     }
 
-    addDecFloat16(value) {
+    addDecFloat16(value: number | string | bigint): void {
         // DECFLOAT(16) - IEEE 754 Decimal64 - 8 bytes
         // Full IEEE 754-2008 Decimal64 implementation
         this.ensure(8);
@@ -308,7 +315,7 @@ class XdrWriter {
         this.pos += 8;
     }
 
-    addDecFloat34(value) {
+    addDecFloat34(value: number | string | bigint): void {
         // DECFLOAT(34) - IEEE 754 Decimal128 - 16 bytes
         // Full IEEE 754-2008 Decimal128 implementation
         this.ensure(16);
@@ -318,13 +325,13 @@ class XdrWriter {
         this.pos += 16;
     }
 
-    addUInt(value) {
+    addUInt(value: number): void {
         this.ensure(4);
         this.buffer.writeUInt32BE(value, this.pos);
         this.pos += 4;
     }
 
-    addString(s, encoding) {
+    addString(s: string, encoding: BufferEncoding): void {
         var len = Buffer.byteLength(s, encoding);
         var alen = align(len);
         this.ensure(alen + 4);
@@ -335,7 +342,7 @@ class XdrWriter {
         this.pos += alen;
     }
 
-    addText(s, encoding) {
+    addText(s: string, encoding: BufferEncoding): void {
         var len = Buffer.byteLength(s, encoding);
         var alen = align(len);
         this.ensure(alen);
@@ -344,7 +351,7 @@ class XdrWriter {
         this.pos += alen;
     }
 
-    addParamBuffer(b) {
+    addParamBuffer(b: Buffer): void {
         var len = b.length;
         var alen = align(len);
         this.ensure(alen);
@@ -354,7 +361,7 @@ class XdrWriter {
     }
 
 
-    addBlr(blr) {
+    addBlr(blr: BlrWriter): void {
         var alen = align(blr.pos);
         this.ensure(alen + 4);
         this.buffer.writeInt32BE(blr.pos, this.pos);
@@ -364,17 +371,17 @@ class XdrWriter {
         this.pos += alen;
     }
 
-    getData() {
+    getData(): Buffer {
         return this.buffer.slice(0, this.pos);
     }
 
-    addDouble(value) {
+    addDouble(value: number): void {
         this.ensure(8);
         this.buffer.writeDoubleBE(value, this.pos);
         this.pos += 8;
     }
 
-    addQuad(quad) {
+    addQuad(quad: { low: number; high: number }): void {
         this.ensure(8);
         var b = this.buffer;
         b.writeInt32BE(quad.high, this.pos);
@@ -383,13 +390,13 @@ class XdrWriter {
         this.pos += 4;
     }
 
-    addBuffer(buffer) {
+    addBuffer(buffer: Buffer): void {
         this.ensure(buffer.length);
         buffer.copy(this.buffer, this.pos, 0, buffer.length);
         this.pos += buffer.length;
     }
 
-    addAlignment(len) {
+    addAlignment(len: number): void {
         var alen = (4 - len) & 3;
 
         this.ensure(alen);
@@ -404,8 +411,11 @@ class XdrWriter {
  *
  ***************************************/
 
-class XdrReader {
-    constructor(buffer) {
+export class XdrReader {
+    buffer: Buffer;
+    pos: number;
+
+    constructor(buffer: Buffer) {
         this.buffer = buffer;
         this.pos = 0;
     }
@@ -495,7 +505,7 @@ class XdrReader {
         return r;
     }
 
-    readBuffer(len, toAlign = true) {
+    readBuffer(len?: number, toAlign = true): Buffer | undefined {
         if (!arguments.length) {
             len = this.readInt();
         }
@@ -512,12 +522,12 @@ class XdrReader {
         }
     }
 
-    readString(encoding) {
+    readString(encoding: BufferEncoding): string {
         var len = this.readInt();
         return this.readText(len, encoding);
     }
 
-    readText(len, encoding) {
+    readText(len: number, encoding: BufferEncoding): string {
         if (len <= 0)
             return '';
 
@@ -537,8 +547,10 @@ var BUFFER_BITS = 8;
 var BIT_ON = 1;
 var BIT_OFF = 0;
 
-class BitSet {
-    constructor(buffer) {
+export class BitSet {
+    data: number[];
+
+    constructor(buffer?: Buffer) {
         this.data = [];
 
         if (buffer) {
@@ -555,7 +567,7 @@ class BitSet {
         }
     }
 
-    scale(index) {
+    scale(index: number): void {
         var l = index >>> WORD_LOG;
 
         for (var i = this.data.length; l >= i; l--) {
@@ -563,7 +575,7 @@ class BitSet {
         }
     }
 
-    set(index, value) {
+    set(index: number, value?: boolean | number): void {
         let pos = index >>> 3;
 
         for (let i = this.data.length; pos >= i; pos--) {
@@ -579,7 +591,7 @@ class BitSet {
         }
     }
 
-    get(index) {
+    get(index: number): number {
         var n = index >>> WORD_LOG;
 
         if (n >= this.data.length) {
@@ -589,13 +601,7 @@ class BitSet {
         return (this.data[n] >>> index) & BIT_ON;
     }
 
-    toBuffer() {
+    toBuffer(): Buffer {
         return Buffer.from(this.data);
     }
 }
-
-exports.BlrWriter = BlrWriter;
-exports.BlrReader = BlrReader;
-exports.XdrWriter = XdrWriter;
-exports.XdrReader = XdrReader;
-exports.BitSet = BitSet;

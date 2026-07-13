@@ -1,10 +1,20 @@
-const net = require('net');
-const { XdrReader } = require('./serialize');
+import net from 'net';
+import { XdrReader } from './serialize';
+import Const from './const';
+
 const DEFAULT_ENCODING = 'utf8';
-const Const = require('./const');
 
 class EventConnection {
-    constructor(host, port, callback, db) {
+    db: any;
+    emgr: any;
+    _isClosed: boolean;
+    _isOpened: boolean;
+    _socket: net.Socket;
+    _xdr?: XdrReader;
+    error: any;
+    eventcallback: ((err: any, ret?: any) => void) | null;
+
+    constructor(host: string, port: number, callback: (() => void) | undefined, db: any) {
         var self = this;
         this.db = db;
         this.emgr = null;
@@ -16,7 +26,7 @@ class EventConnection {
         this.eventcallback;
     }
 
-    _bind_events(host, port, callback) {
+    _bind_events(host: string, port: number, callback?: () => void): void {
         var self = this;
 
         self._socket.on('close', function () {
@@ -36,24 +46,24 @@ class EventConnection {
                 callback();
         });
 
-        self._socket.on('data', function (data) {
-            var xdr, buf;
+        self._socket.on('data', function (data: Buffer) {
+            var xdr: XdrReader, buf: Buffer | undefined;
 
             if (!self._xdr) {
                 xdr = new XdrReader(data);
             } else {
                 xdr = self._xdr;
                 delete (self._xdr);
-                buf = Buffer.from(data.length + xdr.buffer.length);
+                buf = Buffer.alloc(data.length + xdr.buffer.length);
                 xdr.buffer.copy(buf);
                 data.copy(buf, xdr.buffer.length);
                 xdr.buffer = buf;
             }
 
             try {
-                var item, op;
+
                 var op_pos = xdr.pos;
-                var tmp_event;
+                var tmp_event: Record<string, number>;
                 while (xdr.pos < xdr.buffer.length) {
                     do {
                         var r = xdr.readInt();
@@ -62,7 +72,7 @@ class EventConnection {
                     switch (r) {
                         case Const.op_event:
                             xdr.readInt(); // db handle
-                            var buf = xdr.readArray();
+                            buf = xdr.readArray();
                             // first byte is always set to 1
                             tmp_event = {};
                             var lst_event = [];
@@ -111,7 +121,7 @@ class EventConnection {
         })
     }
 
-    throwClosed(callback) {
+    throwClosed(callback?: (err: any) => void): this {
         var err = new Error('Event Connection is closed.');
         this.db.emit('error', err);
         if (callback)
@@ -120,4 +130,4 @@ class EventConnection {
     }
 }
 
-module.exports = EventConnection;
+export = EventConnection;

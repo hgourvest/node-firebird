@@ -1,21 +1,21 @@
-const Events = require('events');
-const os = require('os');
-const path = require('path');
+import Events from 'events';
+import os from 'os';
+import path from 'path';
 
-const {XdrWriter, BlrWriter, XdrReader, BitSet, BlrReader} = require('./serialize');
-const {doCallback, doError} = require('../callback');
-const srp = require('../srp');
-const crypt = require('../unix-crypt');
-const Const = require('./const');
-const Xsql = require('./xsqlvar');
-const ServiceManager = require('./service');
-const Database = require('./database');
-const Statement = require('./statement');
-const Transaction = require('./transaction');
-const {lookupMessages, noop, parseDate} = require('../utils');
-const Socket = require("./socket");
+import { XdrWriter, BlrWriter, XdrReader, BitSet, BlrReader } from './serialize';
+import { doCallback, doError } from '../callback';
+import * as srp from '../srp';
+import * as crypt from '../unix-crypt';
+import Const from './const';
+import * as Xsql from './xsqlvar';
+import ServiceManager from './service';
+import Database from './database';
+import Statement from './statement';
+import Transaction from './transaction';
+import { lookupMessages, noop, parseDate } from '../utils';
+import Socket from './socket';
 
-function parseValueIfJson(value, options) {
+function parseValueIfJson(value: any, options: any) {
     if (options && options.jsonAsObject && typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
         try {
             return JSON.parse(value);
@@ -33,7 +33,47 @@ function parseValueIfJson(value, options) {
  ***************************************/
 
 class Connection {
-    constructor(host, port, callback, options, db, svc) {
+    static decodeResponse: typeof decodeResponse;
+    static fetch_blob_async_transaction: typeof fetch_blob_async_transaction;
+    static fetch_blob_async: typeof fetch_blob_async;
+    static parseValueIfJson: typeof parseValueIfJson;
+    static describe: typeof describe;
+
+    db: any;
+    svc: any;
+    options: any;
+    accept: any;
+    error: any;
+    dbhandle: number | undefined;
+    svchandle: number | undefined;
+    clientKeys: srp.KeyPair | undefined;
+    serverKeys: { salt: string; public: bigint; pluginName: string } | undefined;
+
+    _msg: XdrWriter;
+    _blr: BlrWriter;
+    _queue: any[];
+    _pending: string[];
+    _socket: any;
+    _xdr: any;
+    _isOpened: boolean;
+    _isClosed: boolean;
+    _isDetach: boolean;
+    _isUsed: boolean;
+    _pooled: boolean;
+    _lowercase_keys: boolean | undefined;
+    _detachTimeout: any;
+    _detachCallback: any;
+    _detachAuto: any;
+    _retry_connection_id: any;
+    _retry_connection_interval: number;
+    _max_cached_query: number;
+    _cache_query: Record<string, any> | null;
+    _messageFile: string;
+    _authStartTime: number | undefined;
+    _pendingAccept: any;
+    _inlineBlobs: Map<string, Buffer> | undefined;
+
+    constructor(host: string, port: number, callback: any, options: any, db?: any, svc?: any) {
         var self = this;
         this.db = db;
         this.svc = svc
@@ -493,7 +533,7 @@ class Connection {
     }
 
 
-    attach(options, callback, db) {
+    attach(options: any, callback?: any, db?: any) {
         this._lowercase_keys = options.lowercase_keys || Const.DEFAULT_LOWERCASE_KEYS;
     
         var database = options.database || options.filename;
@@ -969,7 +1009,7 @@ class Connection {
 
     allocateAndPrepareStatement(transaction, query, plan, callback) {
         var self = this;
-        var mainCallback = function(err, ret) {
+        var mainCallback: any = function(err: any, ret: any) {
             if (!err) {
                 mainCallback.response.handle = ret.handle;
                 describe(ret.buffer, mainCallback.response);
@@ -1354,7 +1394,7 @@ class Connection {
     }
 
 
-    sendExecute(op, statement, transaction, callback, parameters) {
+    sendExecute(op: number, statement: any, transaction: any, callback: any, parameters?: any[]) {
         var msg = this._msg;
         var blr = this._blr;
         msg.pos = 0;
@@ -1375,7 +1415,7 @@ class Connection {
                 var nullBits = new BitSet();
     
                 for (var i = 0; i < parameters.length; i++) {
-                    nullBits.set(i, (parameters[i].value === null) & 1);
+                    nullBits.set(i, parameters[i].value === null ? 1 : 0);
                 }
     
                 var nullBuffer = nullBits.toBuffer();
@@ -1642,7 +1682,7 @@ class Connection {
     }
 
 
-    svcattach(options, callback, svc) {
+    svcattach(options: any, callback?: any, svc?: any) {
         this._lowercase_keys = options.lowercase_keys || Const.DEFAULT_LOWERCASE_KEYS;
         var database = options.database || options.filename;
         var user = options.user || Const.DEFAULT_USER;
@@ -1825,7 +1865,7 @@ class Connection {
         // prepare EPB
         blr.addByte(1) // epb_version
         for (var event in events) {
-            var event_buffer = Buffer.from(event, 'UTF8');
+            var event_buffer = Buffer.from(event, 'utf8');
             blr.addByte(event_buffer.length);
             blr.addBytes(event_buffer);
             blr.addInt32(events[event]);
@@ -1877,7 +1917,7 @@ const opcodeNames = Object.fromEntries(
     Object.entries(Const).filter(([k]) => k.startsWith('op_')).map(([k, v]) => [v, k])
 );
 
-function decodeResponse(data, callback, cnx, lowercase_keys, cb) {
+function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any, cb: (err?: any, obj?: any) => void) {
     try {
         do {
             var r = data.r || data.readInt();
@@ -2067,7 +2107,7 @@ function decodeResponse(data, callback, cnx, lowercase_keys, cb) {
             case Const.op_accept:
             case Const.op_cond_accept:
             case Const.op_accept_data:
-                let accept = {
+                let accept: any = {
                     protocolVersion: data.readInt(),
                     protocolArchitecture: data.readInt(),
                     protocolMinimumType: data.readInt(),
@@ -2438,7 +2478,7 @@ function decodeResponse(data, callback, cnx, lowercase_keys, cb) {
     }
 }
 
-function parseOpResponse(data, response, cb) {
+function parseOpResponse(data: any, response: any, cb?: (err?: any, response?: any) => void) {
     var handle = data.readInt();
 
     if (!response.handle) {
@@ -2455,7 +2495,7 @@ function parseOpResponse(data, response, cb) {
         response.buffer = buf;
     }
 
-    var num, op, item = {};
+    var num: any, op: any, item: any = {};
     while (true) {
         op = data.readInt();
 
@@ -2512,10 +2552,10 @@ function parseOpResponse(data, response, cb) {
     }
 }
 
-function describe(buff, statement) {
+function describe(buff: Buffer, statement: any) {
     var br = new BlrReader(buff);
-    var parameters = null;
-    var type, param;
+    var parameters: any = null;
+    var type: any, param: any;
 
     while (br.pos < br.buffer.length) {
         switch (br.readByteCode()) {
@@ -2623,7 +2663,7 @@ function describe(buff, statement) {
         }
     }
 
-    function unpackCharSetCollation(params) {
+    function unpackCharSetCollation(params: any[]) {
         if (!params) return;
         for (let i = 0; i < params.length; i++) {
             const p = params[i];
@@ -2639,7 +2679,7 @@ function describe(buff, statement) {
     unpackCharSetCollation(statement.output);
 }
 
-function CalcBlr(blr, xsqlda) {
+function CalcBlr(blr: BlrWriter, xsqlda: any[]) {
     blr.addBytes([Const.blr_version5, Const.blr_begin, Const.blr_message, 0]); // + message number
     blr.addWord(xsqlda.length * 2);
 
@@ -2653,7 +2693,7 @@ function CalcBlr(blr, xsqlda) {
     blr.addByte(Const.blr_eoc);
 }
 
-function fetch_blob_async_transaction(statement, id, column, row) {
+function fetch_blob_async_transaction(statement: any, id: any, column: any, row: any) {
     const infoValue = { row, column, value: '' };
 
     return (transactionArg) => {
@@ -2735,11 +2775,11 @@ function fetch_blob_async_transaction(statement, id, column, row) {
     };
 }
 
-function fetch_blob_async(statement, id, name, row) {
+function fetch_blob_async(statement: any, id: any, name: any, row: any) {
     const cbTransaction = (transaction, close, callback) => {
         statement.connection._pending.push('openBlob');
         statement.connection.openBlob(id, transaction, (err, blob) => {
-            let e = new Events.EventEmitter();
+            let e: any = new Events.EventEmitter();
 
             e.pipe = (stream) => {
                 e.on('data', (chunk) => {
@@ -2806,7 +2846,7 @@ function fetch_blob_async(statement, id, name, row) {
         const cacheKey = `${id.high}:${id.low}`;
         if (statement.connection._inlineBlobs && statement.connection._inlineBlobs.has(cacheKey)) {
             const data = statement.connection._inlineBlobs.get(cacheKey);
-            let e = new Events.EventEmitter();
+            let e: any = new Events.EventEmitter();
             e.pipe = (stream) => {
                 e.on('data', (chunk) => {
                     stream.write(chunk);
@@ -2842,7 +2882,7 @@ function fetch_blob_async(statement, id, name, row) {
     };
 }
 
-function doSynchronousLoop(data, processData, done) {
+function doSynchronousLoop(data: any[], processData: (row: any, index: number, next: (err?: any) => void) => void, done: (err?: any) => void) {
     if (!data || !data.length) {
         done();
         return;
@@ -2867,9 +2907,9 @@ function doSynchronousLoop(data, processData, done) {
     loop(0);
 }
 
-function executeStreamRow(custom, row, index, output, next) {
+function executeStreamRow(custom: any, row: any, index: number, output: any, next: (err?: any) => void) {
     let done = false;
-    const finish = (err) => {
+    const finish = (err?: any) => {
         if (done) {
             return;
         }
@@ -2893,7 +2933,7 @@ function executeStreamRow(custom, row, index, output, next) {
     }
 }
 
-function bufferReader(buffer, max, writer, cb, beg, end) {
+function bufferReader(buffer: Buffer, max: number, writer: (b: Buffer, next: () => void) => void, cb: () => void, beg?: number, end?: number) {
 
     if (!beg)
         beg = 0;
@@ -2924,7 +2964,7 @@ function bufferReader(buffer, max, writer, cb, beg, end) {
  * - plain string - encodes as UTF-8
  * - undefined/null/empty - returns empty buffer
  */
-function parseDbCryptConfig(config) {
+function parseDbCryptConfig(config: string | null | undefined): Buffer {
     if (!config) {
         return Buffer.alloc(0);
     }
@@ -2949,4 +2989,4 @@ Connection.fetch_blob_async_transaction = fetch_blob_async_transaction;
 Connection.fetch_blob_async = fetch_blob_async;
 Connection.parseValueIfJson = parseValueIfJson;
 Connection.describe = describe;
-module.exports = Connection;
+export = Connection;
