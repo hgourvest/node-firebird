@@ -132,6 +132,14 @@ const dsql = {
     DSQL_unprepare : 4, // >: 2.5
 };
 
+// fb_cancel_operation kinds sent with op_cancel (protocol 12+ / Firebird 2.5+)
+const cancelKind = {
+    fb_cancel_disable : 1, // disable execution of fb_cancel_raise requests
+    fb_cancel_enable  : 2, // re-enable delivery of cancel requests
+    fb_cancel_raise   : 3, // cancel the operation currently executing on the attachment
+    fb_cancel_abort   : 4, // forcibly abort the attachment's current activity
+};
+
 const fetchOp = {
     fetch_next                : 0,
     fetch_prior               : 1,
@@ -859,6 +867,7 @@ const Const = Object.freeze({
     ...blr,
     ...blobType,
     ...buffer,
+    ...cancelKind,
     ...cnct,
     ...common,
     ...connect,

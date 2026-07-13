@@ -369,6 +369,38 @@ class Connection {
     }
 
 
+    /**
+     * Send an out-of-band op_cancel packet (protocol 12+ / Firebird 2.5+).
+     * The server reads it asynchronously while an operation is executing and
+     * makes that operation fail with isc_cancelled (GDSCode.CANCELLED); the
+     * op_cancel packet itself has no response, so nothing is queued here.
+     */
+    cancelOperation(kind, callback) {
+        if (typeof kind === 'function') {
+            callback = kind;
+            kind = undefined;
+        }
+        kind = kind || Const.fb_cancel_raise;
+
+        if (this._isClosed)
+            return this.throwClosed(callback);
+
+        if (!this.accept || this.accept.protocolVersion < Const.PROTOCOL_VERSION12) {
+            doError(new Error('Query cancellation requires protocol 12+ (Firebird 2.5 or newer)'), callback);
+            return;
+        }
+
+        var msg = this._msg;
+        msg.pos = 0;
+        msg.addInt(Const.op_cancel);
+        msg.addInt(kind);
+        this._socket.write(msg.getData());
+
+        if (callback)
+            callback();
+    }
+
+
     _queueEvent(callback, defer = false) {
         var self = this;
     

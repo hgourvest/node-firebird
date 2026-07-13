@@ -233,7 +233,7 @@ A review of what [node-postgres (`pg`)](https://node-postgres.com/) and [`mysql2
 Ordered roughly by expected user impact:
 
 1. **Promise/`async`–`await` API** ✅ Implemented — `*Async` wrappers on every API plus `pool.withConnection()` / `db.withTransaction()` helpers ([TypeScript Phase B](#phase-b--dual-api-callbacks--promises--done)); ServiceManager wrappers remain a follow-up.
-2. **Query cancellation + `AbortSignal`** — `pg` supports cancelling a running query. The Firebird remote protocol has supported asynchronous `op_cancel` (opcode 91) since protocol 12; the constant is already defined in `src/wire/const.ts` but never sent. Deliverable: `db.cancel()` plus `{ signal }` in query options.
+2. **Query cancellation + `AbortSignal`** ✅ Implemented — `{ signal }` in query options (callback and promise APIs, database- and transaction-level) plus manual `db.cancel()` / `db.cancelAsync()`, built on out-of-band `op_cancel` (protocol 12+). Cancelled statements fail with `err.gdscode === GDSCode.CANCELLED`; already-aborted signals reject with `AbortError` without contacting the server. Documented in [README.md § Query Cancellation with AbortSignal](README.md#query-cancellation-with-abortsignal-firebird-25).
 3. **Batch/bulk execution (Firebird 4 batch API)** — protocol 16 `op_batch_create` / `op_batch_msg` / `op_batch_exec` enables true bulk inserts (with BLOB support) in one round-trip. Neither pg nor mysql2 has protocol-level batching — this is a chance to be *ahead* on a workload users routinely ask about (fast bulk load).
 4. **Pool observability and tuning** — `pg.Pool` exposes `min`/`max`, `idleTimeoutMillis`, events (`connect`, `acquire`, `release`, `remove`, `error`) and live metrics (`totalCount`, `idleCount`, `waitingCount`). Our pool has `max` + `connectTimeout` only. Folding this in also resolves roadmap items [#329](https://github.com/hgourvest/node-firebird/issues/329) and [#343](https://github.com/hgourvest/node-firebird/issues/343).
 5. **Connection URI strings** — accept `firebird://user:password@host:3050/path/to/db.fdb?encoding=UTF8` everywhere an options object is accepted (pg: `postgres://`, mysql2: `mysql://`). Cheap to add, big quality-of-life win for 12-factor/container deployments.
@@ -253,7 +253,8 @@ Ordered roughly by expected user impact:
 | :--- | :--- |
 | Shipped in 2.4.0 | TypeScript 7 migration (ES classes, generated typings); Firebird database events (POST_EVENT); Srp256/384/512 auth; ChaCha/ChaCha64 wire encryption; Protocol 18/19 features (scrollable cursors, multi-row RETURNING, parallel workers, inline BLOBs); Firebird 6.0 features (schemas, tablespaces, JSON, ROW type); raw Buffer params; P0 fixes #387, #357 |
 | Next minor | Promise/async-await API ✅ done (TS Phase B + `withConnection` / `withTransaction` helpers); TS strictness hardening (Phase A.1); ServiceManager promise wrappers; pool observability (events + metrics, resolves #329/#343); connection URI strings; remaining P1 issue #341 |
-| Future minor | Query cancellation + `AbortSignal`; Firebird 4 batch API (bulk inserts); named placeholders; `typeCast` hook; statement cache; `queryStream` Readable adapter; configurable keepalive; Protocol 20 (lift the v19 cap once the prepare hang is resolved); database creation with different owner (#7718) |
+| Next minor (cont.) | Query cancellation + `AbortSignal` ✅ done |
+| Future minor | Firebird 4 batch API (bulk inserts); named placeholders; `typeCast` hook; statement cache; `queryStream` Readable adapter; configurable keepalive; Protocol 20 (lift the v19 cap once the prepare hang is resolved); database creation with different owner (#7718) |
 | Future major | ESM/CJS dual exports; TS Phase C generics; multi-host pooling (if demand materializes) |
 
 ---

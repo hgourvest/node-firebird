@@ -322,6 +322,22 @@ class Database extends Events.EventEmitter {
         return this.connection.dropDatabase(callback);
     }
 
+    /**
+     * Cancel the operation currently executing on this connection by sending
+     * an out-of-band op_cancel (Firebird 2.5+ / protocol 12+). The cancelled
+     * operation fails through its own callback with err.gdscode ===
+     * GDSCode.CANCELLED. `kind` defaults to fb_cancel_raise; cancellation is
+     * per-attachment, not per-statement.
+     */
+    cancel(kind?: number | ((err?: any) => void), callback?: (err?: any) => void): this {
+        if (typeof kind === 'function') {
+            callback = kind;
+            kind = undefined;
+        }
+        this.connection.cancelOperation(kind, callback);
+        return this;
+    }
+
     attachEvent(callback: (err: any, evt?: any) => void): this {
         var self = this;
         const eventid = self.eventid++;
@@ -494,6 +510,11 @@ class Database extends Events.EventEmitter {
     attachEventAsync(): Promise<any> {
         var self = this;
         return fromCallback(function(cb) { self.attachEvent(cb); });
+    }
+
+    cancelAsync(kind?: number): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.cancel(kind, cb); });
     }
 
     /**

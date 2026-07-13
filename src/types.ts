@@ -78,6 +78,15 @@ export type TransactionOptions = {
 export type QueryOptions = {
     timeout?: number;
     scrollable?: boolean;
+    /**
+     * Abort the query when the signal fires (Firebird 2.5+ / protocol 12+).
+     * If the signal is already aborted the query is not sent at all and the
+     * callback/promise fails with an `AbortError`. If it fires mid-flight an
+     * out-of-band op_cancel is sent and the query fails with
+     * `err.gdscode === GDSCode.CANCELLED`. Cancellation is per-attachment:
+     * it cancels whatever is currently executing on the connection.
+     */
+    signal?: AbortSignal;
 }
 
 export interface Database {
@@ -109,6 +118,14 @@ export interface Database {
     attachEventAsync(): Promise<any>;
     /** Starts a transaction, commits when `work` resolves, rolls back when it rejects. */
     withTransaction<T>(work: (transaction: Transaction) => Promise<T> | T, options?: TransactionOptions | Isolation): Promise<T>;
+    /**
+     * Cancel the operation currently executing on this connection
+     * (Firebird 2.5+ / protocol 12+). The cancelled operation fails through
+     * its own callback/promise with `err.gdscode === GDSCode.CANCELLED`.
+     */
+    cancel(callback?: SimpleCallback): Database;
+    cancel(kind: number, callback?: SimpleCallback): Database;
+    cancelAsync(kind?: number): Promise<void>;
 }
 
 export interface Transaction {

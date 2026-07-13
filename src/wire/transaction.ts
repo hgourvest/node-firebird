@@ -8,6 +8,38 @@ import Const from './const';
  *
  ***************************************/
 
+/** The error delivered when options.signal was already aborted on entry. */
+function abortError(signal: any): Error {
+    if (signal && signal.reason instanceof Error)
+        return signal.reason;
+    var err: any = new Error('The operation was aborted');
+    err.name = 'AbortError';
+    err.code = 'ABORT_ERR';
+    return err;
+}
+
+/**
+ * Wire an AbortSignal to a running statement: on abort, send an out-of-band
+ * op_cancel so the server fails the executing operation with isc_cancelled
+ * (surfaced through the statement's own callback as err.gdscode ===
+ * GDSCode.CANCELLED). Returns the wrapped callback that detaches the
+ * listener once the operation settles.
+ */
+function hookAbortSignal(connection: any, signal: any, callback: any): any {
+    var settled = false;
+    var onAbort = function() {
+        if (!settled)
+            connection.cancelOperation(Const.fb_cancel_raise);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    return function(err?: any, result?: any, meta?: any, isSelect?: boolean) {
+        settled = true;
+        signal.removeEventListener('abort', onAbort);
+        if (callback)
+            callback(err, result, meta, isSelect);
+    };
+}
+
 class Transaction {
     connection: any;
     db: any;
@@ -36,6 +68,15 @@ class Transaction {
             options = callback;
             callback = params;
             params = undefined;
+        }
+
+        var signal = options && options.signal;
+        if (signal) {
+            if (signal.aborted) {
+                doError(abortError(signal), callback);
+                return;
+            }
+            callback = hookAbortSignal(this.connection, signal, callback);
         }
 
         var self = this;

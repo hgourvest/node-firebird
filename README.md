@@ -14,7 +14,7 @@
 - [Connection types](#connection-types) — connection options, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
 - [Examples](#examples) — parametrized queries, BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
-- [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
+- [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
 - [Using node-firebird with Express.js](#using-node-firebird-with-expressjs)
 - [FAQ](#faq)
 - [Contributing](#contributing) · [Contributors](#contributors)
@@ -1150,6 +1150,47 @@ Firebird.attach({
   );
 });
 ```
+
+### Query Cancellation with AbortSignal (Firebird 2.5+)
+
+Any query can be cancelled while it is executing on the server. Pass an
+`AbortSignal` in the query options — when it fires, the driver sends an
+out-of-band `op_cancel` packet and the running statement fails with
+`err.gdscode === GDSCode.CANCELLED`. The connection itself stays healthy and
+can run further queries immediately.
+
+```js
+const { GDSCode } = require('node-firebird/lib/gdscodes');
+
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 5000); // or req.on('close', ...) in Express
+
+try {
+    const rows = await db.queryAsync('SELECT /* expensive */ ...', [], { signal: controller.signal });
+} catch (err) {
+    if (err.gdscode === GDSCode.CANCELLED) {
+        // cancelled server-side; the connection remains usable
+    } else if (err.name === 'AbortError') {
+        // the signal was already aborted — the query was never sent
+    } else {
+        throw err;
+    }
+}
+```
+
+The option works with the callback API as well (`db.query(sql, params, cb,
+{ signal })`) and on transaction-level queries. A running operation can also
+be cancelled manually from anywhere with `db.cancel()` / `await
+db.cancelAsync()`.
+
+Notes:
+
+- Cancellation is **per attachment** (that is how the Firebird protocol
+  defines it): it cancels whatever is currently executing on that
+  connection. With a pool this is naturally scoped to the request holding
+  the connection.
+- A signal that is already aborted rejects immediately with an `AbortError`
+  without contacting the server; cancelling an idle connection is harmless.
 
 ### Statement Timeouts (Firebird 4.0+)
 Setting a statement timeout allows the client to automatically abort queries that take too long on the server.
