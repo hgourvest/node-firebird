@@ -2185,12 +2185,13 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                                 pluginName: accept.pluginName
                             };
 
-                            console.log('--- DEBUG SRP Handshake ---');
-                            console.log('salt:', cnx.serverKeys.salt);
-                            console.log('server public key:', cnx.serverKeys.public.toString(16));
-                            console.log('client public key:', cnx.clientKeys.public.toString(16));
-                            console.log('client private key:', cnx.clientKeys.private.toString(16));
-                            console.log('hashAlgo:', accept.srpAlgo);
+                            if (process.env.FIREBIRD_DEBUG) {
+                                console.log('--- DEBUG SRP Handshake ---');
+                                console.log('salt:', cnx.serverKeys.salt);
+                                console.log('server public key:', cnx.serverKeys.public.toString(16));
+                                console.log('client public key:', cnx.clientKeys.public.toString(16));
+                                console.log('hashAlgo:', accept.srpAlgo);
+                            }
 
                             const _t1 = Date.now();
                             var proof = srp.clientProof(
@@ -2203,8 +2204,11 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                                 accept.srpAlgo
                             );
 
-                            console.log('client proof M1:', proof.authData.toString(16));
-                            console.log('client session key K:', proof.clientSessionKey.toString(16));
+                            if (process.env.FIREBIRD_DEBUG) {
+                                // Never log the private key or the session key: the
+                                // session key is the wire-encryption key material.
+                                console.log('client proof M1:', proof.authData.toString(16));
+                            }
 
                             if (process.env.FIREBIRD_DEBUG) {
                                 console.log('[fb-debug] srp.clientProof(%s): %dms', accept.srpAlgo, Date.now() - _t1);
@@ -2309,12 +2313,13 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                         };
                         var srpAlgo = crypto[pluginName];
 
-                        console.log('--- DEBUG SRP Handshake ---');
-                        console.log('salt:', cnx.serverKeys.salt);
-                        console.log('server public key:', cnx.serverKeys.public.toString(16));
-                        console.log('client public key:', cnx.clientKeys.public.toString(16));
-                        console.log('client private key:', cnx.clientKeys.private.toString(16));
-                        console.log('hashAlgo:', srpAlgo);
+                        if (process.env.FIREBIRD_DEBUG) {
+                            console.log('--- DEBUG SRP Handshake ---');
+                            console.log('salt:', cnx.serverKeys.salt);
+                            console.log('server public key:', cnx.serverKeys.public.toString(16));
+                            console.log('client public key:', cnx.clientKeys.public.toString(16));
+                            console.log('hashAlgo:', srpAlgo);
+                        }
 
                         const _t1 = Date.now();
                         var proof = srp.clientProof(
