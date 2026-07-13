@@ -1,4 +1,4 @@
-import { doCallback, doError } from '../callback';
+import { doCallback, doError, fromCallback } from '../callback';
 import { noop } from '../utils';
 import Const from './const';
 
@@ -206,6 +206,53 @@ class Transaction {
 
     rollbackRetaining(callback?: (err?: any) => void): void {
         this.connection.rollbackRetaining(this, callback);
+    }
+
+    /* Promise / async-await API — wrappers over the callback methods above. */
+
+    queryAsync(query: string, params?: any, options?: any): Promise<any[]> {
+        var self = this;
+        return fromCallback(function(cb) { self.query(query, params, cb, options); });
+    }
+
+    executeAsync(query: string, params?: any, options?: any): Promise<any[]> {
+        var self = this;
+        return fromCallback(function(cb) { self.execute(query, params, cb, options); });
+    }
+
+    sequentiallyAsync(query: string, params?: any, on?: any, options?: any): Promise<void> {
+        if (params instanceof Function) {
+            options = on;
+            on = params;
+            params = undefined;
+        }
+        var self = this;
+        return fromCallback(function(cb) { self.sequentially(query, params, on, cb, options); });
+    }
+
+    newStatementAsync(query: string): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.newStatement(query, cb); });
+    }
+
+    commitAsync(): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.commit(cb); });
+    }
+
+    rollbackAsync(): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.rollback(cb); });
+    }
+
+    commitRetainingAsync(): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.commitRetaining(cb); });
+    }
+
+    rollbackRetainingAsync(): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.rollbackRetaining(cb); });
     }
 }
 

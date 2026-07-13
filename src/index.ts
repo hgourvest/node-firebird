@@ -1,5 +1,5 @@
 import Const from './wire/const';
-import { doError, doCallback } from './callback';
+import { doError, doCallback, fromCallback } from './callback';
 import Connection from './wire/connection';
 import Pool from './pool';
 import { escape as escapeValue } from './utils';
@@ -10,6 +10,8 @@ import type {
     ServiceManagerCallback,
     SimpleCallback,
     ConnectionPool,
+    Database,
+    ServiceManager,
 } from './types';
 
 export * from './types';
@@ -154,4 +156,29 @@ export function attachOrCreate(options: Options, callback: DatabaseCallback): vo
 // Pooling
 export function pool(max: number, options: Options): ConnectionPool {
 	return new Pool(attach, max, Object.assign({}, options, { isPool: true }));
+}
+
+/*
+ * Promise / async-await API.
+ * Wrappers over the callback functions above; the callback API stays
+ * untouched. Rejections are always Error instances carrying the usual
+ * Firebird properties (gdscode, gdsparams, ...).
+ */
+
+export function attachAsync(options: SvcMgrOptions): Promise<ServiceManager>;
+export function attachAsync(options: Options): Promise<Database>;
+export function attachAsync(options: any): Promise<any> {
+    return fromCallback(function(cb) { attach(options, cb); });
+}
+
+export function createAsync(options: Options): Promise<Database> {
+    return fromCallback(function(cb) { create(options, cb); });
+}
+
+export function attachOrCreateAsync(options: Options): Promise<Database> {
+    return fromCallback(function(cb) { attachOrCreate(options, cb); });
+}
+
+export function dropAsync(options: Options): Promise<void> {
+    return fromCallback(function(cb) { drop(options, cb); });
 }

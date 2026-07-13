@@ -16,6 +16,7 @@ module.exports = defineConfig({
             'test/service.js',
             'test/utf8-user-identification.js',
             'test/index.js',
+            'test/promises.js',
             'test/db-crypt-config.js',
             'test/encoding.js',
             'test/timezone.js',

@@ -94,6 +94,21 @@ export interface Database {
     alterTablespace(name: string, filePath: string, callback?: QueryCallback): Database;
     dropTablespace(name: string, callback?: QueryCallback): Database;
     createSchema(schemaName: string, tablespaceName?: string | QueryCallback, callback?: QueryCallback): Database;
+
+    // Promise / async-await API (see README § Promises / async–await).
+    // Result metadata is only available through the callback API.
+    queryAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
+    executeAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
+    sequentiallyAsync(query: string, params: any[] | undefined, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
+    sequentiallyAsync(query: string, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
+    transactionAsync(options?: TransactionOptions | Isolation): Promise<Transaction>;
+    startTransactionAsync(options?: TransactionOptions | Isolation): Promise<Transaction>;
+    newStatementAsync(query: string): Promise<Statement>;
+    detachAsync(force?: boolean): Promise<void>;
+    dropAsync(): Promise<void>;
+    attachEventAsync(): Promise<any>;
+    /** Starts a transaction, commits when `work` resolves, rolls back when it rejects. */
+    withTransaction<T>(work: (transaction: Transaction) => Promise<T> | T, options?: TransactionOptions | Isolation): Promise<T>;
 }
 
 export interface Transaction {
@@ -105,6 +120,17 @@ export interface Transaction {
     commitRetaining(callback?: SimpleCallback): void;
     rollback(callback?: SimpleCallback): void;
     rollbackRetaining(callback?: SimpleCallback): void;
+
+    // Promise / async-await API
+    queryAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
+    executeAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
+    sequentiallyAsync(query: string, params: any[] | undefined, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
+    sequentiallyAsync(query: string, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
+    newStatementAsync(query: string): Promise<Statement>;
+    commitAsync(): Promise<void>;
+    commitRetainingAsync(): Promise<void>;
+    rollbackAsync(): Promise<void>;
+    rollbackRetainingAsync(): Promise<void>;
 }
 
 export interface Statement {
@@ -115,6 +141,15 @@ export interface Statement {
     fetch(transaction: Transaction, count: number, callback: QueryCallback): void;
     fetchScroll(transaction: Transaction, direction: 'NEXT' | 'PRIOR' | 'FIRST' | 'LAST' | 'ABSOLUTE' | 'RELATIVE' | number, offset: number, count: number, callback: QueryCallback): void;
     fetchAll(transaction: Transaction, callback: QueryCallback): void;
+
+    // Promise / async-await API
+    executeAsync(transaction: Transaction, params?: any[], options?: QueryOptions): Promise<any>;
+    fetchAsync(transaction: Transaction, count: number | 'all'): Promise<any>;
+    fetchScrollAsync(transaction: Transaction, direction: 'NEXT' | 'PRIOR' | 'FIRST' | 'LAST' | 'ABSOLUTE' | 'RELATIVE' | number, offset?: number, count?: number): Promise<any>;
+    fetchAllAsync(transaction: Transaction): Promise<any>;
+    closeAsync(): Promise<void>;
+    dropAsync(): Promise<void>;
+    releaseAsync(): Promise<void>;
 }
 
 export type SupportedCharacterSet = |
@@ -240,6 +275,12 @@ export interface SvcMgrOptions extends Options {
 export interface ConnectionPool {
     get(callback: DatabaseCallback): void;
     destroy(callback?: SimpleCallback): void;
+
+    // Promise / async-await API
+    getAsync(): Promise<Database>;
+    destroyAsync(): Promise<void>;
+    /** Acquire a connection, run `work`, always return the connection to the pool. */
+    withConnection<T>(work: (db: Database) => Promise<T> | T): Promise<T>;
 }
 
 export interface ReadableOptions {

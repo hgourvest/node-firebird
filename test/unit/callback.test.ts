@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { doError, doCallback, type FbError } from '../../src/callback';
+import { doError, doCallback, toError, fromCallback, type FbError } from '../../src/callback';
 
 describe('callback.doError', () => {
     it('invokes the callback with the error object', () => {
@@ -63,5 +63,43 @@ describe('callback.doCallback', () => {
         const cb = vi.fn();
         doCallback([{ status: 'not-an-error' }], cb);
         expect(cb.mock.calls[0][0]).toBeUndefined();
+    });
+});
+
+describe('callback.toError', () => {
+    it('returns Error instances unchanged', () => {
+        const err = new Error('same');
+        expect(toError(err)).toBe(err);
+    });
+
+    it('wraps plain error objects preserving their properties', () => {
+        const err = toError({ message: 'wrapped', gdscode: 335544345, sqlcode: -913 }) as FbError & { sqlcode?: number };
+        expect(err).toBeInstanceOf(Error);
+        expect(err.message).toBe('wrapped');
+        expect(err.gdscode).toBe(335544345);
+        expect(err.sqlcode).toBe(-913);
+    });
+
+    it('wraps non-object values with a stringified message', () => {
+        const err = toError('plain failure');
+        expect(err).toBeInstanceOf(Error);
+        expect(err.message).toBe('plain failure');
+    });
+});
+
+describe('callback.fromCallback', () => {
+    it('resolves with the callback result', async () => {
+        await expect(fromCallback<number>(cb => cb(undefined, 42))).resolves.toBe(42);
+    });
+
+    it('rejects with an Error for Error failures', async () => {
+        const boom = new Error('boom');
+        await expect(fromCallback(cb => cb(boom))).rejects.toBe(boom);
+    });
+
+    it('rejects with a wrapped Error for plain-object failures', async () => {
+        await expect(fromCallback(cb => cb({ message: 'obj', gdscode: 1 })))
+            .rejects.toMatchObject({ message: 'obj', gdscode: 1 });
+        await expect(fromCallback(cb => cb({ message: 'obj' }))).rejects.toBeInstanceOf(Error);
     });
 });

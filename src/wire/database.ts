@@ -1,5 +1,5 @@
 import Events from 'events';
-import { doError } from '../callback';
+import { doError, fromCallback } from '../callback';
 import { escape } from '../utils';
 import Const from './const';
 import EventConnection from './eventConnection';
@@ -438,6 +438,81 @@ class Database extends Events.EventEmitter {
             sql += ` TABLESPACE ${tablespaceName}`;
         }
         return this.execute(sql, [], callback);
+    }
+
+    /*
+     * Promise / async-await API.
+     * Each *Async method wraps its callback counterpart; the callback API
+     * stays untouched. Result metadata is only available through the
+     * callback API — the promises resolve with the rows alone.
+     */
+
+    queryAsync(query: string, params?: any, options?: any): Promise<any[]> {
+        var self = this;
+        return fromCallback(function(cb) { self.query(query, params, cb, options); });
+    }
+
+    executeAsync(query: string, params?: any, options?: any): Promise<any[]> {
+        var self = this;
+        return fromCallback(function(cb) { self.execute(query, params, cb, options); });
+    }
+
+    sequentiallyAsync(query: string, params?: any, on?: any, options?: any): Promise<void> {
+        if (params instanceof Function) {
+            options = on;
+            on = params;
+            params = undefined;
+        }
+        var self = this;
+        return fromCallback(function(cb) { self.sequentially(query, params, on, cb, options); });
+    }
+
+    transactionAsync(options?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.startTransaction(options, cb); });
+    }
+
+    startTransactionAsync(options?: any): Promise<any> {
+        return this.transactionAsync(options);
+    }
+
+    newStatementAsync(query: string): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.newStatement(query, cb); });
+    }
+
+    detachAsync(force?: boolean): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.detach(cb, force); });
+    }
+
+    dropAsync(): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.drop(cb); });
+    }
+
+    attachEventAsync(): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.attachEvent(cb); });
+    }
+
+    /**
+     * Run `work` inside a transaction: commits when the returned promise
+     * resolves, rolls back when it rejects (the original error is rethrown,
+     * even if the rollback itself fails).
+     */
+    async withTransaction<T>(work: (transaction: any) => Promise<T> | T, options?: any): Promise<T> {
+        const transaction = await this.transactionAsync(options);
+        try {
+            const result = await work(transaction);
+            await fromCallback(function(cb) { transaction.commit(cb); });
+            return result;
+        } catch (err) {
+            try {
+                await fromCallback(function(cb) { transaction.rollback(cb); });
+            } catch { /* surface the original error, not the rollback failure */ }
+            throw err;
+        }
     }
 }
 

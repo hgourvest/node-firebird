@@ -10,6 +10,7 @@
 
 - [Installation](#installation)
 - [Usage](#usage) — including [developing the driver](#developing-the-driver)
+- [Promises and async/await](#promises-and-asyncawait) — the `*Async` API plus `withConnection` / `withTransaction` helpers
 - [Connection types](#connection-types) — connection options, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
 - [Examples](#examples) — parametrized queries, BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
@@ -98,6 +99,55 @@ npm test           # build + run the vitest suite (unit + integration)
 - `Firebird.create(options, function(err, db))` create a database
 - `Firebird.attachOrCreate(options, function(err, db))` attach or create database
 - `Firebird.pool(max, options) -> return {Object}` create a connection pooling
+- `Firebird.attachAsync(options) -> Promise<Database>`, `createAsync`, `attachOrCreateAsync`, `dropAsync` — promise counterparts, see [Promises and async/await](#promises-and-asyncawait)
+
+## Promises and async/await
+
+Every callback API has a promise-returning counterpart with an `Async`
+suffix, plus two higher-level helpers: `pool.withConnection()` and
+`db.withTransaction()`. The callback API is unchanged and the two styles can
+be mixed freely, though sticking to one per project keeps code readable.
+
+```js
+const Firebird = require('node-firebird');
+
+const pool = Firebird.pool(5, options);
+
+// acquire → work → always release, even when `work` throws
+const users = await pool.withConnection((db) =>
+    db.queryAsync('SELECT id, name FROM users WHERE plan = ?', ['pro'])
+);
+
+// commit on success, rollback on error
+await pool.withConnection((db) =>
+    db.withTransaction(async (transaction) => {
+        await transaction.executeAsync('INSERT INTO audit (msg) VALUES (?)', ['signup']);
+        await transaction.executeAsync('UPDATE stats SET signups = signups + 1');
+    })
+);
+
+await pool.destroyAsync();
+```
+
+Available wrappers:
+
+- **module** — `Firebird.attachAsync(options)`, `createAsync`, `attachOrCreateAsync`, `dropAsync`; resolve with a `Database` (or a `ServiceManager` when `options.manager` is `true`)
+- **pool** — `pool.getAsync()`, `pool.destroyAsync()`, `pool.withConnection(work)`
+- **database** — `db.queryAsync(sql, params?, options?)`, `executeAsync`, `sequentiallyAsync(sql, params?, onRow, options?)`, `transactionAsync(options?)`, `newStatementAsync(sql)`, `attachEventAsync()`, `detachAsync()`, `dropAsync()`, `db.withTransaction(work, options?)`
+- **transaction** — `queryAsync`, `executeAsync`, `sequentiallyAsync`, `newStatementAsync`, `commitAsync`, `rollbackAsync`, `commitRetainingAsync`, `rollbackRetainingAsync`
+- **statement** — `executeAsync(transaction, params?, options?)`, `fetchAsync`, `fetchScrollAsync`, `fetchAllAsync`, `closeAsync`, `dropAsync`, `releaseAsync`
+
+Notes:
+
+- Rejections are always `Error` instances carrying the usual Firebird
+  properties (`err.gdscode`, `err.gdsparams`) — see [Using GDS codes](#using-gds-codes).
+- `queryAsync` / `executeAsync` resolve with the rows only; column metadata
+  is currently available through the callback API only.
+- An un-`await`ed rejected promise becomes an unhandled rejection instead of
+  a callback error — prefer the `withConnection` / `withTransaction` helpers,
+  which guarantee cleanup on every path.
+- TypeScript: the async methods accept a row-shape generic, e.g.
+  `db.queryAsync<User>(sql, params)` returns `Promise<User[]>`.
 
 ## Connection types
 
@@ -1229,6 +1279,8 @@ process.on('SIGTERM', function() {
 ## Using node-firebird with Express.js
 
 node-firebird works well with Express, but because the driver is connection/pool based rather than an ORM with automatic connection management, a few request-lifecycle patterns keep connections from leaking under load. This section documents the recommended architecture, referenced from the [roadmap](ROADMAP.md#2-expressjs-support-first-class-integration).
+
+> The driver now ships native `pool.withConnection()` and `db.withTransaction()` helpers (see [Promises and async/await](#promises-and-asyncawait)) that supersede the hand-rolled `withConnection` / `transactional` helpers shown in the examples below. The examples remain valid and show what the helpers do under the hood.
 
 ### Recommended architecture: one pool per app, created at startup
 

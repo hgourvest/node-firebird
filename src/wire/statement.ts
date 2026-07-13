@@ -4,6 +4,8 @@
  *
  ***************************************/
 
+import { fromCallback } from '../callback';
+
 class Statement {
     connection: any;
     query: string;
@@ -65,6 +67,43 @@ class Statement {
 
     fetchAll(transaction: any, callback: (err: any, result?: any) => void): void {
         this.connection.fetchAll(this, transaction, callback);
+    }
+
+    /* Promise / async-await API — wrappers over the callback methods above. */
+
+    executeAsync(transaction: any, params?: any, options?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.execute(transaction, params, cb, options); });
+    }
+
+    fetchAsync(transaction: any, count: number | string): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.fetch(transaction, count, cb); });
+    }
+
+    fetchScrollAsync(transaction: any, direction: string | number, offset?: any, count?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.fetchScroll(transaction, direction, offset, count, cb); });
+    }
+
+    fetchAllAsync(transaction: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.fetchAll(transaction, cb); });
+    }
+
+    closeAsync(): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.close(cb); });
+    }
+
+    dropAsync(): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.drop(cb); });
+    }
+
+    releaseAsync(): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.release(cb); });
     }
 }
 
