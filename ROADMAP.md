@@ -208,14 +208,53 @@ These are open pull requests that are close to being merged and represent near-t
 
 ---
 
+## 6. Feature Parity with Other Node.js SQL Drivers (pg, mysql2)
+
+A review of what [node-postgres (`pg`)](https://node-postgres.com/) and [`mysql2`](https://github.com/sidorares/node-mysql2) offer, compared against what this driver already ships. The goal is not to copy every feature, but to adopt the idioms Node.js developers now expect from a database driver.
+
+### Already at parity (no work needed)
+
+- **Row streaming with backpressure** — `sequentially()` with the `(row, index, next)` / Promise form covers what `pg-cursor` / `mysql2`'s `.stream()` provide (a `Readable` wrapper is still proposed below for ecosystem interop).
+- **Server push notifications** — Firebird `POST_EVENT` support is the counterpart of PostgreSQL `LISTEN/NOTIFY`.
+- **Object and array row formats** — `db.query` (objects) / `db.execute` (arrays) match `rowMode: 'array'` (pg) and `rowsAsArray` (mysql2).
+- **Wire compression** — shipped (mysql2 has it; pg does not).
+- **Authentication plugins** — Srp/Srp256/384/512 + Legacy, negotiated automatically (mysql2's auth-switch equivalent).
+- **Statement timeouts** — shipped for FB 4.0+.
+- **BigInt-safe numerics** — native `BigInt` for `INT128`, full IEEE 754 `DECFLOAT` (ahead of both drivers here).
+- **Prepared statements** — available via `newStatement()` (manual reuse; caching proposed below).
+
+### Not applicable to Firebird
+
+- **SSL/TLS transport** — Firebird uses its own wire encryption (Arc4/ChaCha/ChaCha64 via SRP session keys), already shipped; TLS is not part of the Firebird remote protocol.
+- **Multiple statements per query string** (mysql2 `multipleStatements`) — not supported by Firebird DSQL; `EXECUTE BLOCK` already covers the use case server-side.
+
+### Gaps worth implementing
+
+Ordered roughly by expected user impact:
+
+1. **Promise/`async`–`await` API** — both `pg` and `mysql2/promise` are promise-first; this is the single biggest ergonomic gap. Already planned as [TypeScript Phase B](#phase-b--dual-api-callbacks--promises); this review confirms it should be the top post-2.4 priority.
+2. **Query cancellation + `AbortSignal`** — `pg` supports cancelling a running query. The Firebird remote protocol has supported asynchronous `op_cancel` (opcode 91) since protocol 12; the constant is already defined in `src/wire/const.ts` but never sent. Deliverable: `db.cancel()` plus `{ signal }` in query options.
+3. **Batch/bulk execution (Firebird 4 batch API)** — protocol 16 `op_batch_create` / `op_batch_msg` / `op_batch_exec` enables true bulk inserts (with BLOB support) in one round-trip. Neither pg nor mysql2 has protocol-level batching — this is a chance to be *ahead* on a workload users routinely ask about (fast bulk load).
+4. **Pool observability and tuning** — `pg.Pool` exposes `min`/`max`, `idleTimeoutMillis`, events (`connect`, `acquire`, `release`, `remove`, `error`) and live metrics (`totalCount`, `idleCount`, `waitingCount`). Our pool has `max` + `connectTimeout` only. Folding this in also resolves roadmap items [#329](https://github.com/hgourvest/node-firebird/issues/329) and [#343](https://github.com/hgourvest/node-firebird/issues/343).
+5. **Connection URI strings** — accept `firebird://user:password@host:3050/path/to/db.fdb?encoding=UTF8` everywhere an options object is accepted (pg: `postgres://`, mysql2: `mysql://`). Cheap to add, big quality-of-life win for 12-factor/container deployments.
+6. **Named placeholders** — mysql2's `namedPlaceholders: true` (`SELECT * FROM t WHERE id = :id` with `{id: 1}`), rewritten client-side to positional `?` params. Purely client-side, no protocol work.
+7. **Custom type parsers (`typeCast`)** — pg (`pg-types` `setTypeParser`) and mysql2 (`typeCast`) let users override value decoding per SQL type. We have one-off flags (`blobAsText`, `jsonAsObject`); a general hook would subsume future flag requests (e.g. dates as strings, BIGINT as number vs BigInt).
+8. **Prepared-statement cache** — mysql2 keeps a per-connection LRU cache of prepared statements, transparently reusing them. A `statementCacheSize` option would speed up hot query paths without API changes.
+9. **`Readable` stream adapter** — `db.queryStream(sql, params)` returning an object-mode `Readable` (what `pg-query-stream` / mysql2 `.stream()` return), implemented on top of `sequentially`, so results can be `pipeline()`d into transforms/HTTP responses.
+10. **Configurable socket keepalive** — mysql2 exposes `enableKeepAlive`/`keepAliveInitialDelay`; ours is hardcoded to 60 s in `src/wire/socket.ts`. Trivial once options plumbing exists.
+11. **`nestTables` / duplicate-column handling** — mysql2 can qualify result keys by table for `JOIN`s with colliding column names, which silently overwrite each other in object rows today. Worth considering after `typeCast`.
+12. **Multi-host pooling (`PoolCluster`)** — mysql2 routes across primaries/replicas with failover strategies. With Firebird 4+ logical replication this becomes relevant, but it is niche today — evaluate after pool observability lands.
+
+---
+
 ## Suggested Release Buckets
 
 | Target | Items |
 | :--- | :--- |
 | Shipped in 2.4.0 | TypeScript 7 migration (ES classes, generated typings); Firebird database events (POST_EVENT); Srp256/384/512 auth; ChaCha/ChaCha64 wire encryption; Protocol 18/19 features (scrollable cursors, multi-row RETURNING, parallel workers, inline BLOBs); Firebird 6.0 features (schemas, tablespaces, JSON, ROW type); raw Buffer params; P0 fixes #387, #357 |
-| Next minor | TS strictness hardening (Phase A.1); TS Phase B (promise wrappers); pool helpers (`withConnection` / `withTransaction`); remaining P1 issues (#343, #341, #329) |
-| Future minor | Protocol 20 (lift the v19 cap once the prepare hang is resolved); database creation with different owner (#7718) |
-| Future major | ESM/CJS dual exports; TS Phase C generics |
+| Next minor | TS strictness hardening (Phase A.1); TS Phase B (promise wrappers); pool helpers (`withConnection` / `withTransaction`); pool observability (events + metrics, resolves #329/#343); connection URI strings; remaining P1 issue #341 |
+| Future minor | Query cancellation + `AbortSignal`; Firebird 4 batch API (bulk inserts); named placeholders; `typeCast` hook; statement cache; `queryStream` Readable adapter; configurable keepalive; Protocol 20 (lift the v19 cap once the prepare hang is resolved); database creation with different owner (#7718) |
+| Future major | ESM/CJS dual exports; TS Phase C generics; multi-host pooling (if demand materializes) |
 
 ---
 
