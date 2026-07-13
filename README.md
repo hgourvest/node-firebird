@@ -13,20 +13,6 @@
 - [Firebird on Twitter](https://twitter.com/firebirdsql/)
 - [Firebird on Facebook](https://www.facebook.com/FirebirdSQL)
 
-## Changelog for version v0.2.x
-
-- added auto-reconnect
-- added [sequentially selects](https://github.com/hgourvest/node-firebird/wiki/What-is-sequentially-selects)
-- events for connection (attach, detach, row, result, transaction, commit, rollback, error, etc.)
-- performance improvements
-- supports inserting/updating buffers and streams
-- reading blobs (sequentially)
-- pooling
-- `database.detach()` waits for last command
-- better unit-test
-
----
-
 - [Firebird documentation](https://firebirdsql.org/en/documentation/)
 - [Firebird limits and data types](https://firebirdsql.org/en/firebird-technical-specifications/)
 
@@ -35,6 +21,10 @@
 ```bash
 npm install node-firebird
 ```
+
+The driver is pure JavaScript at runtime — no native addons and no runtime
+dependencies. Node.js 20 or newer is supported (CI runs on Node 20, 22, 24
+and 26 against Firebird 3, 4, 5 and 6).
 
 ## Usage
 
@@ -50,20 +40,46 @@ import * as Firebird from 'node-firebird';
 import type { Options, Database } from 'node-firebird';
 ```
 
-### Development
+### Developing the driver
 
-The sources live in `src/` (TypeScript) and are compiled to `lib/` (CommonJS +
-`.d.ts`) by the native TypeScript 7 compiler:
+Since v2.4.0 the driver is written in TypeScript and compiled with the native
+TypeScript 7 compiler (`tsc`). The published package ships both the compiled
+output and the sources.
+
+**Requirements**
+
+- Node.js >= 20 (CI matrix: 20, 22, 24, 26)
+- npm (TypeScript 7 and all tooling are installed as devDependencies — no
+  global installs needed)
+- a Firebird server on `127.0.0.1:3050` with `SYSDBA`/`masterkey` for the
+  integration tests (CI tests against Firebird 3, 4, 5 and 6-snapshot); the
+  unit tests under `test/unit/` run without a server
+
+The quickest way to get a test server is Docker:
+
+```bash
+docker run -d --name firebird -p 3050:3050 \
+  -e FIREBIRD_ROOT_PASSWORD=masterkey \
+  firebirdsql/firebird:5
+```
+
+**Layout**
+
+- `src/` — the TypeScript sources; this is what you edit
+- `lib/` — compiled CommonJS + generated `.d.ts` declarations; build output,
+  gitignored — never edit it by hand
+- `test/` — vitest suite (integration tests at the top level, server-free
+  tests in `test/unit/`)
+
+**Workflow**
 
 ```bash
 npm install        # installs deps and builds lib/ via the prepare script
 npm run build      # compile src/ -> lib/
-npm run typecheck  # type-check sources and unit tests without emitting
+npm run typecheck  # type-check sources and tests without emitting
+npm run lint       # oxlint
 npm test           # build + run the vitest suite (unit + integration)
 ```
-
-The integration tests expect a Firebird server on `127.0.0.1:3050`
-(SYSDBA/masterkey); the unit tests under `test/unit/` run without a server.
 
 ### Methods
 

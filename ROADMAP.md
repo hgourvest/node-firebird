@@ -1,6 +1,6 @@
 # Node-Firebird Roadmap
 
-This document outlines the future development direction for the `node-firebird` library. Our primary goals are to modernize the codebase, implement support for the latest Firebird features, and improve the overall developer experience.
+This document outlines the future development direction for the `node-firebird` library. Our primary goals are to modernize the codebase, implement support for the latest Firebird features, and improve the overall developer experience. A major milestone landed in v2.4.0: the codebase was migrated to TypeScript 7 (see section 3), and Firebird 6.0-era protocol features (SRP-256/384/512, ChaCha wire encryption, database events) shipped alongside it.
 
 > **Note:** The issue and PR lists below may be incomplete. Please check the [GitHub issues page](https://github.com/hgourvest/node-firebird/issues) for the most up-to-date list of open items, and feel free to open new issues or add a 👍 to existing ones to help prioritize.
 
@@ -64,7 +64,7 @@ These items come directly from current open issues and should be tracked as road
 - **[Issue #164](https://github.com/hgourvest/node-firebird/issues/164) — Insert data with charset `NONE` (or `ISO8859_1`)** ✅ Resolved
   Goal: allow binary-safe writes to non-UTF8 text columns without corrupting bytes on the way through Node's string layer.
   Deliverables:
-  - Added `SQLParamBuffer` (`lib/wire/xsqlvar.js`) + `XdrWriter.addParamBuffer` (`lib/wire/serialize.js`): when a `Buffer` is passed as a parameter for a non-BLOB column, its raw bytes are written directly instead of being coerced through `Buffer#toString()` (which previously forced a UTF-8 decode and could corrupt data on `NONE`/`WIN1252`/`ISO8859_1` connections).
+  - Added `SQLParamBuffer` (`src/wire/xsqlvar.ts`) + `XdrWriter.addParamBuffer` (`src/wire/serialize.ts`): when a `Buffer` is passed as a parameter for a non-BLOB column, its raw bytes are written directly instead of being coerced through `Buffer#toString()` (which previously forced a UTF-8 decode and could corrupt data on `NONE`/`WIN1252`/`ISO8859_1` connections).
   - Regression test added: `test/index.js` — "should insert with string from buffer".
   - This is the direct fix for the workaround requested in [#336](https://github.com/hgourvest/node-firebird/issues/336) ("write the buffer directly to the database without any other transliteration") — combine with `encoding: 'NONE'` to pass already-encoded bytes straight through.
 
@@ -91,7 +91,7 @@ The library already works with Express, but "support" should mean **documented, 
   - Recommended architecture: create a single pool at app startup and reuse it. ✅
   - Request lifecycle pattern: acquire connection → run queries → always release in `finally`. ✅ (via an idempotent `withConnection` helper, since callback code has no native `finally`)
   - Transaction middleware example (commit on success, rollback on error). ✅
-  - Error handling: map Firebird errors to HTTP status codes without exposing internals. ✅ (using the existing `GDSCode` constants from `lib/gdscodes.js`)
+  - Error handling: map Firebird errors to HTTP status codes without exposing internals. ✅ (using the existing `GDSCode` constants from `src/gdscodes.ts`, published as `node-firebird/lib/gdscodes`)
   - BLOB streaming example: stream BLOBs directly to `res` and ensure `db.detach()` on `finish`/`close`. ✅
 
 - **Optional helper utilities (non-breaking additions)** — not yet implemented; the docs currently show equivalent hand-rolled helpers (`withConnection`, `transactional`) instead.
@@ -107,25 +107,22 @@ Provide at least **two copy-paste ready examples**:
 
 ---
 
-## 3. TypeScript Roadmap (Detailed)
+## 3. TypeScript Status & Roadmap
 
-Goal: improve TypeScript support without breaking existing JavaScript/callback users. Each phase is independently deliverable.
+**The migration itself is done.** As of v2.4.0 ([PR #420](https://github.com/hgourvest/node-firebird/pull/420)) the driver is written in TypeScript: `src/` is compiled to `lib/` (CommonJS + generated `.d.ts`) by the native TypeScript 7 compiler, and the prototype-based code was rewritten as ES classes along the way. The runtime API is unchanged — existing JavaScript/callback users are unaffected. Build and development requirements are documented in [README.md § Developing the driver](README.md#developing-the-driver).
 
-### Phase A — Accurate typings for the current API (no runtime changes)
+### Phase A — Accurate typings for the current API ✅ Done
 
-Deliver or refresh `.d.ts` definitions covering:
-- Connection options (`host`, `port`, `database`, `user`, `password`, `role`, `charset`, `pageSize`, `wireCrypt`, `wireCompression`, `dbCryptConfig`, `sessionTimeZone`, `retryConnectionInterval`, `blobAsText`, `lowercase_keys`, `encoding`, etc.)
-- Pool object and its methods (`pool.get`, `pool.destroy`)
-- Database / transaction / statement objects and all their callbacks
-- Event emitter events (`row`, `result`, `attach`, `detach`, `reconnect`, `error`, `transaction`, `commit`, `rollback`)
-- Result shapes: `db.query` → `Array<Record<string, unknown>>`, `db.execute` → `unknown[][]`
-- Blob columns (appear as functions at runtime; typings must model that explicitly)
+Superseded by the migration: the hand-maintained `.d.ts` files are gone. Declarations are now generated from the sources at build time (`src/types.ts` and friends), so they cover connection options, the pool, database/transaction/statement objects, driver events and result shapes — and they cannot drift from the implementation.
 
-**Tradeoffs and constraints to be aware of:**
+**Remaining caveats (inherent, not migration debt):**
 - Query result shapes are dynamic (depend on the SQL); TypeScript cannot infer column names automatically. Users must cast or supply their own row types.
-- Blob columns being functions is a runtime quirk; the typings will be accurate but may surprise users new to the library.
-- Some options and event payloads vary by server version or protocol; typings must be permissive in those areas to avoid false type errors.
-- Maintaining `.d.ts` files separately from the JavaScript source creates a risk of drift; a linting step should be added to CI to catch obvious mismatches.
+- Blob columns being functions is a runtime quirk; the typings are accurate but may surprise users new to the library.
+- Some options and event payloads vary by server version or protocol; typings stay permissive in those areas to avoid false type errors.
+
+### Phase A.1 — Strictness hardening (next)
+
+The sources currently compile with `strict: false` (`noImplicitAny` and `noImplicitThis` are also off) to keep the migration diff reviewable. Follow-up: enable strict flags incrementally, file by file, without runtime changes.
 
 ### Phase B — Dual API: callbacks + promises
 
@@ -148,14 +145,10 @@ Provide promise-returning wrappers alongside the existing callbacks:
 **Constraints:**
 - Full ESM migration can be a **breaking change** depending on consumer build tooling; it may require a major version bump and a migration guide.
 - Generic row typing is only as good as the types the user supplies; it does not validate SQL at compile time.
-- A major TypeScript rewrite would be a large undertaking. Incremental phases (A → B → C) are preferred to reduce risk and keep the library usable throughout the transition.
 
-### Modern JavaScript Classes (prerequisite / parallel track)
+### Modern JavaScript Classes ✅ Done
 
-Before or alongside the TypeScript work, refactor the prototype-based codebase to use ES6 `class` syntax. This improves readability and makes a future TypeScript migration less disruptive.
-
-**Benefits:** cleaner code structure, easier to understand inheritance.
-**Risk:** a large mechanical refactor may introduce subtle behavioral regressions; must be accompanied by thorough test coverage.
+Shipped as part of the TypeScript migration (v2.4.0): the prototype-based codebase now uses ES `class` syntax throughout `src/`.
 
 ---
 
@@ -219,10 +212,10 @@ These are open pull requests that are close to being merged and represent near-t
 
 | Target | Items |
 | :--- | :--- |
-| Next patch | P0 bug fixes: #387, #357, #343, #341 |
-| Next minor | Express.js docs ✅ done, helpers still pending; TS Phase A typings; in-flight PR #385; Protocol 17 + DECFLOAT shipped in #383 |
-| Future minor | TS Phase B (promise wrappers); P1 + P2 issues; Protocol 18 / Firebird 5 |
-| Future major | ESM/CJS rework; TS Phase C generics; full class-based refactor (only if breaking) |
+| Shipped in 2.4.0 | TypeScript 7 migration (ES classes, generated typings); Firebird database events (POST_EVENT); Srp256/384/512 auth; ChaCha/ChaCha64 wire encryption; Protocol 18/19 features (scrollable cursors, multi-row RETURNING, parallel workers, inline BLOBs); Firebird 6.0 features (schemas, tablespaces, JSON, ROW type); raw Buffer params; P0 fixes #387, #357 |
+| Next minor | TS strictness hardening (Phase A.1); TS Phase B (promise wrappers); pool helpers (`withConnection` / `withTransaction`); remaining P1 issues (#343, #341, #329) |
+| Future minor | Protocol 20 (lift the v19 cap once the prepare hang is resolved); database creation with different owner (#7718) |
+| Future major | ESM/CJS dual exports; TS Phase C generics |
 
 ---
 
