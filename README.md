@@ -6,15 +6,25 @@
 
 [![NPM](https://nodei.co/npm/node-firebird.png?downloads=true&downloadRank=true)](https://nodei.co/npm/node-firebird/)
 
-[Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups.
+## Table of contents
 
-## Firebird database on social networks
+- [Installation](#installation)
+- [Usage](#usage) — including [developing the driver](#developing-the-driver)
+- [Connection types](#connection-types) — connection options, classic connections, pooling
+- [Database object (db)](#database-object-db) — database, transaction and statement methods/options
+- [Examples](#examples) — parametrized queries, BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
+- [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
+- [Using node-firebird with Express.js](#using-node-firebird-with-expressjs)
+- [FAQ](#faq)
+- [Contributing](#contributing) · [Contributors](#contributors)
 
-- [Firebird on Twitter](https://twitter.com/firebirdsql/)
-- [Firebird on Facebook](https://www.facebook.com/FirebirdSQL)
+## Community & resources
 
-- [Firebird documentation](https://firebirdsql.org/en/documentation/)
-- [Firebird limits and data types](https://firebirdsql.org/en/firebird-technical-specifications/)
+- [Firebird forum](https://groups.google.com/forum/#!forum/node-firebird) on Google Groups — questions and discussion
+- [GitHub issues](https://github.com/hgourvest/node-firebird/issues) — bug reports and feature requests
+- [ROADMAP](ROADMAP.md) — planned work and protocol implementation status
+- Driver internals: [SRP authentication protocol](docs/SRP_PROTOCOL.md) · [database encryption key callback](docs/ENCRYPTION_CALLBACK.md)
+- Firebird itself: [documentation](https://firebirdsql.org/en/documentation/) · [limits and data types](https://firebirdsql.org/en/firebird-technical-specifications/) · [Twitter/X](https://twitter.com/firebirdsql/) · [Facebook](https://www.facebook.com/FirebirdSQL)
 
 ## Installation
 
@@ -1522,11 +1532,27 @@ db.query('SELECT * FROM ACTORS WHERE NAME LIKE ?', ['James Wick%'], function (er
 });
 ```
 
+## Contributing
+
+Contributions are welcome — code, documentation, and bug reports alike.
+
+- **Found a bug or have a question?** Open a [GitHub issue](https://github.com/hgourvest/node-firebird/issues). Please include your Node.js version, your Firebird server version, and a minimal reproduction (SQL plus code).
+- **Want to write code?** See [Developing the driver](#developing-the-driver) for the build and test setup, and the [ROADMAP](ROADMAP.md) for ideas on what to pick up. Pull requests against `master` should come with tests and pass `npm test`, `npm run typecheck` and `npm run lint`.
+- **Improving the documentation** is just as valuable — clearer examples and FAQ entries help everyone.
+
 ## Contributors
 
-- Henri Gourvest, <https://github.com/hgourvest>
-- Popa Marius Adrian, <https://github.com/mariuz>
-- Peter Širka, <https://github.com/petersirka>
+`node-firebird` was created by **Henri Gourvest** and is maintained by **Popa Marius Adrian**, with major early contributions from **Peter Širka** (pooling, sequential selects, driver events).
+
+- Henri Gourvest — author, <https://github.com/hgourvest>
+- Popa Marius Adrian — maintainer, <https://github.com/mariuz>
+- Peter Širka — <https://github.com/petersirka>
+
+…and many more — see the full [list of contributors](https://github.com/hgourvest/node-firebird/graphs/contributors).
+
+<a href="https://github.com/hgourvest/node-firebird/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=hgourvest/node-firebird" alt="Contributors" />
+</a>
 
 [license-image]: http://img.shields.io/badge/license-MOZILLA-blue.svg?style=flat
 [license-url]: LICENSE

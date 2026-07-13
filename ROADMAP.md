@@ -219,4 +219,4 @@ These are open pull requests that are close to being merged and represent near-t
 
 ---
 
-We believe these changes will make `node-firebird` a more robust, modern, and developer-friendly library for accessing Firebird databases. Contributions are welcome — please check the [open issues](https://github.com/hgourvest/node-firebird/issues) and [contributing guide](README.md) for details.
+We believe these changes will make `node-firebird` a more robust, modern, and developer-friendly library for accessing Firebird databases. Contributions are welcome — please check the [open issues](https://github.com/hgourvest/node-firebird/issues) and the [contributing guide](README.md#contributing) for details.
