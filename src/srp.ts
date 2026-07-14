@@ -133,14 +133,18 @@ export function clientProof(user: string, password: string, salt: Buffer, A: big
 
     n1 = modPow(n1, n2, PRIME.N);
     n2 = toBigInt(getHash('sha1', user));
-    var M = toBigInt(getHash(hashAlgo, toBuffer(n1), toBuffer(n2), salt, toBuffer(A), toBuffer(B), toBuffer(K)));
+    // K is hashed as the raw fixed-length digest, exactly like the server's
+    // digest.process(sessionKey) over a 20-byte UCharBuffer. Converting it
+    // through bigint dropped a leading zero byte (~0.4% of connections) and
+    // broke the proof (issue #421).
+    var M = toBigInt(getHash(hashAlgo, toBuffer(n1), toBuffer(n2), salt, toBuffer(A), toBuffer(B), K));
 
     dump('n1-2', n1);
     dump('n2-2', n2);
     dump('proof:M', M);
 
     return {
-        clientSessionKey: K,
+        clientSessionKey: toBigInt(K),
         authData: M,
     };
 }
@@ -186,12 +190,19 @@ function pad(n: bigint): Buffer {
 /**
  * Scramble keys.
  *
+ * The server hashes the minimal (stripped) magnitude bytes of A and B
+ * (RemotePassword::computeScramble → processStrippedInt in Firebird's
+ * srp.cpp, identical in 3.0 through master) — NOT the 128-byte padded
+ * form, which the engine only uses for k = H(N, pad(g)). Padding here
+ * made u diverge whenever A or B had a leading zero byte (~0.8% of
+ * connections), failing the proof (issue #421).
+ *
  * @param A BigInt Client public key.
  * @param B BigInt Server public key.
  * @returns {BigInt}
  */
 function getScramble(A: bigint, B: bigint, hashAlgo: string = 'sha1'): bigint {
-    return BigInt('0x' + getHash(hashAlgo, pad(A), pad(B)));
+    return BigInt('0x' + getHash(hashAlgo, toBuffer(A), toBuffer(B)));
 }
 
 /**
@@ -208,8 +219,10 @@ function getScramble(A: bigint, B: bigint, hashAlgo: string = 'sha1'): bigint {
  * @param A BigInt Client public key.
  * @param B BigInt Server public key.
  * @param a BigInt Client private key.
+ * @returns Buffer The raw session-key digest (fixed length, may start
+ *                 with a zero byte — significant for the proof).
  */
-function clientSession(user: string, password: string, salt: Buffer, A: bigint, B: bigint, a: bigint, hashAlgo: string = 'sha1'): bigint {
+function clientSession(user: string, password: string, salt: Buffer, A: bigint, B: bigint, a: bigint, hashAlgo: string = 'sha1'): Buffer {
     var u = getScramble(A, B, 'sha1');
     var x = getUserHash(user, salt, password, 'sha1');
     var gx = modPow(PRIME.g, x, PRIME.N);
@@ -227,7 +240,7 @@ function clientSession(user: string, password: string, salt: Buffer, A: bigint, 
     var ux = (u * x) % PRIME.N;
     var aux = (a + ux) % PRIME.N;
     var sessionSecret = modPow(diff, aux, PRIME.N);
-    var K = toBigInt(getHash('sha1', toBuffer(sessionSecret)));
+    var K = Buffer.from(getHash('sha1', toBuffer(sessionSecret)), 'hex');
 
     dump('B', B);
     dump('u', u);

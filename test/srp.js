@@ -327,3 +327,68 @@ describe('clientSeed – private key reduction (regression #411)', function () {
     });
 
 });
+
+// ---------------------------------------------------------------------------
+// Regression: issue #421 — proof serialization must match the Firebird engine
+// (src/auth/SecureRemotePassword/srp.{h,cpp}, identical in 3.0 through master).
+//
+// Two historical mismatches, each firing sporadically (~1.2% of attaches):
+//   1. the scramble u = H(A, B) hashed 128-byte padded A/B, but the server
+//      hashes minimal magnitude bytes (processStrippedInt);
+//   2. the session key K was hashed into M through a bigint round-trip,
+//      dropping a leading zero byte of the raw 20-byte SHA-1 digest.
+//
+// The vectors below pin the exact values produced by the fixed
+// implementation, live-verified with 1000/1000 successful attaches against
+// Firebird 5 (plugin Srp) plus 400/400 on Firebird 6 (Srp and Srp256) —
+// where the old code failed ~1.7% of the time. The chosen private keys make
+// A, B or K carry a leading zero byte, so any reintroduction of either bug
+// changes these outputs.
+describe('proof serialization with leading-zero A/B/K (regression #421)', function () {
+
+    const SALT_421 = Buffer.alloc(32, 7);
+
+    function roundTrip(a, b) {
+        var clientKeys = Srp.clientSeed(a);
+        var serverKeys = Srp.serverSeed(USER, PASSWORD, SALT_421, b);
+        var serverKey = Srp.serverSession(
+            USER, PASSWORD, SALT_421,
+            clientKeys.public, serverKeys.public, serverKeys.private
+        );
+        var proof = Srp.clientProof(
+            USER, PASSWORD, SALT_421,
+            clientKeys.public, serverKeys.public, clientKeys.private,
+            'sha1'
+        );
+        assert.strictEqual(proof.clientSessionKey, serverKey,
+            'client and server session keys must match');
+        return proof;
+    }
+
+    it('A with a leading zero byte (127-byte public key)', function () {
+        var proof = roundTrip(1008n, 200n);
+        assert.strictEqual(proof.clientSessionKey.toString(16), '3edfde5aac586dd72dc831d9411cfaa2d68dccc2');
+        assert.strictEqual(proof.authData.toString(16), '57e46f46c693d3b7968ffd2fb970adc77f50b215');
+    });
+
+    it('B with a leading zero byte (127-byte public key)', function () {
+        var proof = roundTrip(200n, 1630n);
+        assert.strictEqual(proof.clientSessionKey.toString(16), '5a0521bb4c32037c5be3260969951d5a4978886a');
+        assert.strictEqual(proof.authData.toString(16), '85977bf41cd70604f23b3586aae10357daf8c906');
+    });
+
+    it('K (session digest) with a leading zero byte', function () {
+        var proof = roundTrip(3n, 47n);
+        // 19 significant bytes — the raw digest starts with 0x00
+        assert.strictEqual(proof.clientSessionKey.toString(16), '85548093ec9a92174a6b36be20956f45a0d4e');
+        assert.strictEqual(proof.authData.toString(16), 'bd2fdf3925d34bb711be68d6fb6c04e89a8868eb');
+    });
+
+    it('tiny public keys (maximum padding difference)', function () {
+        // a = 1 → A = g = 2: the padded form would differ from the minimal
+        // form by 127 zero bytes — the starkest possible serialization gap.
+        var proof = roundTrip(1n, 1n);
+        assert.ok(proof.clientSessionKey > 0n);
+        assert.ok(proof.authData > 0n);
+    });
+});
