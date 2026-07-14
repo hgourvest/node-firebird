@@ -121,6 +121,14 @@ const op = {
     op_crypt_key_callback     : 97,
     op_cond_accept            : 98, // Server accepts connection, returns some data to client
                                     // and asks client to continue authentication before attach call
+    op_batch_create           : 99,  // Create a statement batch (protocol 16+)
+    op_batch_msg              : 100, // Add a bunch of messages to the batch
+    op_batch_exec             : 101, // Execute the batch; server answers with op_batch_cs
+    op_batch_rls              : 102, // Release the batch
+    op_batch_cs               : 103, // Batch completion state (response to op_batch_exec)
+    op_batch_cancel           : 109, // Cancel the batch
+    op_batch_sync             : 110, // Wait for batch processing
+    op_info_batch             : 111,
     op_fetch_scroll           : 112,
     op_info_cursor            : 113,
     op_inline_blob            : 114,
@@ -130,6 +138,19 @@ const dsql = {
     DSQL_close : 1,
     DSQL_drop : 2,
     DSQL_unprepare : 4, // >: 2.5
+};
+
+// Batch parameter buffer (op_batch_create p_batch_pb) — a wide-tagged
+// clumplet buffer: version byte, then per clumplet a tag byte, an int32 LE
+// length and the value bytes. Tags from Firebird's IBatch interface.
+const batch = {
+    BATCH_VERSION1             : 1,
+    BATCH_TAG_MULTIERROR       : 1, // continue after per-record errors
+    BATCH_TAG_RECORD_COUNTS    : 2, // return per-record update counts
+    BATCH_TAG_BUFFER_BYTES_SIZE: 3, // server-side batch buffer limit
+    BATCH_TAG_BLOB_POLICY      : 4,
+    BATCH_TAG_DETAILED_ERRORS  : 5, // max detailed status vectors returned
+    BATCH_BLOB_NONE            : 0,
 };
 
 // fb_cancel_operation kinds sent with op_cancel (protocol 12+ / Firebird 2.5+)
@@ -866,6 +887,7 @@ const Const = Object.freeze({
     ...authOptions,
     ...blr,
     ...blobType,
+    ...batch,
     ...buffer,
     ...cancelKind,
     ...cnct,

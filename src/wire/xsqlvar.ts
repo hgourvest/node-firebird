@@ -718,6 +718,28 @@ export class SQLParamBuffer {
 
 //------------------------------------------------------
 
+/**
+ * Split a JS Date into the Firebird wire representation used by
+ * TIMESTAMP/DATE/TIME columns: `date` is the modified-Julian day number and
+ * `time` the count of 100-microsecond units since midnight (local time).
+ */
+export function encodeDateTimeParts(value: Date): { date: number; time: number } {
+    var ms = value.getTime() - value.getTimezoneOffset() * MsPerMinute;
+    var time = ms % TimeCoeff;
+    var date = (ms - time) / TimeCoeff + DateOffset;
+    time *= 10;
+
+    // check overflow (dates before the epoch)
+    if (time < 0) {
+        date--;
+        time = TimeCoeff * 10 + time;
+    }
+
+    return { date: date, time: time };
+}
+
+//------------------------------------------------------
+
 export class SQLParamQuad {
     value: any;
 
@@ -753,20 +775,9 @@ export class SQLParamDate {
 
     encode(data: XdrWriter): void {
         if (this.value != null) {
-
-            var value = this.value.getTime() - this.value.getTimezoneOffset() * MsPerMinute;
-            var time = value % TimeCoeff;
-            var date = (value - time) / TimeCoeff + DateOffset;
-            time *= 10;
-
-            // check overflow
-            if (time < 0) {
-                date--;
-                time = TimeCoeff*10 + time;
-            }
-
-            data.addInt(date);
-            data.addUInt(time);
+            var parts = encodeDateTimeParts(this.value);
+            data.addInt(parts.date);
+            data.addUInt(parts.time);
         } else {
             data.addInt(0);
             data.addUInt(0);

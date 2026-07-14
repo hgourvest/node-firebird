@@ -75,6 +75,31 @@ export type TransactionOptions = {
     waitTimeout?: number;
 };
 
+/** Result of an executeBatch call (Firebird 4 batch API, protocol 16+). */
+export interface BatchResult {
+    /** Total number of records processed by the server. */
+    recordCount: number;
+    /** Per-record update counts (in record order). */
+    updateCounts: number[];
+    /** Per-record failures with full status vectors (capped by `detailedErrors`). */
+    errors: Array<{ recordNumber: number; error: Error }>;
+    /** Record numbers of ALL failed records (detailed + status-less). */
+    errorRecordNumbers: number[];
+    /** True when every record executed without error. */
+    success: boolean;
+}
+
+export type BatchOptions = {
+    /** Continue past per-record errors and report them all (default true). */
+    multiError?: boolean;
+    /** Server-side batch buffer limit in bytes (BATCH_TAG_BUFFER_BYTES_SIZE). */
+    bufferSize?: number;
+    /** Max number of detailed per-record status vectors returned (server default 64). */
+    detailedErrors?: number;
+    /** Rows per op_batch_msg packet (default 500). */
+    chunkSize?: number;
+};
+
 export type QueryOptions = {
     timeout?: number;
     scrollable?: boolean;
@@ -95,6 +120,8 @@ export interface Database {
     newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): Database;
     query(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): Database;
     execute(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): Database;
+    /** Bulk-execute in its own transaction, all-or-nothing (Firebird 4.0+). */
+    executeBatch(query: string, rows: any[][], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): Database;
     sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
     drop(callback: SimpleCallback): void;
     escape(value: any): string;
@@ -108,6 +135,7 @@ export interface Database {
     // Result metadata is only available through the callback API.
     queryAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
     executeAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
+    executeBatchAsync(query: string, rows: any[][], options?: BatchOptions): Promise<BatchResult>;
     sequentiallyAsync(query: string, params: any[] | undefined, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
     sequentiallyAsync(query: string, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
     transactionAsync(options?: TransactionOptions | Isolation): Promise<Transaction>;
@@ -132,6 +160,8 @@ export interface Transaction {
     newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): void;
     query(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): void;
     execute(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): void;
+    /** Bulk-execute within this transaction; per-record failures do not roll back (Firebird 4.0+). */
+    executeBatch(query: string, rows: any[][], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): void;
     sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
     commit(callback?: SimpleCallback): void;
     commitRetaining(callback?: SimpleCallback): void;
@@ -141,6 +171,7 @@ export interface Transaction {
     // Promise / async-await API
     queryAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
     executeAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
+    executeBatchAsync(query: string, rows: any[][], options?: BatchOptions): Promise<BatchResult>;
     sequentiallyAsync(query: string, params: any[] | undefined, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
     sequentiallyAsync(query: string, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
     newStatementAsync(query: string): Promise<Statement>;
@@ -159,8 +190,12 @@ export interface Statement {
     fetchScroll(transaction: Transaction, direction: 'NEXT' | 'PRIOR' | 'FIRST' | 'LAST' | 'ABSOLUTE' | 'RELATIVE' | number, offset: number, count: number, callback: QueryCallback): void;
     fetchAll(transaction: Transaction, callback: QueryCallback): void;
 
+    /** Execute this prepared statement once per row (Firebird 4.0+ batch API). */
+    executeBatch(transaction: Transaction, rows: any[][], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): void;
+
     // Promise / async-await API
     executeAsync(transaction: Transaction, params?: any[], options?: QueryOptions): Promise<any>;
+    executeBatchAsync(transaction: Transaction, rows: any[][], options?: BatchOptions): Promise<BatchResult>;
     fetchAsync(transaction: Transaction, count: number | 'all'): Promise<any>;
     fetchScrollAsync(transaction: Transaction, direction: 'NEXT' | 'PRIOR' | 'FIRST' | 'LAST' | 'ABSOLUTE' | 'RELATIVE' | number, offset?: number, count?: number): Promise<any>;
     fetchAllAsync(transaction: Transaction): Promise<any>;

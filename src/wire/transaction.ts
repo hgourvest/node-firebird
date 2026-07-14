@@ -233,6 +233,36 @@ class Transaction {
         this.execute(query, params, callback, options);
     }
 
+    /**
+     * Execute `query` once per row in `rows` using the Firebird 4 batch API
+     * (protocol 16+, single network flush). The callback receives a
+     * completion object: { recordCount, updateCounts, errors:
+     * [{recordNumber, error}], errorRecordNumbers, success }. Per-record
+     * failures do NOT roll anything back here — inspect the completion and
+     * commit or roll back yourself (or use db.executeBatch for
+     * all-or-nothing semantics).
+     */
+    executeBatch(query: string, rows: any[][], callback?: any, options?: any): void {
+        var self = this;
+        this.newStatement(query, function(err: any, statement: any) {
+            if (err) {
+                doError(err, callback);
+                return;
+            }
+
+            statement.executeBatch(self, rows, function(err: any, result: any) {
+                statement.release();
+                if (callback)
+                    callback(err, result);
+            }, options);
+        });
+    }
+
+    executeBatchAsync(query: string, rows: any[][], options?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.executeBatch(query, rows, cb, options); });
+    }
+
     commit(callback?: (err?: any) => void): void {
         this.connection.commit(this, callback);
     }

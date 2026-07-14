@@ -401,6 +401,19 @@ class Connection {
     }
 
 
+    /** Write a prebuilt packet and queue its response callback. */
+    _queueEventBuffer(buffer, callback) {
+        if (this._isClosed) {
+            if (callback)
+                callback(new Error('Connection is closed.'));
+            return;
+        }
+
+        this._socket.write(buffer);
+        this._queue.push(callback);
+    }
+
+
     _queueEvent(callback, defer = false) {
         var self = this;
     
@@ -1156,6 +1169,208 @@ class Connection {
     
     }
 
+
+
+    /**
+     * Execute a statement once per row using the Firebird 4 batch API
+     * (protocol 16+): op_batch_create + op_batch_msg(s) + op_batch_exec +
+     * op_batch_rls, all pipelined in a single network flush. Every packet
+     * gets an in-order response (op_batch_cs for exec), so the regular
+     * response queue keeps everything in sync.
+     *
+     * rows: array of parameter arrays, one per record. BLOB/ARRAY columns
+     * are not supported yet. The callback receives a completion object:
+     * { recordCount, updateCounts, errors: [{recordNumber, error}],
+     *   errorRecordNumbers, success }.
+     */
+    executeBatch(transaction, statement, rows, callback, options) {
+        options = options || {};
+
+        if (this._isClosed)
+            return this.throwClosed(callback);
+
+        if (!this.accept || this.accept.protocolVersion < Const.PROTOCOL_VERSION16) {
+            doError(new Error('executeBatch requires protocol 16+ (Firebird 4.0 or newer)'), callback);
+            return;
+        }
+
+        var input = statement.input;
+        if (!input || !input.length) {
+            doError(new Error('executeBatch requires a statement with input parameters'), callback);
+            return;
+        }
+
+        if (!Array.isArray(rows)) {
+            doError(new Error('executeBatch expects an array of parameter rows'), callback);
+            return;
+        }
+
+        if (rows.length === 0) {
+            if (callback) callback(undefined, {
+                recordCount: 0, updateCounts: [], errors: [], errorRecordNumbers: [], success: true,
+            });
+            return;
+        }
+
+        for (var i = 0; i < rows.length; i++) {
+            if (!Array.isArray(rows[i]) || rows[i].length !== input.length) {
+                doError(new Error('executeBatch row ' + i + ' must be an array of ' + input.length + ' values'), callback);
+                return;
+            }
+        }
+
+        var built;
+        try {
+            built = buildBatchEncoders(input, Object.assign({}, this.options, options));
+        } catch (err) {
+            doError(err, callback);
+            return;
+        }
+
+        var self = this;
+        var encoders = built.encoders;
+        var chunkSize = options.chunkSize > 0 ? options.chunkSize : 500;
+        var chunkCount = Math.ceil(rows.length / chunkSize);
+
+        var failure: any = null;
+        var completion: any = null;
+        var remaining = 2 + chunkCount; // create + msg chunks + exec
+
+        function settle(err?: any) {
+            if (err && !failure)
+                failure = err;
+            remaining--;
+            if (remaining > 0)
+                return;
+
+            if (failure) {
+                doError(failure, callback);
+                return;
+            }
+
+            var detailed = completion ? completion.detailedErrors : [];
+            var errorRecordNumbers = detailed.map(function(e) { return e.recordNumber; })
+                .concat(completion ? completion.errorRecordNumbers : []);
+
+            if (callback) callback(undefined, {
+                recordCount: completion ? completion.recordCount : 0,
+                updateCounts: completion ? completion.updateCounts : [],
+                errors: detailed,
+                errorRecordNumbers: errorRecordNumbers,
+                success: errorRecordNumbers.length === 0,
+            });
+        }
+
+        var msg = this._msg;
+        var blr = this._blr;
+
+        // Build every packet before writing anything: an encoding failure
+        // (e.g. an oversized CHAR/VARCHAR value) must abort the batch before
+        // a single byte hits the wire, or the response queue desyncs.
+        var packets: Buffer[] = [];
+        try {
+            // 1. op_batch_create — the BLR is the statement's own described
+            // input format: the engine requires batch messages to match it
+            // exactly (a value-derived format is rejected with SQLDA errors).
+            msg.pos = 0;
+            blr.pos = 0;
+            CalcBlr(blr, input);
+
+            msg.addInt(Const.op_batch_create);
+            msg.addInt(statement.handle);
+            msg.addBlr(blr);
+            msg.addInt(built.msglen);
+            var pb = buildBatchPb(options);
+            msg.addInt(pb.length);
+            msg.addParamBuffer(pb);
+            packets.push(Buffer.from(msg.getData()));
+
+            // 2. op_batch_msg — packed messages (null bitmap + non-null
+            // values), exactly the op_execute protocol-13 message encoding.
+            for (var c = 0; c < chunkCount; c++) {
+                var start = c * chunkSize;
+                var end = Math.min(start + chunkSize, rows.length);
+
+                msg.pos = 0;
+                msg.addInt(Const.op_batch_msg);
+                msg.addInt(statement.handle);
+                msg.addInt(end - start);
+
+                for (var i = start; i < end; i++) {
+                    var row = rows[i];
+
+                    var nullBits = new BitSet();
+                    for (var j = 0; j < input.length; j++) {
+                        nullBits.set(j, row[j] === null || row[j] === undefined ? 1 : 0);
+                    }
+                    var nullBuffer = nullBits.toBuffer();
+                    var requireBytes = Math.floor((input.length + 7) / 8);
+                    var remainingBytes = requireBytes - nullBuffer.length;
+
+                    if (nullBuffer.length) {
+                        msg.addBuffer(nullBuffer);
+                    }
+                    if (remainingBytes > 0) {
+                        msg.addBuffer(Buffer.alloc(remainingBytes));
+                    }
+                    msg.addAlignment(requireBytes);
+
+                    for (var j = 0; j < input.length; j++) {
+                        if (row[j] !== null && row[j] !== undefined) {
+                            encoders[j](msg, row[j]);
+                        }
+                    }
+                }
+
+                packets.push(Buffer.from(msg.getData()));
+            }
+
+            // 3. op_batch_exec — answered with op_batch_cs.
+            msg.pos = 0;
+            msg.addInt(Const.op_batch_exec);
+            msg.addInt(statement.handle);
+            msg.addInt(transaction.handle);
+            packets.push(Buffer.from(msg.getData()));
+
+            // 4. op_batch_rls — free the server-side batch.
+            msg.pos = 0;
+            msg.addInt(Const.op_batch_rls);
+            msg.addInt(statement.handle);
+            packets.push(Buffer.from(msg.getData()));
+        } catch (err) {
+            doError(err, callback);
+            return;
+        }
+
+        // Pipeline everything: the server answers each packet in order
+        // (op_response for create/msg, op_batch_cs for exec), so one queued
+        // callback per packet keeps the response stream in sync. The server
+        // DEFERS the responses to create/msg/rls (PORT_lazy send_partial) —
+        // they only hit the wire when a flushing send occurs, which the
+        // op_batch_cs answer to exec provides. The rls response however is
+        // deferred past our last packet and arrives with the NEXT flushed
+        // response (commit, query, detach…), so completion must not wait
+        // for it: its queued callback is a no-op that just keeps the
+        // response stream aligned.
+        var execIndex = packets.length - 2;
+        for (var p = 0; p < packets.length; p++) {
+            this._pending.push('executeBatch');
+            if (p === execIndex) {
+                this._queueEventBuffer(packets[p], function(err, ret) {
+                    if (!err && ret && ret.batchCompletion) {
+                        completion = ret.batchCompletion;
+                        settle();
+                    } else {
+                        settle(err || new Error('op_batch_exec did not return a completion state'));
+                    }
+                });
+            } else if (p === packets.length - 1) {
+                this._queueEventBuffer(packets[p], function() {});
+            } else {
+                this._queueEventBuffer(packets[p], function(err) { settle(err); });
+            }
+        }
+    }
 
 
     executeStatement(transaction, statement, params, callback, custom) {
@@ -2010,6 +2225,46 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                 };
                 // Parse normal and lazy response
                 return parseOpResponse(data, response, loop);
+            case Const.op_batch_cs: {
+                // Batch completion state (response to op_batch_exec):
+                // statement, reccount, updates count, vectors count, errors
+                // count, then the update-count array, the (recnum + status
+                // vector) pairs and finally the status-less error recnums.
+                var completion: any = {
+                    statementHandle: data.readInt(),
+                    recordCount: data.readInt(),
+                };
+                var updatesCount = data.readInt();
+                var vectorsCount = data.readInt();
+                var simpleErrorsCount = data.readInt();
+
+                completion.updateCounts = new Array(updatesCount);
+                for (var bi = 0; bi < updatesCount; bi++) {
+                    completion.updateCounts[bi] = data.readInt();
+                }
+
+                completion.detailedErrors = [];
+                for (var bi = 0; bi < vectorsCount; bi++) {
+                    var recordNumber = data.readInt();
+                    var vector = readStatusVector(data);
+                    var recordError: any = new Error(lookupMessages(vector.status) || 'Batch record failed');
+                    if (vector.status.length) {
+                        recordError.gdscode = vector.status[0].gdscode;
+                        recordError.gdsparams = vector.status[0].params;
+                    }
+                    if (vector.sqlcode !== undefined) {
+                        recordError.sqlcode = vector.sqlcode;
+                    }
+                    completion.detailedErrors.push({ recordNumber: recordNumber, error: recordError });
+                }
+
+                completion.errorRecordNumbers = [];
+                for (var bi = 0; bi < simpleErrorsCount; bi++) {
+                    completion.errorRecordNumbers.push(data.readInt());
+                }
+
+                return cb(null, { batchCompletion: completion });
+            }
             case Const.op_fetch_response:
             case Const.op_sql_response:
                 var statement = callback.statement;
@@ -2515,6 +2770,47 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
     }
 }
 
+/**
+ * Read one XDR status vector (as in op_response / op_batch_cs error
+ * vectors): a stream of isc_arg_* items terminated by isc_arg_end.
+ */
+function readStatusVector(data: any): { status: any[]; sqlcode?: number } {
+    var result: { status: any[]; sqlcode?: number } = { status: [] };
+    var item: any = {};
+
+    while (true) {
+        var op = data.readInt();
+
+        switch (op) {
+            case Const.isc_arg_end:
+                return result;
+            case Const.isc_arg_gds:
+                var num = data.readInt();
+                if (!num) {
+                    break;
+                }
+                item = { gdscode: num };
+                result.status.push(item);
+                break;
+            case Const.isc_arg_string:
+            case Const.isc_arg_interpreted:
+            case Const.isc_arg_sql_state:
+                var str = data.readString(Const.DEFAULT_ENCODING);
+                (item.params = item.params || []).push(str);
+                break;
+            case Const.isc_arg_number:
+                var n = data.readInt();
+                (item.params = item.params || []).push(n);
+                if (item.gdscode === Const.isc_sqlerr) {
+                    result.sqlcode = n;
+                }
+                break;
+            default:
+                throw new Error('Unexpected status vector item: ' + op);
+        }
+    }
+}
+
 function parseOpResponse(data: any, response: any, cb?: (err?: any, response?: any) => void) {
     var handle = data.readInt();
 
@@ -2714,6 +3010,208 @@ function describe(buff: Buffer, statement: any) {
     }
     unpackCharSetCollation(statement.input);
     unpackCharSetCollation(statement.output);
+}
+
+/**
+ * Batch support: the engine requires every batch message to use EXACTLY the
+ * statement's described input format (unlike op_execute, where the client
+ * may declare its own format and the server converts). The BLR is therefore
+ * CalcBlr(statement.input), and this helper returns one value encoder per
+ * column that writes the wire representation mirroring the corresponding
+ * SQLVar* decode, including scale. Returns { encoders, msglen } where
+ * encoders[j](msg, value) writes a non-null value and msglen is the
+ * unpacked message length sent with op_batch_create.
+ */
+function buildBatchEncoders(input: any[], options: any) {
+    var encoders: Array<(msg: any, v: any) => void> = [];
+    var offset = 0;
+    var align = function(a: number) { offset = (offset + a - 1) & ~(a - 1); };
+
+    var jsonAsObject = options && options.jsonAsObject;
+    var toText = function(v: any): string {
+        if (typeof v === 'string') return v;
+        if (v instanceof Date) return v.toString();
+        if (typeof v === 'object' && !Buffer.isBuffer(v)) return jsonAsObject ? JSON.stringify(v) : v.toString();
+        return String(v);
+    };
+    var toBytes = function(v: any, meta: any, column: number): Buffer {
+        var b = Buffer.isBuffer(v) ? v : Buffer.from(toText(v), Const.DEFAULT_ENCODING);
+        if (b.length > meta.length) {
+            throw new Error('Batch value for column ' + column + ' is ' + b.length +
+                ' bytes but the column accepts at most ' + meta.length + ' (' + (meta.field || '?') + ')');
+        }
+        return b;
+    };
+    var toDate = function(v: any): Date {
+        if (v instanceof Date) return v;
+        if (typeof v === 'string') return parseDate(v);
+        return new Date(v);
+    };
+    var scaled = function(v: any, scale: number): number {
+        var n = typeof v === 'string' ? parseFloat(v) : Number(v);
+        return scale ? Math.round(n * Math.pow(10, -scale)) : n;
+    };
+    var scaledBig = function(v: any, scale: number): bigint {
+        if (typeof v === 'bigint') {
+            return scale ? v * (10n ** BigInt(-scale)) : v;
+        }
+        return BigInt(scaled(v, scale));
+    };
+
+    for (var j = 0; j < input.length; j++) {
+        var meta = input[j];
+        var column = j + 1;
+
+        switch (meta.type) {
+            case Const.SQL_TEXT: // CHAR: fixed meta.length bytes, space-padded
+                encoders.push((function(m, col) {
+                    return function(msg: any, v: any) {
+                        var b = toBytes(v, m, col);
+                        if (b.length < m.length) {
+                            b = Buffer.concat([b, Buffer.alloc(m.length - b.length, 0x20)]);
+                        }
+                        msg.addParamBuffer(b);
+                    };
+                })(meta, column));
+                offset += meta.length;
+                break;
+
+            case Const.SQL_VARYING:
+            case Const.SQL_NULL:
+                encoders.push((function(m, col) {
+                    return function(msg: any, v: any) {
+                        var b = toBytes(v, m, col);
+                        msg.addInt(b.length);
+                        msg.addParamBuffer(b);
+                    };
+                })(meta, column));
+                align(2); offset += 2 + meta.length;
+                break;
+
+            case Const.SQL_SHORT:
+                // 2 bytes in the message struct (msglen), 4 on the XDR wire
+                encoders.push((function(m) {
+                    return function(msg: any, v: any) { msg.addInt(scaled(v, m.scale)); };
+                })(meta));
+                align(2); offset += 2;
+                break;
+
+            case Const.SQL_LONG:
+                encoders.push((function(m) {
+                    return function(msg: any, v: any) { msg.addInt(scaled(v, m.scale)); };
+                })(meta));
+                align(4); offset += 4;
+                break;
+
+            case Const.SQL_INT64:
+                encoders.push((function(m) {
+                    return function(msg: any, v: any) {
+                        msg.addInt64(typeof v === 'bigint' ? (scaledBig(v, m.scale) as any) : scaled(v, m.scale));
+                    };
+                })(meta));
+                align(8); offset += 8;
+                break;
+
+            case Const.SQL_INT128:
+                encoders.push((function(m) {
+                    return function(msg: any, v: any) { msg.addInt128(scaledBig(v, m.scale)); };
+                })(meta));
+                align(8); offset += 16;
+                break;
+
+            case Const.SQL_FLOAT:
+            case Const.SQL_D_FLOAT:
+                encoders.push(function(msg: any, v: any) { msg.addFloat(Number(v)); });
+                align(4); offset += 4;
+                break;
+
+            case Const.SQL_DOUBLE:
+                encoders.push(function(msg: any, v: any) { msg.addDouble(Number(v)); });
+                align(8); offset += 8;
+                break;
+
+            case Const.SQL_DEC16:
+                encoders.push(function(msg: any, v: any) { msg.addDecFloat16(v); });
+                align(8); offset += 8;
+                break;
+
+            case Const.SQL_DEC34:
+                encoders.push(function(msg: any, v: any) { msg.addDecFloat34(v); });
+                align(8); offset += 16;
+                break;
+
+            case Const.SQL_BOOLEAN:
+                // xdr_datum sends booleans as a 1-byte opaque (value byte
+                // first, then 3 pad bytes), not as a big-endian int.
+                encoders.push(function(msg: any, v: any) {
+                    msg.addBuffer(Buffer.from([v ? 1 : 0]));
+                    msg.addAlignment(1);
+                });
+                offset += 1;
+                break;
+
+            case Const.SQL_TIMESTAMP:
+                encoders.push(function(msg: any, v: any) {
+                    var parts = Xsql.encodeDateTimeParts(toDate(v));
+                    msg.addInt(parts.date);
+                    msg.addUInt(parts.time);
+                });
+                align(4); offset += 8;
+                break;
+
+            case Const.SQL_TYPE_DATE:
+                encoders.push(function(msg: any, v: any) {
+                    msg.addInt(Xsql.encodeDateTimeParts(toDate(v)).date);
+                });
+                align(4); offset += 4;
+                break;
+
+            case Const.SQL_TYPE_TIME:
+                encoders.push(function(msg: any, v: any) {
+                    msg.addUInt(Xsql.encodeDateTimeParts(toDate(v)).time);
+                });
+                align(4); offset += 4;
+                break;
+
+            default:
+                throw new Error('executeBatch does not support the type of parameter ' + column +
+                    ' yet (' + (meta.field || '?') + ', SQL type ' + meta.type + ')');
+        }
+
+        // null indicator short that CalcBlr appends per parameter
+        align(2); offset += 2;
+    }
+
+    // msglen must EXACTLY match the length the server computes from the BLR
+    // (MsgMetadata::makeOffsets — no trailing alignment), or op_batch_create
+    // fails with -804 SQLDA errors.
+    return { encoders: encoders, msglen: offset };
+}
+
+/**
+ * Build the batch parameter buffer (p_batch_pb): a wide-tagged clumplet
+ * buffer — version byte, then per clumplet a tag byte, int32 LE length and
+ * the value (ints are 4-byte LE).
+ */
+function buildBatchPb(options: any): Buffer {
+    var parts: number[] = [Const.BATCH_VERSION1];
+
+    var addIntClumplet = function(tag: number, value: number) {
+        parts.push(tag, 4, 0, 0, 0, value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF, (value >> 24) & 0xFF);
+    };
+
+    addIntClumplet(Const.BATCH_TAG_RECORD_COUNTS, 1);
+    if (!options || options.multiError !== false) {
+        addIntClumplet(Const.BATCH_TAG_MULTIERROR, 1);
+    }
+    if (options && options.bufferSize) {
+        addIntClumplet(Const.BATCH_TAG_BUFFER_BYTES_SIZE, options.bufferSize);
+    }
+    if (options && options.detailedErrors !== undefined) {
+        addIntClumplet(Const.BATCH_TAG_DETAILED_ERRORS, options.detailedErrors);
+    }
+
+    return Buffer.from(parts);
 }
 
 function CalcBlr(blr: BlrWriter, xsqlda: any[]) {

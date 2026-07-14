@@ -14,7 +14,7 @@
 - [Connection types](#connection-types) — connection options, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
 - [Examples](#examples) — parametrized queries, BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
-- [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
+- [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
 - [Using node-firebird with Express.js](#using-node-firebird-with-expressjs)
 - [FAQ](#faq)
 - [Contributing](#contributing) · [Contributors](#contributors)
@@ -133,9 +133,9 @@ Available wrappers:
 
 - **module** — `Firebird.attachAsync(options)`, `createAsync`, `attachOrCreateAsync`, `dropAsync`; resolve with a `Database` (or a `ServiceManager` when `options.manager` is `true`)
 - **pool** — `pool.getAsync()`, `pool.destroyAsync()`, `pool.withConnection(work)`
-- **database** — `db.queryAsync(sql, params?, options?)`, `executeAsync`, `sequentiallyAsync(sql, params?, onRow, options?)`, `transactionAsync(options?)`, `newStatementAsync(sql)`, `attachEventAsync()`, `detachAsync()`, `dropAsync()`, `db.withTransaction(work, options?)`
-- **transaction** — `queryAsync`, `executeAsync`, `sequentiallyAsync`, `newStatementAsync`, `commitAsync`, `rollbackAsync`, `commitRetainingAsync`, `rollbackRetainingAsync`
-- **statement** — `executeAsync(transaction, params?, options?)`, `fetchAsync`, `fetchScrollAsync`, `fetchAllAsync`, `closeAsync`, `dropAsync`, `releaseAsync`
+- **database** — `db.queryAsync(sql, params?, options?)`, `executeAsync`, `executeBatchAsync(sql, rows, options?)`, `sequentiallyAsync(sql, params?, onRow, options?)`, `transactionAsync(options?)`, `newStatementAsync(sql)`, `attachEventAsync()`, `detachAsync()`, `dropAsync()`, `db.withTransaction(work, options?)`
+- **transaction** — `queryAsync`, `executeAsync`, `executeBatchAsync`, `sequentiallyAsync`, `newStatementAsync`, `commitAsync`, `rollbackAsync`, `commitRetainingAsync`, `rollbackRetainingAsync`
+- **statement** — `executeAsync(transaction, params?, options?)`, `executeBatchAsync(transaction, rows, options?)`, `fetchAsync`, `fetchScrollAsync`, `fetchAllAsync`, `closeAsync`, `dropAsync`, `releaseAsync`
 
 Notes:
 
@@ -277,6 +277,7 @@ sequenceDiagram
 
 - `db.query(query, [params], function(err, result), options)` - classic query, returns Array of Object
 - `db.execute(query, [params], function(err, result), options)` - classic query, returns Array of Array
+- `db.executeBatch(query, rows, function(err, result), options)` - bulk execution in one round-trip, all-or-nothing (FB >= 4.0, see [Batch Execution](#batch-execution-firebird-40))
 - `db.sequentially(query, [params], function(row, index), function(err), options)` - sequentially query
 - `db.detach(function(err))` detach a database
 - `db.transaction(options, function(err, transaction))` create transaction
@@ -303,6 +304,7 @@ const options = {
 
 - `transaction.query(query, [params], function(err, result), options)` - classic query, returns Array of Object
 - `transaction.execute(query, [params], function(err, result), options)` - classic query, returns Array of Array
+- `transaction.executeBatch(query, rows, function(err, result), options)` - bulk execution with per-record errors (FB >= 4.0, see [Batch Execution](#batch-execution-firebird-40))
 - `transaction.sequentially(query, [params], function(row, index), function(err), options)` - sequentially query
 - `transaction.commit(function(err))` commit current transaction
 - `transaction.rollback(function(err))` rollback current transaction
@@ -1191,6 +1193,60 @@ Notes:
   the connection.
 - A signal that is already aborted rejects immediately with an `AbortError`
   without contacting the server; cancelling an idle connection is harmless.
+
+### Batch Execution (Firebird 4.0+)
+
+`executeBatch` sends many parameter rows for one statement in a single
+round-trip using the Firebird 4 wire batch API (`op_batch_create` /
+`op_batch_msg` / `op_batch_exec`) — typically 5–10× faster than executing
+row by row. Available on the database, transaction and statement objects, in
+callback and promise flavours.
+
+```js
+const rows = [
+    [1, 'Alice', 10.50, new Date(), true,  100n],
+    [2, 'Bob',   null,  new Date(), false, null],   // NULLs per column
+    [3, 'Carol', 7.25,  new Date(), true,  300n],
+];
+
+// database level: own transaction, all-or-nothing (rollback if any record fails)
+const res = await db.executeBatchAsync(
+    'INSERT INTO t (id, name, amount, created, active, big) VALUES (?, ?, ?, ?, ?, ?)',
+    rows);
+console.log(res.recordCount, res.updateCounts, res.success);
+
+// transaction level: partial success — failed records are reported,
+// the rest can still be committed
+const tr = await db.transactionAsync();
+const r = await tr.executeBatchAsync('INSERT INTO t (...) VALUES (?, ?, ?, ?, ?, ?)', rows);
+if (!r.success) {
+    console.log('failed record indexes:', r.errorRecordNumbers);   // 0-based
+    console.log('first error:', r.errors[0].error.message);
+}
+await tr.commitAsync();
+```
+
+The result object contains `recordCount`, `updateCounts` (one entry per
+record), `errors` (`{ recordNumber, error }` with full gdscode details),
+`errorRecordNumbers` and `success`. At the database level a failed batch
+rejects with the first record error, carrying the full completion state as
+`err.batchCompletion`.
+
+Options (last argument): `chunkSize` (rows per `op_batch_msg` packet,
+default 500), `multiError` (default `true` — collect all record errors
+instead of stopping at the first), `bufferSize` (server-side batch buffer
+in bytes).
+
+Notes:
+
+- Requires wire protocol 16+ (Firebird 4.0 or newer server).
+- Values are encoded from the statement's own parameter metadata, so
+  NUMERIC/DECIMAL scale, `BIGINT`/`INT128` (pass `BigInt`), `BOOLEAN`,
+  `TIMESTAMP`/`DATE`/`TIME`, `FLOAT`/`DOUBLE` and `DECFLOAT` all round-trip
+  exactly. BLOB and ARRAY parameters are not supported in batches yet.
+- Oversized `CHAR`/`VARCHAR` values fail the batch client-side before
+  anything is sent; server-side record errors (constraint violations,
+  truncation…) are reported per record.
 
 ### Statement Timeouts (Firebird 4.0+)
 Setting a statement timeout allows the client to automatically abort queries that take too long on the server.

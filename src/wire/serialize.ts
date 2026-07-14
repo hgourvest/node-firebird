@@ -282,12 +282,12 @@ export class XdrWriter {
         this.pos += 4;
     }
 
-    addInt64(value: number): void {
+    addInt64(value: number | bigint): void {
         this.ensure(8);
-        // Note: precision is limited to Number.MAX_SAFE_INTEGER (±2^53-1).
-        // Values outside this range lose precision, which matches the previous
-        // Long.fromNumber() behaviour.
-        this.buffer.writeBigInt64BE(BigInt(Math.trunc(value)), this.pos);
+        // Note: for numbers, precision is limited to Number.MAX_SAFE_INTEGER
+        // (±2^53-1); values outside this range lose precision, which matches
+        // the previous Long.fromNumber() behaviour. BigInts keep full precision.
+        this.buffer.writeBigInt64BE(typeof value === 'bigint' ? value : BigInt(Math.trunc(value)), this.pos);
         this.pos += 8;
     }
 
@@ -379,6 +379,12 @@ export class XdrWriter {
         this.ensure(8);
         this.buffer.writeDoubleBE(value, this.pos);
         this.pos += 8;
+    }
+
+    addFloat(value: number): void {
+        this.ensure(4);
+        this.buffer.writeFloatBE(value, this.pos);
+        this.pos += 4;
     }
 
     addQuad(quad: { low: number; high: number }): void {

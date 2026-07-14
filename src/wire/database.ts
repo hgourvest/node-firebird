@@ -229,6 +229,54 @@ class Database extends Events.EventEmitter {
         return self;
     }
 
+    /**
+     * Bulk-execute `query` once per row via the Firebird 4 batch API
+     * (protocol 16+) with all-or-nothing semantics: the batch runs in its
+     * own transaction, committed only when every record succeeded and
+     * rolled back otherwise. On failure the error of the first failed
+     * record is reported, with the full completion attached as
+     * err.batchCompletion. Use transaction.executeBatch for partial-success
+     * handling.
+     */
+    executeBatch(query: string, rows: any[][], callback?: any, options?: any): this {
+        var self = this;
+
+        self.connection.startTransaction(function(err: any, transaction: any) {
+            if (err) {
+                doError(err, callback);
+                return;
+            }
+
+            transaction.executeBatch(query, rows, function(err: any, result: any) {
+                if (err) {
+                    transaction.rollback(function() {
+                        doError(err, callback);
+                    });
+                    return;
+                }
+
+                if (!result.success) {
+                    transaction.rollback(function() {
+                        var first = result.errors.length ? result.errors[0] : null;
+                        var batchError: any = first
+                            ? first.error
+                            : new Error('Batch failed for record(s) ' + result.errorRecordNumbers.join(', '));
+                        batchError.batchCompletion = result;
+                        doError(batchError, callback);
+                    });
+                    return;
+                }
+
+                transaction.commit(function(err: any) {
+                    if (callback)
+                        callback(err, result);
+                });
+            }, options);
+        });
+
+        return self;
+    }
+
     sequentially(query: string, params?: any, on?: any, callback?: any, options: any = {}): this {
         if (params instanceof Function) {
             options = callback;
@@ -471,6 +519,11 @@ class Database extends Events.EventEmitter {
     executeAsync(query: string, params?: any, options?: any): Promise<any[]> {
         var self = this;
         return fromCallback(function(cb) { self.execute(query, params, cb, options); });
+    }
+
+    executeBatchAsync(query: string, rows: any[][], options?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.executeBatch(query, rows, cb, options); });
     }
 
     sequentiallyAsync(query: string, params?: any, on?: any, options?: any): Promise<void> {

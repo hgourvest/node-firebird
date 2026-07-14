@@ -69,11 +69,24 @@ class Statement {
         this.connection.fetchAll(this, transaction, callback);
     }
 
+    /**
+     * Execute this statement once per row via the Firebird 4 batch API
+     * (protocol 16+). `rows` is an array of parameter arrays.
+     */
+    executeBatch(transaction: any, rows: any[][], callback?: any, options?: any): void {
+        this.connection.executeBatch(transaction, this, rows, callback, options);
+    }
+
     /* Promise / async-await API — wrappers over the callback methods above. */
 
     executeAsync(transaction: any, params?: any, options?: any): Promise<any> {
         var self = this;
         return fromCallback(function(cb) { self.execute(transaction, params, cb, options); });
+    }
+
+    executeBatchAsync(transaction: any, rows: any[][], options?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.executeBatch(transaction, rows, cb, options); });
     }
 
     fetchAsync(transaction: any, count: number | string): Promise<any> {
