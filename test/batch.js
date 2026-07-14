@@ -1,7 +1,6 @@
 const Firebird = require('../lib');
 const Config = require('./config');
 const Const = require('../lib/wire/const');
-const { GDSCode } = require('../lib/gdscodes');
 
 const assert = require('assert');
 
@@ -183,7 +182,9 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
                 if (err.batchCompletion) {
                     assert.deepStrictEqual(err.batchCompletion.errorRecordNumbers, [0]);
                 } else {
-                    assert.strictEqual(err.gdscode, GDSCode.ARITH_EXCEPT,
+                    // FB4/5 wrap it in a DSQL_ERROR status vector, so match
+                    // the message instead of a specific leading gdscode
+                    assert.match(err.message, /string right truncation/i,
                         'unexpected batch error: ' + err.message);
                 }
                 return true;

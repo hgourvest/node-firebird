@@ -9,7 +9,9 @@ const dbName = 'test-' + currentDate.getTime() + '-' + uniqueId + '.fdb';
 exports.default = {
     database: path.join(process.env.FIREBIRD_DATA || testDir, dbName),
     host: '127.0.0.1',
-    port: 3050,
+    // FIREBIRD_PORT lets the suite target a non-default server, e.g. a
+    // dockerized Firebird 4/5 running next to a local installation
+    port: Number(process.env.FIREBIRD_PORT) || 3050,
     user: 'SYSDBA',
     password: 'masterkey',
     role: null,
