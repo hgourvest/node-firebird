@@ -182,6 +182,39 @@ options.searchPath = undefined; // optional; ordered list/array of schemas to re
 options.jsonAsObject = false; // optional; automatically stringify parameters and parse query results that contain JSON (FB >= 6.0)
 ```
 
+### Connection URI strings
+
+Everywhere an options object is accepted — `attach`, `create`,
+`attachOrCreate`, `drop`, `Firebird.pool()` and their `*Async`
+counterparts — a `firebird://` URI string works too, which is handy for
+12-factor apps and containers that configure the database via a single
+environment variable:
+
+```js
+const db = await Firebird.attachAsync(process.env.DATABASE_URL);
+// e.g. DATABASE_URL=firebird://SYSDBA:masterkey@db.example.com:3050//var/fb/prod.fdb?encoding=UTF8
+
+const pool = Firebird.pool(10,
+    'firebird://app:secret@localhost/appdb?lowercase_keys=true&idleTimeoutMillis=30000');
+```
+
+The database part after `host[:port]/` can be:
+
+| URI | database |
+| :--- | :--- |
+| `firebird://host/employee` | the alias `employee` |
+| `firebird://host//var/fb/prod.fdb` | `/var/fb/prod.fdb` (explicit absolute path) |
+| `firebird://host/var/fb/prod.fdb` | `/var/fb/prod.fdb` (a database part with `/` is a path — aliases cannot contain slashes) |
+| `firebird://host/C:/fbdata/prod.fdb` | the Windows path `C:/fbdata/prod.fdb` |
+
+Query parameters map 1:1 onto the connection options above and are coerced
+to the right type (`?pageSize=8192&lowercase_keys=true&wireCompression=1`).
+Credentials and paths are URL-decoded, so reserved characters can be
+percent-encoded (`p%40ss` for `p@ss`); `user`/`password` may alternatively
+be passed as query parameters. IPv6 hosts use brackets:
+`firebird://[::1]:3050/employee`. The parser is exported as
+`Firebird.parseConnectionUri(uri)` if you need the resulting options object.
+
 ### Classic
 
 ```js

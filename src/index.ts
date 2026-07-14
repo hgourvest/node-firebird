@@ -3,6 +3,7 @@ import { doError, doCallback, fromCallback } from './callback';
 import Connection from './wire/connection';
 import Pool from './pool';
 import { escape as escapeValue } from './utils';
+import { parseConnectionUri, normalizeOptions } from './uri';
 import type {
     Options,
     SvcMgrOptions,
@@ -54,9 +55,10 @@ export const escape = escapeValue;
  */
 export let connection: Connection | undefined;
 
-export function attach(options: Options, callback: DatabaseCallback): void;
+export function attach(options: Options | string, callback: DatabaseCallback): void;
 export function attach(options: SvcMgrOptions, callback: ServiceManagerCallback): void;
 export function attach(options: any, callback: any): void {
+    options = normalizeOptions(options);
     var host = options.host || Const.DEFAULT_HOST;
     var port = options.port || Const.DEFAULT_PORT;
     var manager = options.manager || false;
@@ -81,8 +83,8 @@ export function attach(options: any, callback: any): void {
     }, options);
 }
 
-export function drop(options: Options, callback: SimpleCallback): void {
-	attach(options, function(err: any, db: any) {
+export function drop(options: Options | string, callback: SimpleCallback): void {
+	attach(normalizeOptions(options), function(err: any, db: any) {
 		if (err) {
 			callback({ error: err, message: "Drop error" });
 			return;
@@ -92,7 +94,8 @@ export function drop(options: Options, callback: SimpleCallback): void {
 	});
 }
 
-export function create(options: Options, callback: DatabaseCallback): void {
+export function create(options: Options | string, callback: DatabaseCallback): void {
+    options = normalizeOptions(options);
     var host = options.host || Const.DEFAULT_HOST;
     var port = options.port || Const.DEFAULT_PORT;
     var cnx = connection = new Connection(host, port, function(err: any) {
@@ -116,7 +119,8 @@ export function create(options: Options, callback: DatabaseCallback): void {
     }, options);
 }
 
-export function attachOrCreate(options: Options, callback: DatabaseCallback): void {
+export function attachOrCreate(options: Options | string, callback: DatabaseCallback): void {
+    options = normalizeOptions(options);
 
     var host = options.host || Const.DEFAULT_HOST;
     var port = options.port || Const.DEFAULT_PORT;
@@ -154,9 +158,11 @@ export function attachOrCreate(options: Options, callback: DatabaseCallback): vo
 }
 
 // Pooling
-export function pool(max: number, options: Options): ConnectionPool {
-	return new Pool(attach, max, Object.assign({}, options, { isPool: true }));
+export function pool(max: number, options: Options | string): ConnectionPool {
+	return new Pool(attach, max, Object.assign({}, normalizeOptions(options), { isPool: true }));
 }
+
+export { parseConnectionUri };
 
 /*
  * Promise / async-await API.
@@ -166,19 +172,19 @@ export function pool(max: number, options: Options): ConnectionPool {
  */
 
 export function attachAsync(options: SvcMgrOptions): Promise<ServiceManager>;
-export function attachAsync(options: Options): Promise<Database>;
+export function attachAsync(options: Options | string): Promise<Database>;
 export function attachAsync(options: any): Promise<any> {
     return fromCallback(function(cb) { attach(options, cb); });
 }
 
-export function createAsync(options: Options): Promise<Database> {
+export function createAsync(options: Options | string): Promise<Database> {
     return fromCallback(function(cb) { create(options, cb); });
 }
 
-export function attachOrCreateAsync(options: Options): Promise<Database> {
+export function attachOrCreateAsync(options: Options | string): Promise<Database> {
     return fromCallback(function(cb) { attachOrCreate(options, cb); });
 }
 
-export function dropAsync(options: Options): Promise<void> {
+export function dropAsync(options: Options | string): Promise<void> {
     return fromCallback(function(cb) { drop(options, cb); });
 }
