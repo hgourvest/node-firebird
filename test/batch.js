@@ -1,5 +1,7 @@
 const Firebird = require('../lib');
 const Config = require('./config');
+const Const = require('../lib/wire/const');
+const { GDSCode } = require('../lib/gdscodes');
 
 const assert = require('assert');
 
@@ -9,10 +11,27 @@ const config = Config.extends(Config.default, {
 
 const INSERT = 'INSERT INTO batch_t (id, name, amount, created, active, big) VALUES (?, ?, ?, ?, ?, ?)';
 
+// The batch API needs wire protocol 16+ (Firebird 4.0). Detected once in
+// beforeAll; every test skips itself on older servers (e.g. Firebird 3 CI).
+let batchSupported = true;
+
+// it() wrapper that skips when the server has no batch support
+const itBatch = (name, fn) => it(name, function (ctx) {
+    if (!batchSupported) return ctx.skip();
+    return fn.call(this, ctx);
+});
+
 describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
     let db;
 
+    beforeAll(async function () {
+        const probe = await Firebird.attachOrCreateAsync(config);
+        batchSupported = probe.connection.accept.protocolVersion >= Const.PROTOCOL_VERSION16;
+        await probe.detachAsync();
+    });
+
     beforeEach(async function () {
+        if (!batchSupported) return;
         db = await Firebird.attachOrCreateAsync(config);
         await db.executeAsync(`RECREATE TABLE batch_t (
             id INT NOT NULL PRIMARY KEY,
@@ -29,7 +48,7 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
         db = null;
     });
 
-    it('should insert many rows with mixed types and nulls', async function () {
+    itBatch('should insert many rows with mixed types and nulls', async function () {
         const rows = [];
         for (let i = 1; i <= 300; i++) {
             rows.push([
@@ -60,7 +79,7 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
         assert.strictEqual(row7[0].active, false);
     });
 
-    it('should round-trip booleans and timestamps', async function () {
+    itBatch('should round-trip booleans and timestamps', async function () {
         const created = new Date(2026, 3, 15, 12, 30, 45);
         await db.executeBatchAsync(INSERT, [
             [1, 'yes', 1, created, true, 1n],
@@ -75,7 +94,7 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
         assert.strictEqual(rows[0].created.getTime(), created.getTime());
     });
 
-    it('should chunk large batches into multiple op_batch_msg packets', async function () {
+    itBatch('should chunk large batches into multiple op_batch_msg packets', async function () {
         const rows = [];
         for (let i = 1; i <= 120; i++) {
             rows.push([i, 'chunked-' + i, i, new Date(), true, null]);
@@ -90,7 +109,7 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
         assert.strictEqual(check[0].n, 120);
     });
 
-    it('should roll back everything on error at database level (all-or-nothing)', async function () {
+    itBatch('should roll back everything on error at database level (all-or-nothing)', async function () {
         const badRows = [
             [1, 'a', 1, new Date(), true, 1n],
             [2, 'b', 2, new Date(), true, 2n],
@@ -112,7 +131,7 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
         assert.strictEqual(after[0].n, 0);
     });
 
-    it('should report partial success at transaction level (multiError)', async function () {
+    itBatch('should report partial success at transaction level (multiError)', async function () {
         const badRows = [
             [1, 'a', 1, new Date(), true, 1n],
             [2, 'b', 2, new Date(), true, 2n],
@@ -138,35 +157,45 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
         assert.deepStrictEqual(after.map((r) => r.id), [1, 2, 4]);
     });
 
-    it('should resolve immediately for empty rows', async function () {
+    itBatch('should resolve immediately for empty rows', async function () {
         const res = await db.executeBatchAsync(INSERT, []);
         assert.strictEqual(res.success, true);
         assert.strictEqual(res.recordCount, 0);
         assert.deepStrictEqual(res.updateCounts, []);
     });
 
-    it('should reject rows that do not match the parameter count', async function () {
+    itBatch('should reject rows that do not match the parameter count', async function () {
         await assert.rejects(
             db.executeBatchAsync(INSERT, [[1, 'a']]),
             /row 0 must be an array of 6 values/
         );
     });
 
-    it('should report string truncation as a record-level error', async function () {
-        // 41 chars fit in VARCHAR(40)'s utf8 byte capacity, so the server
-        // catches the character overflow and reports it per record
+    itBatch('should reject string truncation server-side', async function () {
+        // 41 chars fit in VARCHAR(40)'s utf8 byte capacity, so the overflow
+        // is caught by the server. Firebird 6 reports it per record in the
+        // batch completion state; Firebird 4/5 fail the batch as a whole
+        // with the truncation error.
         const rows = [[1, 'x'.repeat(41), 1, new Date(), true, 1n]];
         await assert.rejects(
             db.executeBatchAsync(INSERT, rows),
             (err) => {
-                assert.ok(err.batchCompletion);
-                assert.deepStrictEqual(err.batchCompletion.errorRecordNumbers, [0]);
+                if (err.batchCompletion) {
+                    assert.deepStrictEqual(err.batchCompletion.errorRecordNumbers, [0]);
+                } else {
+                    assert.strictEqual(err.gdscode, GDSCode.ARITH_EXCEPT,
+                        'unexpected batch error: ' + err.message);
+                }
                 return true;
             }
         );
+
+        // no record may have been committed either way
+        const after = await db.queryAsync('SELECT COUNT(*) AS n FROM batch_t');
+        assert.strictEqual(after[0].n, 0);
     });
 
-    it('should reject values over the wire capacity before sending anything', async function () {
+    itBatch('should reject values over the wire capacity before sending anything', async function () {
         // 161 bytes exceed VARCHAR(40) utf8's 160-byte wire slot: the client
         // must fail the whole batch without writing a single packet
         const rows = [[1, 'x'.repeat(161), 1, new Date(), true, 1n]];
@@ -180,7 +209,7 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
         assert.strictEqual(ping[0].one, 1);
     });
 
-    it('should work with the callback API on a statement', function () {
+    itBatch('should work with the callback API on a statement', function () {
         return new Promise(function (resolve, reject) {
             db.transaction(function (err, tr) {
                 if (err) return reject(err);
