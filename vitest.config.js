@@ -25,6 +25,7 @@ module.exports = defineConfig({
             'test/decfloat.js',
             'test/mock-server.js',
             'test/pool-fixes.js',
+            'test/pool-observability.js',
             'test/blob-chunks.js',
             'test/sql-schemas.js',
             'test/tablespaces.js',

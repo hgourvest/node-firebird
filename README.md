@@ -217,6 +217,44 @@ pool.get(function (err, db) {
 pool.destroy();
 ```
 
+#### Pool events and metrics
+
+The pool is an `EventEmitter` and exposes live counters, following the
+`pg.Pool` conventions:
+
+```js
+const pool = Firebird.pool(10, {
+    ...options,
+    idleTimeoutMillis: 30000, // close connections idle for 30s…
+    min: 2,                   // …but always keep 2 alive
+    connectTimeout: 5000,
+});
+
+pool.on('connect', (db) => console.log('new server connection'));
+pool.on('acquire', (db) => console.log('connection handed to a caller'));
+pool.on('release', (db) => console.log('connection returned to the pool'));
+pool.on('remove',  (db) => console.log('connection closed & removed'));
+pool.on('error',   (err, db) => console.error('background pool error', err));
+
+// live metrics — e.g. for a /health endpoint or periodic monitoring
+console.log({
+    total:   pool.totalCount,   // physical connections (idle + in use)
+    idle:    pool.idleCount,    // available in the pool
+    active:  pool.activeCount,  // handed out to callers
+    waiting: pool.waitingCount, // get() calls queued for a free slot
+});
+```
+
+- `idleTimeoutMillis` closes connections that sat idle in the pool for that
+  long, never shrinking below `min` — long-lived pools no longer hold every
+  connection they ever created (issue [#329](https://github.com/hgourvest/node-firebird/issues/329)).
+  The sweep also evicts idle connections whose socket has died, so callers
+  don't receive them after a server restart (issue [#343](https://github.com/hgourvest/node-firebird/issues/343)).
+- `error` is a background-error channel (idle eviction failures and the
+  like); unlike a plain `EventEmitter`, it is only emitted when a listener
+  is attached, so existing applications keep working unchanged.
+- Metrics are plain getters — reading them has no side effects.
+
 #### Advanced Pooling Features
 
 The pool implementation includes several safeguards for reliability:
@@ -224,6 +262,7 @@ The pool implementation includes several safeguards for reliability:
 1.  **Connection Timeout**: Use `options.connectTimeout` to prevent the pool from hanging if a server accepts the TCP connection but fails to respond to the Firebird wire protocol (e.g., during high load or authentication stalls).
 2.  **Pool Destruction**: Calling `pool.destroy()` now immediately drains the `pending` queue, notifying all waiting callers with an error. It also prevents any further `pool.get()` calls.
 3.  **Slot Recovery**: If a connection attempt times out, the pool slot is correctly freed so subsequent requests can be served. Late-arriving connections are automatically discarded to prevent resource leaks.
+4.  **Idle Reaping & Health**: `idleTimeoutMillis`/`min` shrink the pool when traffic drops and evict dead idle connections (see [Pool events and metrics](#pool-events-and-metrics)).
 
 #### Pool Lifecycle State Diagram
 

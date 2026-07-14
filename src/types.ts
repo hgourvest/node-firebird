@@ -282,6 +282,19 @@ export interface Options {
      */
     connectTimeout?: number;
     /**
+     * Pool only: minimum number of physical connections the idle reaper
+     * keeps alive. Only meaningful together with `idleTimeoutMillis`.
+     * Default 0 (the pool may shrink to no connections).
+     */
+    min?: number;
+    /**
+     * Pool only: close connections that have been idle in the pool for this
+     * many milliseconds, never shrinking below `min`. Dead idle connections
+     * (server restarts, dropped sockets) are evicted on the same sweep.
+     * Default 0 (idle connections are kept forever).
+     */
+    idleTimeoutMillis?: number;
+    /**
      * **Firebird 6.0+ only (Protocol 20+)**
      *
      * Sets the session's current schema at connection time.  Equivalent to
@@ -324,9 +337,29 @@ export interface SvcMgrOptions extends Options {
     manager: true; // Attach to ServiceManager
 }
 
+export type PoolEvent = 'connect' | 'acquire' | 'release' | 'remove' | 'error';
+
 export interface ConnectionPool {
     get(callback: DatabaseCallback): void;
     destroy(callback?: SimpleCallback): void;
+
+    // Metrics (live counters, pg.Pool-style)
+    /** Physical connections owned by the pool (idle + in use). */
+    readonly totalCount: number;
+    /** Connections sitting idle in the pool. */
+    readonly idleCount: number;
+    /** Connections currently handed out to callers. */
+    readonly activeCount: number;
+    /** get() requests queued for a free slot. */
+    readonly waitingCount: number;
+
+    // Events
+    on(event: 'connect' | 'acquire' | 'release' | 'remove', listener: (db: Database) => void): this;
+    on(event: 'error', listener: (err: Error, db?: Database) => void): this;
+    once(event: 'connect' | 'acquire' | 'release' | 'remove', listener: (db: Database) => void): this;
+    once(event: 'error', listener: (err: Error, db?: Database) => void): this;
+    off(event: PoolEvent, listener: (...args: any[]) => void): this;
+    removeListener(event: PoolEvent, listener: (...args: any[]) => void): this;
 
     // Promise / async-await API
     getAsync(): Promise<Database>;

@@ -4,32 +4,140 @@
  *
  ***************************************/
 
+import Events from 'events';
 import { fromCallback } from './callback';
 import type { Callback } from './callback';
 
 type AttachFn = (options: any, callback: Callback) => void;
 
-class Pool {
+/**
+ * Connection pool with pg.Pool-style observability.
+ *
+ * Events (all optional to listen to):
+ *   'connect' (db)      — a new physical connection was established
+ *   'acquire' (db)      — a connection was handed to a caller
+ *   'release' (db)      — a connection was returned to the idle pool
+ *   'remove'  (db)      — a physical connection left the pool for good
+ *   'error'   (err, db) — a background error (idle eviction, reaper detach);
+ *                         only emitted when a listener is attached, so
+ *                         existing applications never crash on it
+ *
+ * Metrics: totalCount, idleCount, activeCount, waitingCount.
+ *
+ * Options: max (factory argument), options.min (floor the reaper never
+ * shrinks below), options.idleTimeoutMillis (close idle connections after
+ * this many ms; 0/absent = never), options.connectTimeout.
+ */
+class Pool extends Events.EventEmitter {
     attach: AttachFn;
     internaldb: any[];
     pooldb: any[];
     dbinuse: number;
     _creating: number;
     max: number;
+    min: number;
+    idleTimeoutMillis: number;
     pending: Callback[];
     options: any;
     _destroyed: boolean;
+    _reaper: NodeJS.Timeout | null;
 
     constructor(attach: AttachFn, max: number, options: any) {
+        super();
         this.attach    = attach;
         this.internaldb = []; // connections created by the pool (for destroy)
         this.pooldb    = []; // connections available in the pool (idle)
         this.dbinuse   = 0;  // connections currently handed out to callers
         this._creating = 0;  // connections currently being created (attach in flight)
         this.max       = max || 4;
+        this.min       = (options && options.min > 0) ? Math.min(options.min, this.max) : 0;
+        this.idleTimeoutMillis = (options && options.idleTimeoutMillis > 0) ? options.idleTimeoutMillis : 0;
         this.pending   = []; // callbacks waiting for a free slot
         this.options   = options;
         this._destroyed = false; // true after destroy() — prevents further use
+        this._reaper   = null;
+
+        if (this.idleTimeoutMillis) {
+            var self = this;
+            // Sweep at half the idle timeout (bounded to 100ms..30s) so a
+            // connection lives at most ~1.5x idleTimeoutMillis. unref() keeps
+            // the timer from holding the process open.
+            var interval = Math.min(Math.max(this.idleTimeoutMillis / 2, 100), 30000);
+            this._reaper = setInterval(function() { self._reap(); }, interval);
+            if (this._reaper.unref) this._reaper.unref();
+        }
+    }
+
+    /** Physical connections owned by the pool (idle + in use). */
+    get totalCount(): number {
+        return this.internaldb.length;
+    }
+
+    /** Connections sitting idle in the pool. */
+    get idleCount(): number {
+        return this.pooldb.length;
+    }
+
+    /** Connections currently handed out to callers. */
+    get activeCount(): number {
+        return this.dbinuse;
+    }
+
+    /** get() requests queued for a free slot. */
+    get waitingCount(): number {
+        return this.pending.length;
+    }
+
+    /** True when the connection can no longer be used. */
+    _isDead(db: any): boolean {
+        return !db.connection || db.connection._isClosed || db.connection._isDetach ||
+            !db.connection._socket || db.connection._socket.destroyed;
+    }
+
+    /** Drop a physical connection from the pool's books and emit 'remove'. */
+    _forget(db: any): void {
+        var idx = this.internaldb.indexOf(db);
+        if (idx !== -1) this.internaldb.splice(idx, 1);
+        idx = this.pooldb.indexOf(db);
+        if (idx !== -1) this.pooldb.splice(idx, 1);
+        this.emit('remove', db);
+    }
+
+    /** Emit 'error' only when someone listens — never crash the app. */
+    _emitError(err: any, db?: any): void {
+        if (this.listenerCount('error') > 0) this.emit('error', err, db);
+    }
+
+    /**
+     * Idle sweep: evict dead idle connections immediately and close healthy
+     * ones that have been idle longer than idleTimeoutMillis, keeping at
+     * least `min` physical connections. (issue #329)
+     */
+    _reap(): void {
+        if (this._destroyed) return;
+        var self = this;
+        var now = Date.now();
+
+        // iterate over a copy — we splice from pooldb while walking
+        this.pooldb.slice().forEach(function(db) {
+            if (self._isDead(db)) {
+                self._forget(db);
+                return;
+            }
+            if (self.internaldb.length <= self.min) return;
+            var idleSince = typeof db.__poolIdleSince === 'number' ? db.__poolIdleSince : now;
+            if (now - idleSince < self.idleTimeoutMillis) return;
+
+            self._forget(db);
+            db.connection._pooled = false;
+            try {
+                db.detach(function(err?: any) {
+                    if (err) self._emitError(err, db);
+                });
+            } catch (e) {
+                self._emitError(e, db);
+            }
+        });
     }
 
     get(callback: Callback): this {
@@ -59,15 +167,15 @@ class Pool {
         if (self.pooldb.length) {
             var db = self.pooldb.shift();
             // Discard connections that have been closed or destroyed while idle
-            if (db.connection && (db.connection._isClosed || db.connection._isDetach || !db.connection._socket || db.connection._socket.destroyed)) {
-                var idx = self.internaldb.indexOf(db);
-                if (idx !== -1) self.internaldb.splice(idx, 1);
+            if (self._isDead(db)) {
+                self._forget(db);
                 self.pending.unshift(cb);
                 setImmediate(function () { self.check(); });
                 return self;
             }
             // Idle connection available — hand it out immediately.
             self.dbinuse++;
+            self.emit('acquire', db);
             cb(null, db);
         } else {
             // No idle connection — create a new one via attach().
@@ -133,14 +241,20 @@ class Pool {
                         if (self.pooldb.indexOf(db) !== -1 || self.internaldb.indexOf(db) === -1)
                             return;
                         // if not usable don't put it back in the pool
-                        if (db.connection._isClosed || db.connection._isDetach || db.connection._pooled === false)
+                        if (db.connection._isClosed || db.connection._isDetach || db.connection._pooled === false) {
                             self.internaldb.splice(self.internaldb.indexOf(db), 1);
-                        else
+                            self.emit('remove', db);
+                        } else {
+                            db.__poolIdleSince = Date.now();
                             self.pooldb.push(db);
+                            self.emit('release', db);
+                        }
 
                         self.dbinuse--;
                         self.check();
                     });
+                    self.emit('connect', db);
+                    self.emit('acquire', db);
                 }
 
                 cb(err, db);
@@ -156,6 +270,11 @@ class Pool {
     destroy(callback?: (err?: any) => void): void {
         var self = this;
         self._destroyed = true;
+
+        if (self._reaper) {
+            clearInterval(self._reaper);
+            self._reaper = null;
+        }
 
         // [Fix 4] Drain pending callbacks so callers are not left hanging.
         // This is critical when destroy() is called as a recovery measure after
@@ -197,6 +316,7 @@ class Pool {
                 self.pooldb.splice(_db_in_pool, 1);
                 db.connection._pooled = false;
                 db.detach(detachCallback);
+                self.emit('remove', db);
             } else {
                 // [Fix 5] Connection is currently in use (dbinuse > 0).
                 // The caller is responsible for releasing it via detach().
