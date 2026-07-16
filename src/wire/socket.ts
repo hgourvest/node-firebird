@@ -102,10 +102,12 @@ class Socket {
     encryptCipher: any;
     decryptCipher: any;
 
-    constructor(port: number, host: string) {
+    constructor(port: number, host: string, enableKeepAlive = true, keepAliveInitialDelay = 60000) {
         this._socket = net.createConnection(port, host);
         this._socket.setNoDelay(true);
-        this._socket.setKeepAlive(true, 60000); // 1 minute delay to detect dead/stale connections
+        // TCP keepalive probing detects dead/stale connections; the delay is
+        // how long the socket must be idle before the first probe.
+        this._socket.setKeepAlive(enableKeepAlive, keepAliveInitialDelay);
         this.compressor = null;
         this.compressorBuffer = [];
         this.decompressor = null;

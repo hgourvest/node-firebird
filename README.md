@@ -174,6 +174,8 @@ options.wireCrypt = Firebird.WIRE_CRYPT_ENABLE; // default; set to Firebird.WIRE
 options.pluginName = undefined; // optional, auto-negotiated; can be set to Firebird.AUTH_PLUGIN_SRP256, Firebird.AUTH_PLUGIN_SRP, or Firebird.AUTH_PLUGIN_LEGACY
 options.dbCryptConfig = undefined; // optional; database encryption key for encrypted databases. Use 'base64:<value>' for base64-encoded keys or plain text
 options.connectTimeout = 10000; // optional; timeout in ms for a single pool.get() attach operation (default: no timeout)
+options.enableKeepAlive = true; // TCP keepalive probing to detect dead/stale connections (same option names as mysql2); set to false to disable
+options.keepAliveInitialDelay = 60000; // ms a socket must be idle before the first keepalive probe (ignored when enableKeepAlive is false)
 options.parallelWorkers = undefined; // optional; request multiple thread workers for maintenance/index tasks (FB >= 5)
 options.maxInlineBlobSize = undefined; // optional; threshold size in bytes for inline blob transmission (default 65535, FB >= 5.0.3)
 options.maxNegotiatedProtocols = 10; // optional; limit maximum protocol versions negotiated (default 10 for compatibility, set to 11 for FB >= 6.0)

@@ -12,7 +12,7 @@ import type { Options } from './types';
  */
 const BOOLEAN_KEYS = new Set([
     'lowercase_keys', 'blobAsText', 'wireCompression', 'manager',
-    'namedPlaceholders',
+    'namedPlaceholders', 'enableKeepAlive',
 ]);
 
 /** Option keys coerced to number when they arrive as URI query parameters. */
@@ -20,7 +20,7 @@ const NUMBER_KEYS = new Set([
     'port', 'pageSize', 'timeout', 'retryConnectionInterval',
     'blobChunkSize', 'blobReadChunkSize', 'wireCrypt', 'parallelWorkers',
     'maxInlineBlobSize', 'maxNegotiatedProtocols', 'connectTimeout',
-    'min', 'idleTimeoutMillis',
+    'min', 'idleTimeoutMillis', 'keepAliveInitialDelay',
 ]);
 
 function coerce(key: string, value: string): any {

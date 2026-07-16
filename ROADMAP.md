@@ -241,7 +241,7 @@ Ordered roughly by expected user impact:
 7. **Custom type parsers (`typeCast`)** — pg (`pg-types` `setTypeParser`) and mysql2 (`typeCast`) let users override value decoding per SQL type. We have one-off flags (`blobAsText`, `jsonAsObject`); a general hook would subsume future flag requests (e.g. dates as strings, BIGINT as number vs BigInt).
 8. **Prepared-statement cache** — mysql2 keeps a per-connection LRU cache of prepared statements, transparently reusing them. A `statementCacheSize` option would speed up hot query paths without API changes.
 9. **`Readable` stream adapter** — `db.queryStream(sql, params)` returning an object-mode `Readable` (what `pg-query-stream` / mysql2 `.stream()` return), implemented on top of `sequentially`, so results can be `pipeline()`d into transforms/HTTP responses.
-10. **Configurable socket keepalive** — mysql2 exposes `enableKeepAlive`/`keepAliveInitialDelay`; ours is hardcoded to 60 s in `src/wire/socket.ts`. Trivial once options plumbing exists.
+10. **Configurable socket keepalive** ✅ Implemented — `enableKeepAlive` (default true) and `keepAliveInitialDelay` (default 60000 ms) connection options, same names as mysql2, also accepted as URI query parameters. Documented in [README.md § Connection options](README.md#connection-options).
 11. **`nestTables` / duplicate-column handling** — mysql2 can qualify result keys by table for `JOIN`s with colliding column names, which silently overwrite each other in object rows today. Worth considering after `typeCast`.
 12. **Multi-host pooling (`PoolCluster`)** — mysql2 routes across primaries/replicas with failover strategies. With Firebird 4+ logical replication this becomes relevant, but it is niche today — evaluate after pool observability lands.
 
@@ -255,7 +255,8 @@ Ordered roughly by expected user impact:
 | Next minor | Promise/async-await API ✅ done (TS Phase B + `withConnection` / `withTransaction` helpers); pool observability ✅ done (events + metrics + idle reaping, resolves #329/#343); connection URI strings ✅ done; TS strictness hardening (Phase A.1); ServiceManager promise wrappers; remaining P1 issue #341 |
 | Next minor (cont.) | Query cancellation + `AbortSignal` ✅ done |
 | Next minor (cont.) | Firebird 4 batch API (bulk inserts) ✅ done |
-| Future minor | named placeholders; `typeCast` hook; statement cache; `queryStream` Readable adapter; configurable keepalive; Protocol 20 (lift the v19 cap once the prepare hang is resolved); database creation with different owner (#7718) |
+| Shipped in 2.9.0 | named placeholders; traditional `host[/port]:database` connection strings; deferred-op response queue fix |
+| Future minor | `typeCast` hook; statement cache; `queryStream` Readable adapter; configurable keepalive ✅ done; Protocol 20 (lift the v19 cap once the prepare hang is resolved); database creation with different owner (#7718) |
 | Future major | ESM/CJS dual exports; TS Phase C generics; multi-host pooling (if demand materializes) |
 
 ---

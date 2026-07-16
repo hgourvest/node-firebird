@@ -289,6 +289,16 @@ export interface Options {
      * per-query `namedPlaceholders: false` override.
      */
     namedPlaceholders?: boolean;
+    /**
+     * TCP keepalive probing to detect dead/stale connections (same option
+     * names as mysql2). On by default; set false to disable.
+     */
+    enableKeepAlive?: boolean;
+    /**
+     * Milliseconds a socket must be idle before the first TCP keepalive
+     * probe is sent (default 60000). Ignored when enableKeepAlive is false.
+     */
+    keepAliveInitialDelay?: number;
     pluginName?: string;
     parallelWorkers?: number;
     maxInlineBlobSize?: number;

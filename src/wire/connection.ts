@@ -83,7 +83,9 @@ class Connection {
         this._detachTimeout;
         this._detachCallback;
         this._detachAuto;
-        this._socket = new Socket(port, host);
+        this._socket = new Socket(port, host,
+            options.enableKeepAlive !== false,
+            options.keepAliveInitialDelay);
         this._pending = [];
         this._isOpened = false;
         this._isClosed = false;
