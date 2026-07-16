@@ -101,6 +101,25 @@ describe('Promise / async-await API', function () {
                 await transaction.commitAsync();
             }
         });
+
+        it('should stay in sync after dropAsync (deferred op_free_statement)', async function () {
+            // dropAsync defers the op_free_statement packet; its response
+            // arrives with the NEXT exchange. Without a queued placeholder
+            // consuming it, every later response pairs with the wrong
+            // request and the connection breaks (or hangs).
+            const statement = await db.newStatementAsync('SELECT name FROM t_promise WHERE id = ?');
+            const transaction = await db.transactionAsync();
+            try {
+                await statement.executeAsync(transaction, [1]);
+                await statement.fetchAllAsync(transaction);
+            } finally {
+                await transaction.commitAsync();
+                await statement.dropAsync();
+            }
+
+            const rows = await db.queryAsync('SELECT name FROM t_promise WHERE id = ?', [2]);
+            assert.strictEqual(rows[0].name, 'Bob');
+        });
     });
 
     describe('transactions', function () {

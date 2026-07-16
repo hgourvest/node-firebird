@@ -426,8 +426,17 @@ class Connection {
         const canDefer = defer && this.accept.protocolVersion >= Const.PROTOCOL_VERSION11;
     
         self._socket.write(self._msg.getData(), canDefer);
-        if (canDefer && callback) {
-            callback();
+        if (canDefer) {
+            // A deferred packet sits in the socket buffer until the next
+            // non-deferred write flushes it, but the server still answers it
+            // with its own op_response (delivered along with that next
+            // exchange). Queue a placeholder to consume that response —
+            // otherwise the queue pairs it with the NEXT request and every
+            // later response is off by one. The op itself is fire-and-forget,
+            // so complete the caller right away.
+            self._queue.push(undefined);
+            if (callback)
+                callback();
         } else {
             self._queue.push(callback);
         }
