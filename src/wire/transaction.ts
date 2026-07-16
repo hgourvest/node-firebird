@@ -1,4 +1,5 @@
 import { doCallback, doError, fromCallback } from '../callback';
+import { parseNamedPlaceholders } from '../named-params';
 import { noop } from '../utils';
 import Const from './const';
 
@@ -51,15 +52,41 @@ class Transaction {
         this.db = connection.db;
     }
 
-    newStatement(query: string, callback: (err: any, statement?: any) => void): void {
+    /** Per-call options.namedPlaceholders overrides the connection option. */
+    private namedPlaceholdersEnabled(options?: any): boolean {
+        if (options && options.namedPlaceholders !== undefined)
+            return !!options.namedPlaceholders;
+        return !!(this.connection.options && this.connection.options.namedPlaceholders);
+    }
+
+    newStatement(query: string, callback: (err: any, statement?: any) => void, options?: any): void {
         var cnx = this.connection;
         var self = this;
+
+        // With namedPlaceholders on, prepare the positional rewrite and
+        // remember the name order on the statement so statement.execute can
+        // accept a values-by-name object. The rewritten SQL is the cache key.
+        var names: string[] | null = null;
+        if (this.namedPlaceholdersEnabled(options)) {
+            var parsed = parseNamedPlaceholders(query);
+            if (parsed.names) {
+                query = parsed.sql;
+                names = parsed.names;
+            }
+        }
+
+        var deliver = function(err: any, statement?: any) {
+            if (statement)
+                statement.namedParams = names;
+            callback(err, statement);
+        };
+
         var query_cache = cnx.getCachedQuery(query);
 
         if (query_cache) {
-            callback(null, query_cache);
+            deliver(null, query_cache);
         } else {
-            cnx.prepare(self, query, false, callback);
+            cnx.prepare(self, query, false, deliver);
         }
     }
 
@@ -148,7 +175,7 @@ class Transaction {
                 }
 
             }, options);
-        });
+        }, options);
     }
 
     sequentially(query: string, params?: any, on?: any, callback?: any, options: any = {}): this {
@@ -255,7 +282,7 @@ class Transaction {
                 if (callback)
                     callback(err, result);
             }, options);
-        });
+        }, options);
     }
 
     executeBatchAsync(query: string, rows: any[][], options?: any): Promise<any> {

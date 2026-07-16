@@ -13,7 +13,7 @@
 - [Promises and async/await](#promises-and-asyncawait) — the `*Async` API plus `withConnection` / `withTransaction` helpers
 - [Connection types](#connection-types) — connection options, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
-- [Examples](#examples) — parametrized queries, BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
+- [Examples](#examples) — parametrized queries, named placeholders, BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
 - [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
 - [Using node-firebird with Express.js](#using-node-firebird-with-expressjs)
 - [FAQ](#faq)
@@ -180,6 +180,7 @@ options.maxNegotiatedProtocols = 10; // optional; limit maximum protocol version
 options.defaultSchema = undefined; // optional; sets session CURRENT_SCHEMA at connect time (FB >= 6.0)
 options.searchPath = undefined; // optional; ordered list/array of schemas to resolve unqualified object references (FB >= 6.0)
 options.jsonAsObject = false; // optional; automatically stringify parameters and parse query results that contain JSON (FB >= 6.0)
+options.namedPlaceholders = false; // set to true to allow :name placeholders in SQL with a { name: value } params object (see Named placeholders)
 ```
 
 ### Connection URI strings
@@ -416,6 +417,46 @@ Firebird.attach(options, function (err, db) {
     }
   );
 });
+```
+
+### Named placeholders
+
+With the `namedPlaceholders: true` connection option, SQL may use `:name`
+markers and parameters may be passed as a values-by-name object instead of
+a positional array. The rewrite happens client-side before the statement is
+prepared, so it works on every Firebird version; positional `?` arrays keep
+working unchanged on the same connection.
+
+```js
+const db = await Firebird.attachAsync({ ...options, namedPlaceholders: true });
+// or: firebird://user:pass@host/db?namedPlaceholders=true
+
+const rows = await db.queryAsync(
+  'SELECT * FROM USERS WHERE ALIAS = :alias AND CREATED > :since',
+  { alias: 'Peter', since: new Date(2026, 0, 1) });
+
+// A name may repeat — it binds once per occurrence:
+await db.queryAsync(
+  'SELECT * FROM T WHERE A = :v OR B = :v', { v: 42 });
+
+// Batch rows can be objects too (Firebird 4.0+):
+await db.executeBatchAsync(
+  'INSERT INTO USERS (ID, ALIAS) VALUES (:id, :alias)',
+  [{ id: 1, alias: 'a' }, { id: 2, alias: 'b' }]);
+```
+
+Placeholders inside string literals (`'...'`), quoted identifiers (`"..."`),
+comments and `q'{...}'` alternative literals are left untouched. A key
+present with value `null` binds SQL `NULL`; a *missing* key raises
+`Missing value for named placeholder(s): ...`.
+
+The scanner has no SQL grammar, so inside an `EXECUTE BLOCK` body every
+PSQL `:variable` reference looks like a placeholder too. The option is
+therefore off by default — and can be disabled for a single statement with
+the per-query option:
+
+```js
+await db.queryAsync(execBlockSql, [], { namedPlaceholders: false });
 ```
 
 ### Tablespaces and Schema Partitioning (Firebird 6.0+)

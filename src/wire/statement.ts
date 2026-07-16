@@ -4,7 +4,8 @@
  *
  ***************************************/
 
-import { fromCallback } from '../callback';
+import { doError, fromCallback } from '../callback';
+import { bindNamedParams, isNamedParamsObject } from '../named-params';
 
 class Statement {
     connection: any;
@@ -15,6 +16,12 @@ class Statement {
     options: any;
     handle: number;
     plan: string;
+    /**
+     * Placeholder names in positional order when this statement was
+     * prepared from SQL with named placeholders (namedPlaceholders on),
+     * null/undefined otherwise. Set by Transaction.newStatement.
+     */
+    namedParams?: string[] | null;
     [key: string]: any;
 
     constructor(connection: any) {
@@ -44,6 +51,15 @@ class Statement {
             params = undefined;
         }
 
+        if (this.namedParams && isNamedParamsObject(params)) {
+            try {
+                params = bindNamedParams(this.namedParams, params);
+            } catch (err) {
+                doError(err, callback);
+                return;
+            }
+        }
+
         this.options = options;
         this.connection.executeStatement(transaction, this, params, callback, options);
     }
@@ -71,9 +87,22 @@ class Statement {
 
     /**
      * Execute this statement once per row via the Firebird 4 batch API
-     * (protocol 16+). `rows` is an array of parameter arrays.
+     * (protocol 16+). `rows` is an array of parameter arrays — or, when the
+     * statement was prepared with named placeholders, of values-by-name
+     * objects (the two forms can be mixed).
      */
     executeBatch(transaction: any, rows: any[][], callback?: any, options?: any): void {
+        var names = this.namedParams;
+        if (names && Array.isArray(rows)) {
+            try {
+                rows = rows.map(function(row: any) {
+                    return isNamedParamsObject(row) ? bindNamedParams(names as string[], row) : row;
+                });
+            } catch (err) {
+                doError(err, callback);
+                return;
+            }
+        }
         this.connection.executeBatch(transaction, this, rows, callback, options);
     }
 

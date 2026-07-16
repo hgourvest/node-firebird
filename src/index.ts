@@ -163,6 +163,7 @@ export function pool(max: number, options: Options | string): ConnectionPool {
 }
 
 export { parseConnectionUri };
+export { parseNamedPlaceholders } from './named-params';
 
 /*
  * Promise / async-await API.

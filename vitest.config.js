@@ -20,6 +20,7 @@ module.exports = defineConfig({
             'test/cancel.js',
             'test/batch.js',
             'test/uri.js',
+            'test/named-params.js',
             'test/db-crypt-config.js',
             'test/encoding.js',
             'test/timezone.js',

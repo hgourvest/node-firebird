@@ -100,9 +100,22 @@ export type BatchOptions = {
     chunkSize?: number;
 };
 
+/**
+ * Positional query parameters (array), or — when named placeholders are
+ * enabled via the `namedPlaceholders` connection/query option — values by
+ * placeholder name.
+ */
+export type QueryParams = any[] | Record<string, any>;
+
 export type QueryOptions = {
     timeout?: number;
     scrollable?: boolean;
+    /**
+     * Per-query override of the `namedPlaceholders` connection option
+     * (e.g. disable it for one EXECUTE BLOCK statement whose body uses
+     * `:variable` PSQL references).
+     */
+    namedPlaceholders?: boolean;
     /**
      * Abort the query when the signal fires (Firebird 2.5+ / protocol 12+).
      * If the signal is already aborted the query is not sent at all and the
@@ -118,11 +131,11 @@ export interface Database {
     detach(callback?: SimpleCallback): Database;
     transaction(options: TransactionOptions|Isolation|TransactionCallback, callback?: TransactionCallback): Database;
     newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): Database;
-    query(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): Database;
-    execute(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): Database;
+    query(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): Database;
+    execute(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): Database;
     /** Bulk-execute in its own transaction, all-or-nothing (Firebird 4.0+). */
-    executeBatch(query: string, rows: any[][], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): Database;
-    sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
+    executeBatch(query: string, rows: QueryParams[], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): Database;
+    sequentially(query: string, params: QueryParams, rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
     drop(callback: SimpleCallback): void;
     escape(value: any): string;
     attachEvent(callback: any): this;
@@ -133,10 +146,10 @@ export interface Database {
 
     // Promise / async-await API (see README § Promises / async–await).
     // Result metadata is only available through the callback API.
-    queryAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
-    executeAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
-    executeBatchAsync(query: string, rows: any[][], options?: BatchOptions): Promise<BatchResult>;
-    sequentiallyAsync(query: string, params: any[] | undefined, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
+    queryAsync<T = any>(query: string, params?: QueryParams, options?: QueryOptions): Promise<T[]>;
+    executeAsync<T = any>(query: string, params?: QueryParams, options?: QueryOptions): Promise<T[]>;
+    executeBatchAsync(query: string, rows: QueryParams[], options?: BatchOptions): Promise<BatchResult>;
+    sequentiallyAsync(query: string, params: QueryParams | undefined, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
     sequentiallyAsync(query: string, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
     transactionAsync(options?: TransactionOptions | Isolation): Promise<Transaction>;
     startTransactionAsync(options?: TransactionOptions | Isolation): Promise<Transaction>;
@@ -158,21 +171,21 @@ export interface Database {
 
 export interface Transaction {
     newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): void;
-    query(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): void;
-    execute(query: string, params: any[], callback: QueryCallback, options?: QueryOptions): void;
+    query(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): void;
+    execute(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): void;
     /** Bulk-execute within this transaction; per-record failures do not roll back (Firebird 4.0+). */
-    executeBatch(query: string, rows: any[][], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): void;
-    sequentially(query: string, params: any[], rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
+    executeBatch(query: string, rows: QueryParams[], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): void;
+    sequentially(query: string, params: QueryParams, rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
     commit(callback?: SimpleCallback): void;
     commitRetaining(callback?: SimpleCallback): void;
     rollback(callback?: SimpleCallback): void;
     rollbackRetaining(callback?: SimpleCallback): void;
 
     // Promise / async-await API
-    queryAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
-    executeAsync<T = any>(query: string, params?: any[], options?: QueryOptions): Promise<T[]>;
-    executeBatchAsync(query: string, rows: any[][], options?: BatchOptions): Promise<BatchResult>;
-    sequentiallyAsync(query: string, params: any[] | undefined, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
+    queryAsync<T = any>(query: string, params?: QueryParams, options?: QueryOptions): Promise<T[]>;
+    executeAsync<T = any>(query: string, params?: QueryParams, options?: QueryOptions): Promise<T[]>;
+    executeBatchAsync(query: string, rows: QueryParams[], options?: BatchOptions): Promise<BatchResult>;
+    sequentiallyAsync(query: string, params: QueryParams | undefined, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
     sequentiallyAsync(query: string, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
     newStatementAsync(query: string): Promise<Statement>;
     commitAsync(): Promise<void>;
@@ -185,17 +198,17 @@ export interface Statement {
     close(callback?: SimpleCallback): void;
     drop(callback?: SimpleCallback): void;
     release(callback?: SimpleCallback): void;
-    execute(transaction: Transaction, params: any[], callback: QueryCallback, options?: QueryOptions): void;
+    execute(transaction: Transaction, params: QueryParams, callback: QueryCallback, options?: QueryOptions): void;
     fetch(transaction: Transaction, count: number, callback: QueryCallback): void;
     fetchScroll(transaction: Transaction, direction: 'NEXT' | 'PRIOR' | 'FIRST' | 'LAST' | 'ABSOLUTE' | 'RELATIVE' | number, offset: number, count: number, callback: QueryCallback): void;
     fetchAll(transaction: Transaction, callback: QueryCallback): void;
 
     /** Execute this prepared statement once per row (Firebird 4.0+ batch API). */
-    executeBatch(transaction: Transaction, rows: any[][], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): void;
+    executeBatch(transaction: Transaction, rows: QueryParams[], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): void;
 
     // Promise / async-await API
-    executeAsync(transaction: Transaction, params?: any[], options?: QueryOptions): Promise<any>;
-    executeBatchAsync(transaction: Transaction, rows: any[][], options?: BatchOptions): Promise<BatchResult>;
+    executeAsync(transaction: Transaction, params?: QueryParams, options?: QueryOptions): Promise<any>;
+    executeBatchAsync(transaction: Transaction, rows: QueryParams[], options?: BatchOptions): Promise<BatchResult>;
     fetchAsync(transaction: Transaction, count: number | 'all'): Promise<any>;
     fetchScrollAsync(transaction: Transaction, direction: 'NEXT' | 'PRIOR' | 'FIRST' | 'LAST' | 'ABSOLUTE' | 'RELATIVE' | number, offset?: number, count?: number): Promise<any>;
     fetchAllAsync(transaction: Transaction): Promise<any>;
@@ -266,6 +279,16 @@ export interface Options {
     blobReadChunkSize?: number;
     wireCrypt?: number; // WIRE_CRYPT_DISABLE or WIRE_CRYPT_ENABLE
     wireCompression?: boolean;
+    /**
+     * Enable named placeholders: SQL may use `:name` markers and params may
+     * be a values-by-name object (`db.query('... WHERE id = :id', { id: 1 })`).
+     * Placeholders are rewritten client-side to positional `?` before
+     * preparing; positional arrays keep working unchanged. Off by default
+     * because `EXECUTE BLOCK` bodies use `:variable` for PSQL references —
+     * with this option on, run such statements with positional params or a
+     * per-query `namedPlaceholders: false` override.
+     */
+    namedPlaceholders?: boolean;
     pluginName?: string;
     parallelWorkers?: number;
     maxInlineBlobSize?: number;
