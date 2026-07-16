@@ -2,7 +2,7 @@ import Events from 'events';
 import stream from 'stream';
 import Const from './const';
 import { BlrReader } from './serialize';
-import { doError } from '../callback';
+import { doError, fromCallback } from '../callback';
 
 /***************************************
  *
@@ -1053,6 +1053,188 @@ class ServiceManager extends Events.EventEmitter {
             }
             self._processquery(data.buffer, callback);
         });
+    }
+
+    /* Promise / async-await API — wrappers over the callback methods above. */
+
+    detachAsync(force?: boolean): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.detach(cb, force); });
+    }
+
+    backupAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.backup(options, cb); });
+    }
+
+    nbackupAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.nbackup(options, cb); });
+    }
+
+    restoreAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.restore(options, cb); });
+    }
+
+    nrestoreAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.nrestore(options, cb); });
+    }
+
+    setDialectAsync(db: string, dialect: number): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.setDialect(db, dialect, cb); });
+    }
+
+    setSweepintervalAsync(db: string, sweepinterval: number): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.setSweepinterval(db, sweepinterval, cb); });
+    }
+
+    setCachebufferAsync(db: string, nbpages: number): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.setCachebuffer(db, nbpages, cb); });
+    }
+
+    BringOnlineAsync(db: string): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.BringOnline(db, cb); });
+    }
+
+    ShutdownAsync(db: string, kind: number, delay: number, mode?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.Shutdown(db, kind, delay, mode, cb); });
+    }
+
+    setShadowAsync(db: string, val: boolean): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.setShadow(db, val, cb); });
+    }
+
+    setForcewriteAsync(db: string, val: boolean): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.setForcewrite(db, val, cb); });
+    }
+
+    setReservespaceAsync(db: string, val: boolean): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.setReservespace(db, val, cb); });
+    }
+
+    setReadonlyModeAsync(db: string): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.setReadonlyMode(db, cb); });
+    }
+
+    setReadwriteModeAsync(db: string): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.setReadwriteMode(db, cb); });
+    }
+
+    validateAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.validate(options, cb); });
+    }
+
+    commitAsync(db: string, transactid: number): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.commit(db, transactid, cb); });
+    }
+
+    rollbackAsync(db: string, transactid: number): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.rollback(db, transactid, cb); });
+    }
+
+    recoverAsync(db: string, transactid: number): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.recover(db, transactid, cb); });
+    }
+
+    getStatsAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.getStats(options, cb); });
+    }
+
+    getLogAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.getLog(options, cb); });
+    }
+
+    getUsersAsync(username?: string | null): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.getUsers(username === undefined ? null : username, cb); });
+    }
+
+    addUserAsync(username: string, password: string, options?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.addUser(username, password, options, cb); });
+    }
+
+    editUserAsync(username: string, options: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.editUser(username, options, cb); });
+    }
+
+    removeUserAsync(username: string, rolename?: string | null): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.removeUser(username, rolename === undefined ? null : rolename, cb); });
+    }
+
+    getFbserverInfosAsync(infos?: any, options?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.getFbserverInfos(infos || {}, options || {}, cb); });
+    }
+
+    startTraceAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.startTrace(options, cb); });
+    }
+
+    suspendTraceAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.suspendTrace(options, cb); });
+    }
+
+    resumeTraceAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.resumeTrace(options, cb); });
+    }
+
+    stopTraceAsync(options: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.stopTrace(options, cb); });
+    }
+
+    getTraceListAsync(options?: any): Promise<stream.Readable> {
+        var self = this;
+        return fromCallback(function(cb) { self.getTraceList(options || {}, cb); });
+    }
+
+    readlineAsync(options?: any): Promise<{ result: number, line: string }> {
+        var self = this;
+        return fromCallback(function(cb) { self.readline(options || {}, cb); });
+    }
+
+    readeofAsync(options?: any): Promise<{ result: number, line: string }> {
+        var self = this;
+        return fromCallback(function(cb) { self.readeof(options || {}, cb); });
+    }
+
+    hasRunningActionAsync(options?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.hasRunningAction(options || {}, cb); });
+    }
+
+    readusersAsync(options?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.readusers(options || {}, cb); });
+    }
+
+    readlimboAsync(options?: any): Promise<any> {
+        var self = this;
+        return fromCallback(function(cb) { self.readlimbo(options || {}, cb); });
     }
 
 }

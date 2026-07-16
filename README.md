@@ -136,6 +136,7 @@ Available wrappers:
 - **database** — `db.queryAsync(sql, params?, options?)`, `executeAsync`, `executeBatchAsync(sql, rows, options?)`, `sequentiallyAsync(sql, params?, onRow, options?)`, `transactionAsync(options?)`, `newStatementAsync(sql)`, `attachEventAsync()`, `detachAsync()`, `dropAsync()`, `db.withTransaction(work, options?)`
 - **transaction** — `queryAsync`, `executeAsync`, `executeBatchAsync`, `sequentiallyAsync`, `newStatementAsync`, `commitAsync`, `rollbackAsync`, `commitRetainingAsync`, `rollbackRetainingAsync`
 - **statement** — `executeAsync(transaction, params?, options?)`, `executeBatchAsync(transaction, rows, options?)`, `fetchAsync`, `fetchScrollAsync`, `fetchAllAsync`, `closeAsync`, `dropAsync`, `releaseAsync`
+- **service manager** — every [Service Manager function](#service-manager-functions) has an `*Async` counterpart (`backupAsync`, `restoreAsync`, `getUsersAsync`, `addUserAsync`, `getFbserverInfosAsync`, `startTraceAsync`, …); stream-producing functions resolve with the `Readable`, info functions with the info object
 
 Notes:
 
@@ -1020,6 +1021,26 @@ var fbsvc = {
     "hasActionRunning" : { [ "options"], "object"}
 }
 
+```
+
+Every function also has a promise-returning `*Async` counterpart (no
+callback argument): stream-producing functions resolve with the
+`Readable`, info functions with the info object.
+
+```js
+const svc = await Firebird.attachAsync({ ...options, manager: true });
+try {
+    const info = await svc.getFbserverInfosAsync();
+    console.log(info.fbversion);
+
+    const backup = await svc.backupAsync({
+        database: '/DB/MYDB.FDB',
+        files: [{ filename: '/DB/MYDB.FBK' }]
+    });
+    for await (const line of backup) console.log(line);
+} finally {
+    await svc.detachAsync();
+}
 ```
 
 ### Backup Service example

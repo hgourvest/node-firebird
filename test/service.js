@@ -481,4 +481,73 @@ describe('Test Service', () => {
             await fromCallback(cb => srv.detach(cb));
         });
     });
+
+    describe('Promise API (*Async wrappers)', () => {
+        it('should get server infos with getFbserverInfosAsync', async () => {
+            const srv = await Firebird.attachAsync(config);
+            try {
+                const data = await srv.getFbserverInfosAsync();
+                assert.ok(data.dbinfo.nbattachment != null, 'Db info nb attachment not found');
+            } finally {
+                await srv.detachAsync();
+            }
+        });
+
+        it('should get the server log with getLogAsync', async () => {
+            const srv = await Firebird.attachAsync(config);
+            try {
+                const data = await srv.getLogAsync({});
+                assert.ok(data instanceof stream.Readable);
+                await readStreamAsync(data);
+            } finally {
+                await srv.detachAsync();
+            }
+        });
+
+        it('should backup and restore with backupAsync/restoreAsync', async () => {
+            const backupFile = DATABASE.database.replace('.fdb', '-async-backup.fbk');
+            const restoredDb = DATABASE.database.replace('.fdb', '-async-rest.fdb');
+
+            const srv = await Firebird.attachAsync(config);
+            try {
+                const backup = await srv.backupAsync({
+                    database: DATABASE.database,
+                    files: [{filename: backupFile}]
+                });
+                assert.ok(backup instanceof stream.Readable);
+                await readStreamAsync(backup);
+                assert.ok(fs.existsSync(path.resolve(backupFile)));
+
+                const restore = await srv.restoreAsync({
+                    database: restoredDb,
+                    files: [backupFile]
+                });
+                await readStreamAsync(restore);
+                assert.ok(fs.existsSync(path.resolve(restoredDb)));
+            } finally {
+                await srv.detachAsync();
+            }
+        });
+
+        it('should manage users with addUserAsync/getUsersAsync/removeUserAsync', async () => {
+            const username = 'ASYNC-' + (new Date()).getTime();
+
+            const srv = await Firebird.attachAsync(config);
+            try {
+                await readStreamAsync(await srv.addUserAsync(username, 'test', {
+                    username, firstname: 'Async', middlename: 'api', lastname: 'user'
+                }));
+
+                const found = await srv.getUsersAsync(username);
+                assert.equal(found.fbusers[0].username, username);
+
+                await readStreamAsync(await srv.removeUserAsync(username, ''));
+
+                const after = await srv.getUsersAsync('');
+                assert.equal(after.fbusers.filter(u => u.username === username).length, 0);
+            } finally {
+                await srv.detachAsync();
+            }
+        });
+    });
 });

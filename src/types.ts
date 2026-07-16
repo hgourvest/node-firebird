@@ -575,4 +575,42 @@ export interface ServiceManager {
     hasRunningAction(options: ReadableOptions, callback: ReadableCallback): void;
     readusers(options: ReadableOptions, callback: ReadableCallback): void;
     readlimbo(options: ReadableOptions, callback: ReadableCallback): void;
+
+    // Promise / async-await API (see README § Promises / async–await).
+    detachAsync(force?: boolean): Promise<void>;
+    backupAsync(options: BackupOptions): Promise<NodeJS.ReadableStream>;
+    nbackupAsync(options: BackupOptions): Promise<NodeJS.ReadableStream>;
+    restoreAsync(options: RestoreOptions): Promise<NodeJS.ReadableStream>;
+    nrestoreAsync(options: NRestoreOptions): Promise<NodeJS.ReadableStream>;
+    setDialectAsync(db: string, dialect: 1 | 3): Promise<NodeJS.ReadableStream>;
+    setSweepintervalAsync(db: string, interval: number): Promise<any>;
+    setCachebufferAsync(db: string, nbpages: any): Promise<NodeJS.ReadableStream>;
+    BringOnlineAsync(db: string): Promise<NodeJS.ReadableStream>;
+    ShutdownAsync(db: string, kind: ShutdownKind, delay: number, mode?: ShutdownMode): Promise<NodeJS.ReadableStream>;
+    setShadowAsync(db: string, val: boolean): Promise<NodeJS.ReadableStream>;
+    setForcewriteAsync(db: string, val: boolean): Promise<NodeJS.ReadableStream>;
+    setReservespaceAsync(db: string, val: boolean): Promise<NodeJS.ReadableStream>;
+    setReadonlyModeAsync(db: string): Promise<NodeJS.ReadableStream>;
+    setReadwriteModeAsync(db: string): Promise<NodeJS.ReadableStream>;
+    validateAsync(options: ValidateOptions): Promise<NodeJS.ReadableStream>;
+    commitAsync(db: string, transactid: number): Promise<NodeJS.ReadableStream>;
+    rollbackAsync(db: string, transactid: number): Promise<NodeJS.ReadableStream>;
+    recoverAsync(db: string, transactid: number): Promise<NodeJS.ReadableStream>;
+    getStatsAsync(options: StatsOptions): Promise<NodeJS.ReadableStream>;
+    getLogAsync(options: ReadableOptions): Promise<NodeJS.ReadableStream>;
+    getUsersAsync(username?: string | null): Promise<ServerInfo>;
+    addUserAsync(username: string, password: string, info?: UserInfo): Promise<NodeJS.ReadableStream>;
+    editUserAsync(username: string, info: UserInfo): Promise<NodeJS.ReadableStream>;
+    removeUserAsync(username: string, rolename?: string | null): Promise<NodeJS.ReadableStream>;
+    getFbserverInfosAsync(infos?: ServerInfoReq, options?: { buffersize?: number, timeout?: number }): Promise<ServerInfo>;
+    startTraceAsync(options: TraceOptions): Promise<NodeJS.ReadableStream>;
+    suspendTraceAsync(options: TraceOptions): Promise<NodeJS.ReadableStream>;
+    resumeTraceAsync(options: TraceOptions): Promise<NodeJS.ReadableStream>;
+    stopTraceAsync(options: TraceOptions): Promise<NodeJS.ReadableStream>;
+    getTraceListAsync(options?: ReadableOptions): Promise<NodeJS.ReadableStream>;
+    readlineAsync(options?: ReadableOptions): Promise<{ result: number, line: string }>;
+    readeofAsync(options?: ReadableOptions): Promise<{ result: number, line: string }>;
+    hasRunningActionAsync(options?: ReadableOptions): Promise<any>;
+    readusersAsync(options?: ReadableOptions): Promise<any>;
+    readlimboAsync(options?: ReadableOptions): Promise<any>;
 }

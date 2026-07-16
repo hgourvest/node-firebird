@@ -133,7 +133,7 @@ Shipped: every callback API has a promise-returning `*Async` counterpart (`Fireb
 - Mixing callbacks and promises in the same codebase increases the surface for subtle bugs; the docs recommend one style per project.
 - Rejected promises that are not caught produce `UnhandledPromiseRejection` warnings — a difference from callback-style errors.
 
-**Follow-up:** promise wrappers for the ServiceManager API (backup/restore/user management) are not included yet.
+**Follow-up:** ✅ Done — the ServiceManager API (backup/restore/user management/trace/properties) now has `*Async` wrappers for every function, documented in [README.md § Service Manager functions](README.md#service-manager-functions).
 
 ### Phase C — Modern TypeScript ergonomics (optional / future)
 
@@ -232,7 +232,7 @@ A review of what [node-postgres (`pg`)](https://node-postgres.com/) and [`mysql2
 
 Ordered roughly by expected user impact:
 
-1. **Promise/`async`–`await` API** ✅ Implemented — `*Async` wrappers on every API plus `pool.withConnection()` / `db.withTransaction()` helpers ([TypeScript Phase B](#phase-b--dual-api-callbacks--promises--done)); ServiceManager wrappers remain a follow-up.
+1. **Promise/`async`–`await` API** ✅ Implemented — `*Async` wrappers on every API plus `pool.withConnection()` / `db.withTransaction()` helpers ([TypeScript Phase B](#phase-b--dual-api-callbacks--promises--done)), including ServiceManager `*Async` wrappers.
 2. **Query cancellation + `AbortSignal`** ✅ Implemented — `{ signal }` in query options (callback and promise APIs, database- and transaction-level) plus manual `db.cancel()` / `db.cancelAsync()`, built on out-of-band `op_cancel` (protocol 12+). Cancelled statements fail with `err.gdscode === GDSCode.CANCELLED`; already-aborted signals reject with `AbortError` without contacting the server. Documented in [README.md § Query Cancellation with AbortSignal](README.md#query-cancellation-with-abortsignal-firebird-25).
 3. **Batch/bulk execution (Firebird 4 batch API)** ✅ Implemented — `executeBatch` / `executeBatchAsync` on database (all-or-nothing), transaction (partial success with per-record errors) and statement objects, built on protocol 16 `op_batch_create` / `op_batch_msg` / `op_batch_exec`. Metadata-exact encoding (NUMERIC scale, BigInt, BOOLEAN, TIMESTAMP, DECFLOAT), NULL bitmaps, chunked messages, `multiError` completion state. Neither pg nor mysql2 has protocol-level batching. BLOB/ARRAY batch parameters remain a follow-up. Documented in [README.md § Batch Execution](README.md#batch-execution-firebird-40).
 4. **Pool observability and tuning** ✅ Implemented — the pool is now an `EventEmitter` (`connect`, `acquire`, `release`, `remove`, plus an opt-in `error` channel) with live metrics (`totalCount`, `idleCount`, `activeCount`, `waitingCount`) and idle lifecycle tuning: `idleTimeoutMillis` shrinks the pool down to `min` when traffic drops and the same sweep evicts dead idle connections. Resolves [#329](https://github.com/hgourvest/node-firebird/issues/329) (idle connections held forever) and [#343](https://github.com/hgourvest/node-firebird/issues/343) (dead pooled connections handed to callers). Documented in [README.md § Pool events and metrics](README.md#pool-events-and-metrics).
@@ -252,7 +252,7 @@ Ordered roughly by expected user impact:
 | Target | Items |
 | :--- | :--- |
 | Shipped in 2.4.0 | TypeScript 7 migration (ES classes, generated typings); Firebird database events (POST_EVENT); Srp256/384/512 auth; ChaCha/ChaCha64 wire encryption; Protocol 18/19 features (scrollable cursors, multi-row RETURNING, parallel workers, inline BLOBs); Firebird 6.0 features (schemas, tablespaces, JSON, ROW type); raw Buffer params; P0 fixes #387, #357 |
-| Next minor | Promise/async-await API ✅ done (TS Phase B + `withConnection` / `withTransaction` helpers); pool observability ✅ done (events + metrics + idle reaping, resolves #329/#343); connection URI strings ✅ done; TS strictness hardening (Phase A.1); ServiceManager promise wrappers; remaining P1 issue #341 |
+| Next minor | Promise/async-await API ✅ done (TS Phase B + `withConnection` / `withTransaction` helpers); pool observability ✅ done (events + metrics + idle reaping, resolves #329/#343); connection URI strings ✅ done; TS strictness hardening (Phase A.1); ServiceManager promise wrappers ✅ done; remaining P1 issue #341 |
 | Next minor (cont.) | Query cancellation + `AbortSignal` ✅ done |
 | Next minor (cont.) | Firebird 4 batch API (bulk inserts) ✅ done |
 | Shipped in 2.9.0 | named placeholders; traditional `host[/port]:database` connection strings; deferred-op response queue fix |
