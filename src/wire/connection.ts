@@ -90,6 +90,12 @@ class Connection {
         this._isDetach = false;
         this._isUsed = false;
         this._pooled = options.isPool||false;
+        // Credentials may be absent (e.g. a traditional host:database
+        // connection string) — apply the driver defaults once here, so every
+        // auth path (op_connect CNCT block, SRP proof, legacy cont_auth) sees
+        // the same values.
+        if (options && !options.user) options.user = Const.DEFAULT_USER;
+        if (options && !options.password) options.password = Const.DEFAULT_PASSWORD;
         if (options && options.blobChunkSize > 65535) options.blobChunkSize = 65535;
         if (options && options.blobReadChunkSize > 65535) options.blobReadChunkSize = 65535;
         this.options = options;

@@ -11,7 +11,7 @@
 - [Installation](#installation)
 - [Usage](#usage) — including [developing the driver](#developing-the-driver)
 - [Promises and async/await](#promises-and-asyncawait) — the `*Async` API plus `withConnection` / `withTransaction` helpers
-- [Connection types](#connection-types) — connection options, classic connections, pooling
+- [Connection types](#connection-types) — connection options, `firebird://` URIs and traditional connection strings, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
 - [Examples](#examples) — parametrized queries, named placeholders, BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
 - [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
@@ -215,6 +215,33 @@ percent-encoded (`p%40ss` for `p@ss`); `user`/`password` may alternatively
 be passed as query parameters. IPv6 hosts use brackets:
 `firebird://[::1]:3050/employee`. The parser is exported as
 `Firebird.parseConnectionUri(uri)` if you need the resulting options object.
+
+### Traditional connection strings (old style)
+
+The classic Firebird connection string format — the same
+`[host[/port]:]{path | alias}` strings isql and the other Firebird tools
+use — is accepted everywhere too:
+
+```js
+const db = await Firebird.attachAsync('db.example.com/3051:/var/fb/prod.fdb');
+```
+
+| Connection string | meaning |
+| :--- | :--- |
+| `employee` | the alias `employee` on `127.0.0.1:3050` |
+| `/var/fb/prod.fdb` | a path on `127.0.0.1:3050` |
+| `db.example.com:employee` | the alias `employee` on `db.example.com:3050` |
+| `db.example.com/3051:/var/fb/prod.fdb` | host and explicit port |
+| `myserver:C:\fbdata\prod.fdb` | a Windows path behind a host |
+| `C:\fbdata\prod.fdb` | a single character before `:` is a drive letter, not a host (same rule as Firebird) |
+| `[::1]/3050:employee` | IPv6 hosts use brackets |
+
+Unlike `firebird://` URIs, traditional strings carry no credentials or
+options — the driver defaults apply (`SYSDBA`/`masterkey`, port 3050), and
+the port must be numeric (`/etc/services` names are not resolved). Use the
+URI form or an options object when you need to set anything else.
+`Firebird.parseConnectionString(str)` parses both forms and is what
+`attach`/`create`/`pool` use internally for string arguments.
 
 ### Classic
 

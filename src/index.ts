@@ -3,7 +3,7 @@ import { doError, doCallback, fromCallback } from './callback';
 import Connection from './wire/connection';
 import Pool from './pool';
 import { escape as escapeValue } from './utils';
-import { parseConnectionUri, normalizeOptions } from './uri';
+import { parseConnectionUri, parseConnectionString, normalizeOptions } from './uri';
 import type {
     Options,
     SvcMgrOptions,
@@ -162,7 +162,7 @@ export function pool(max: number, options: Options | string): ConnectionPool {
 	return new Pool(attach, max, Object.assign({}, normalizeOptions(options), { isPool: true }));
 }
 
-export { parseConnectionUri };
+export { parseConnectionUri, parseConnectionString };
 export { parseNamedPlaceholders } from './named-params';
 
 /*

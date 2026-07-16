@@ -86,6 +86,70 @@ describe('Connection URI strings (firebird://...)', function () {
         });
     });
 
+    describe('parseConnectionString (traditional host[/port]:database strings)', function () {
+        const { parseConnectionString } = Firebird;
+
+        it('should parse host:alias', function () {
+            assert.deepStrictEqual(parseConnectionString('db.example.com:employee'),
+                { host: 'db.example.com', database: 'employee' });
+        });
+
+        it('should parse host/port:path', function () {
+            assert.deepStrictEqual(parseConnectionString('db.example.com/3051:/var/fb/prod.fdb'),
+                { host: 'db.example.com', port: 3051, database: '/var/fb/prod.fdb' });
+        });
+
+        it('should treat a bare alias as the database', function () {
+            assert.deepStrictEqual(parseConnectionString('employee'), { database: 'employee' });
+        });
+
+        it('should treat a bare absolute path as the database', function () {
+            assert.deepStrictEqual(parseConnectionString('/var/fb/prod.fdb'),
+                { database: '/var/fb/prod.fdb' });
+        });
+
+        it('should treat a single character before ":" as a drive letter, not a host', function () {
+            assert.deepStrictEqual(parseConnectionString('C:\\fbdata\\prod.fdb'),
+                { database: 'C:\\fbdata\\prod.fdb' });
+            assert.deepStrictEqual(parseConnectionString('C:/fbdata/prod.fdb'),
+                { database: 'C:/fbdata/prod.fdb' });
+        });
+
+        it('should parse a Windows path behind a host', function () {
+            assert.deepStrictEqual(parseConnectionString('myserver:C:\\fbdata\\prod.fdb'),
+                { host: 'myserver', database: 'C:\\fbdata\\prod.fdb' });
+        });
+
+        it('should parse bracketed IPv6 hosts', function () {
+            assert.deepStrictEqual(parseConnectionString('[::1]/3050:employee'),
+                { host: '::1', port: 3050, database: 'employee' });
+            assert.deepStrictEqual(parseConnectionString('[::1]:employee'),
+                { host: '::1', database: 'employee' });
+        });
+
+        it('should still route firebird:// strings to the URI parser', function () {
+            const o = parseConnectionString('firebird://alice:secret@h:3051/employee');
+            assert.strictEqual(o.user, 'alice');
+            assert.strictEqual(o.port, 3051);
+            assert.strictEqual(o.database, 'employee');
+        });
+
+        it('should still reject other URI schemes', function () {
+            assert.throws(() => parseConnectionString('postgres://localhost/db'),
+                /Unsupported connection URI scheme/);
+        });
+
+        it('should reject service names as ports', function () {
+            assert.throws(() => parseConnectionString('host/gds_db:employee'),
+                /Invalid port in connection string/);
+        });
+
+        it('should reject an empty host or database part', function () {
+            assert.throws(() => parseConnectionString(':employee'), /empty host/);
+            assert.throws(() => parseConnectionString('myserver:'), /empty database/);
+        });
+    });
+
     describe('live connection with a URI', function () {
         const cfg = Config.default;
         const dbPath = cfg.database.replace(/\.fdb$/, '-uri.fdb');
@@ -102,6 +166,24 @@ describe('Connection URI strings (firebird://...)', function () {
                 await db.detachAsync();
             }
             await Firebird.dropAsync(uri);
+        });
+
+        it('should attach with a traditional host/port:database string', async function () {
+            // No credentials in the old-style form — the SYSDBA/masterkey
+            // defaults apply, which is what the test server uses.
+            const oldStyle = cfg.host + '/' + cfg.port + ':' + dbPath;
+
+            const seed = await Firebird.attachOrCreateAsync(uri);
+            await seed.detachAsync();
+
+            const db = await Firebird.attachAsync(oldStyle);
+            try {
+                const rows = await db.queryAsync('SELECT 1 AS ANSWER FROM rdb$database');
+                assert.strictEqual(Number(rows[0].ANSWER), 1);
+            } finally {
+                await db.detachAsync();
+                await Firebird.dropAsync(uri).catch(() => {});
+            }
         });
 
         it('should work with the pool factory', async function () {
