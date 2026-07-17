@@ -26,6 +26,68 @@ function parseValueIfJson(value: any, options: any) {
     return value;
 }
 
+const SQL_TYPE_NAMES: Record<number, string> = {
+    [Const.SQL_TEXT]: 'TEXT',
+    [Const.SQL_VARYING]: 'VARYING',
+    [Const.SQL_SHORT]: 'SHORT',
+    [Const.SQL_LONG]: 'LONG',
+    [Const.SQL_FLOAT]: 'FLOAT',
+    [Const.SQL_DOUBLE]: 'DOUBLE',
+    [Const.SQL_D_FLOAT]: 'D_FLOAT',
+    [Const.SQL_TIMESTAMP]: 'TIMESTAMP',
+    [Const.SQL_BLOB]: 'BLOB',
+    [Const.SQL_ARRAY]: 'ARRAY',
+    [Const.SQL_QUAD]: 'QUAD',
+    [Const.SQL_TYPE_TIME]: 'TIME',
+    [Const.SQL_TYPE_DATE]: 'DATE',
+    [Const.SQL_INT64]: 'INT64',
+    [Const.SQL_INT128]: 'INT128',
+    [Const.SQL_TIMESTAMP_TZ]: 'TIMESTAMP_TZ',
+    [Const.SQL_TIMESTAMP_TZ_EX]: 'TIMESTAMP_TZ_EX',
+    [Const.SQL_TIME_TZ]: 'TIME_TZ',
+    [Const.SQL_TIME_TZ_EX]: 'TIME_TZ_EX',
+    [Const.SQL_DEC16]: 'DEC16',
+    [Const.SQL_DEC34]: 'DEC34',
+    [Const.SQL_BOOLEAN]: 'BOOLEAN',
+    [Const.SQL_NULL]: 'NULL',
+};
+
+/**
+ * Run the user's typeCast hook (options.typeCast) for one column value.
+ * The hook receives the column metadata and a next() returning the value
+ * the driver would produce by default (after blobAsText/jsonAsObject);
+ * whatever it returns becomes the value in the row. Rows may be decoded
+ * more than once when a response spans TCP packets, so the hook must be
+ * a pure function of its inputs.
+ */
+function applyTypeCast(options: any, meta: any, defaultValue: any) {
+    const typeCast = options && options.typeCast;
+    if (typeof typeCast !== 'function') {
+        return defaultValue;
+    }
+    const column = {
+        type: meta.type,
+        typeName: SQL_TYPE_NAMES[meta.type] || 'UNKNOWN',
+        subType: meta.subType,
+        scale: meta.scale,
+        length: meta.length,
+        field: meta.field,
+        relation: meta.relation,
+        alias: meta.alias,
+    };
+    // A hook exception must never escape into the row-decode loop: there it
+    // would be mistaken for an incomplete packet and desync the response
+    // queue (the same failure mode as issue #341). Fall back to the default
+    // value instead and tell the user.
+    try {
+        return typeCast(column, function () { return defaultValue; });
+    } catch (err: any) {
+        console.warn('[node-firebird] typeCast hook threw for column "%s" (%s): %s — using default value',
+            column.alias || column.field, column.typeName, err && err.message);
+        return defaultValue;
+    }
+}
+
 /***************************************
  *
  *   Connection
@@ -1852,7 +1914,9 @@ class Connection {
                 readBlobsSequentially(0, []).then((arrBlob: any) => {
                     for (let i = 0; i < arrBlob.length; i++) {
                         const blob = arrBlob[i];
-                        ret.data[blob.row][blob.column] = parseValueIfJson(blob.value, statement.connection.options);
+                        ret.data[blob.row][blob.column] = applyTypeCast(
+                            statement.connection.options, blob.meta || {},
+                            parseValueIfJson(blob.value, statement.connection.options));
                     }
 
                     doSynchronousLoop(ret.data, (row, _i, next) => {
@@ -2354,11 +2418,8 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                         item = output[data.fcolumn];
 
                         if (!lowerV13 && nullBitSet!.get(data.fcolumn)) {
-                            if (custom.asObject) {
-                                data.frow[data.fcols[data.fcolumn]] = null;
-                            } else {
-                                data.frow[data.fcolumn] = null;
-                            }
+                            const nullKey = custom.asObject ? data.fcols[data.fcolumn] : data.fcolumn;
+                            data.frow[nullKey] = applyTypeCast(cnx.options, item, null);
 
                             continue;
                         }
@@ -2368,17 +2429,24 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                             const key = custom.asObject ? data.fcols[data.fcolumn] : data.fcolumn;
                             const row = data.frows.length;
                             let value = item.decode(data, lowerV13, cnx.options);
+                            // text blobs resolved by blobAsText run through the
+                            // typeCast hook once the text arrives (see fetchAll),
+                            // not here where the value is still a pending fetch
+                            let pendingTextBlob = false;
 
                             if (item.type === Const.SQL_BLOB && value !== null) {
                                 if (item.subType === Const.isc_blob_text && cnx.options.blobAsText) {
-                                    value = fetch_blob_async_transaction(statement, value, key, row);
+                                    value = fetch_blob_async_transaction(statement, value, key, row, item);
                                     arrBlob.push(value);
+                                    pendingTextBlob = true;
                                 } else {
                                     value = fetch_blob_async(statement, value, key, row);
                                 }
                             }
 
-                            data.frow[key] = parseValueIfJson(value, cnx.options);
+                            data.frow[key] = pendingTextBlob
+                                ? value
+                                : applyTypeCast(cnx.options, item, parseValueIfJson(value, cnx.options));
                         } catch (e) {
                             // uncomplete packet read
                             data.pos = _xdrpos;
@@ -3281,8 +3349,8 @@ function CalcBlr(blr: BlrWriter, xsqlda: any[]) {
     blr.addByte(Const.blr_eoc);
 }
 
-function fetch_blob_async_transaction(statement: any, id: any, column: any, row: any) {
-    const infoValue = { row, column, value: '' };
+function fetch_blob_async_transaction(statement: any, id: any, column: any, row: any, meta?: any) {
+    const infoValue = { row, column, value: '', meta };
 
     return (transactionArg: any) => {
         const cacheKey = `${id.high}:${id.low}`;

@@ -364,7 +364,46 @@ export interface Options {
      * text/BLOB columns back into JavaScript objects/arrays.
      */
     jsonAsObject?: boolean;
+    /**
+     * Custom type parser (mysql2-style). Called for every column value of
+     * every result row (including NULLs); whatever it returns becomes the
+     * value in the row. Call `next()` to get the value the driver would
+     * produce by default (after `blobAsText`/`jsonAsObject` are applied).
+     *
+     * ```js
+     * typeCast: (column, next) =>
+     *     column.typeName === 'INT64' ? Number(next()) : next()
+     * ```
+     *
+     * Non-text BLOB columns reach the hook as the usual fetch function;
+     * text BLOBs with `blobAsText` reach it as the resolved string. The
+     * hook must be a pure function: a row can be decoded more than once
+     * when a response spans TCP packets.
+     */
+    typeCast?: TypeCastFunction;
 }
+
+/** Column metadata passed to the {@link Options.typeCast} hook. */
+export interface TypeCastColumn {
+    /** Firebird SQL type code (see the exported `SQL_TYPES` map). */
+    type: number;
+    /** Friendly name of the type code: 'VARYING', 'INT64', 'BLOB', ... */
+    typeName: string;
+    /** Column subtype (e.g. 1 = text for BLOBs; charset id for strings). */
+    subType?: number;
+    /** Negative decimal scale for NUMERIC/DECIMAL columns (e.g. -2). */
+    scale?: number;
+    /** Declared length in bytes. */
+    length?: number;
+    /** Column name in the table. */
+    field?: string;
+    /** Table (relation) name. */
+    relation?: string;
+    /** Alias used in the SELECT list (the row key for object rows). */
+    alias?: string;
+}
+
+export type TypeCastFunction = (column: TypeCastColumn, next: () => any) => any;
 
 export interface SvcMgrOptions extends Options {
     manager: true; // Attach to ServiceManager

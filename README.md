@@ -13,7 +13,7 @@
 - [Promises and async/await](#promises-and-asyncawait) — the `*Async` API plus `withConnection` / `withTransaction` helpers
 - [Connection types](#connection-types) — connection options, `firebird://` URIs and traditional connection strings, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
-- [Examples](#examples) — parametrized queries, named placeholders, BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
+- [Examples](#examples) — parametrized queries, named placeholders, custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
 - [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
 - [Using node-firebird with Express.js](#using-node-firebird-with-expressjs)
 - [FAQ](#faq)
@@ -184,6 +184,7 @@ options.defaultSchema = undefined; // optional; sets session CURRENT_SCHEMA at c
 options.searchPath = undefined; // optional; ordered list/array of schemas to resolve unqualified object references (FB >= 6.0)
 options.jsonAsObject = false; // optional; automatically stringify parameters and parse query results that contain JSON (FB >= 6.0)
 options.namedPlaceholders = false; // set to true to allow :name placeholders in SQL with a { name: value } params object (see Named placeholders)
+options.typeCast = undefined; // optional; custom type parser called for every result column value (see Custom type parsers)
 ```
 
 ### Connection URI strings
@@ -488,6 +489,62 @@ the per-query option:
 ```js
 await db.queryAsync(execBlockSql, [], { namedPlaceholders: false });
 ```
+
+### Custom type parsers (typeCast)
+
+The `typeCast` connection option lets you override how column values are
+decoded, per SQL type or per column — the same idea as mysql2's `typeCast`
+and pg's `setTypeParser`. The hook is called for **every column value of
+every result row** (including `NULL`s); whatever it returns becomes the
+value in the row. Call `next()` to get the value the driver would produce
+by default (after `blobAsText` / `jsonAsObject` are applied).
+
+```js
+const Firebird = require('node-firebird');
+
+Firebird.attach({
+    ...options,
+    typeCast: (column, next) => {
+        // dates as ISO strings instead of Date objects
+        if (column.typeName === 'DATE') {
+            const v = next();
+            return v === null ? null : v.toISOString().slice(0, 10);
+        }
+        // BIGINT columns as strings
+        if (column.type === Firebird.SQL_TYPES.SQL_INT64 && !column.scale) {
+            return String(next());
+        }
+        return next(); // everything else: default decoding
+    },
+}, (err, db) => { /* ... */ });
+```
+
+`column` describes the result column:
+
+| Property   | Meaning                                                             |
+| :--------- | :------------------------------------------------------------------ |
+| `type`     | Firebird SQL type code — compare against `Firebird.SQL_TYPES.*`      |
+| `typeName` | Friendly name: `'VARYING'`, `'INT64'`, `'DATE'`, `'BLOB'`, ...       |
+| `subType`  | Column subtype (`1` = text for BLOBs)                                |
+| `scale`    | Negative decimal scale for `NUMERIC`/`DECIMAL` (e.g. `-2`)           |
+| `length`   | Declared length in bytes                                             |
+| `field`    | Column name in the table                                             |
+| `relation` | Table name                                                           |
+| `alias`    | SELECT-list alias (the row key for object rows)                      |
+
+Notes:
+
+- Non-text BLOB columns reach the hook as the usual asynchronous fetch
+  function; text BLOBs with `blobAsText: true` reach it as the resolved
+  string.
+- The hook must be a **pure function** of its inputs: when a response
+  spans multiple TCP packets the affected rows can be decoded more than
+  once, calling the hook again for the same value.
+- The hook runs for every value on the hot row-decoding path — keep it
+  cheap, and prefer dispatching on `column.type`/`column.typeName` early.
+- Exceptions thrown by the hook are caught: the default value is used and
+  a warning is printed. A throw cannot be allowed to escape into the wire
+  decoder, so validate inside the hook and encode failures in the value.
 
 ### Tablespaces and Schema Partitioning (Firebird 6.0+)
 

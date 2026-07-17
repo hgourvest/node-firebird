@@ -49,6 +49,36 @@ export const ISOLATION_READ_COMMITTED_READ_ONLY: number[] = Const.ISOLATION_READ
 export const escape = escapeValue;
 
 /**
+ * Firebird SQL type codes, as seen in `column.type` inside a `typeCast`
+ * hook (each code also has a friendly `column.typeName`).
+ */
+export const SQL_TYPES: Readonly<Record<string, number>> = Object.freeze({
+    SQL_TEXT: Const.SQL_TEXT,
+    SQL_VARYING: Const.SQL_VARYING,
+    SQL_SHORT: Const.SQL_SHORT,
+    SQL_LONG: Const.SQL_LONG,
+    SQL_FLOAT: Const.SQL_FLOAT,
+    SQL_DOUBLE: Const.SQL_DOUBLE,
+    SQL_D_FLOAT: Const.SQL_D_FLOAT,
+    SQL_TIMESTAMP: Const.SQL_TIMESTAMP,
+    SQL_BLOB: Const.SQL_BLOB,
+    SQL_ARRAY: Const.SQL_ARRAY,
+    SQL_QUAD: Const.SQL_QUAD,
+    SQL_TYPE_TIME: Const.SQL_TYPE_TIME,
+    SQL_TYPE_DATE: Const.SQL_TYPE_DATE,
+    SQL_INT64: Const.SQL_INT64,
+    SQL_INT128: Const.SQL_INT128,
+    SQL_TIMESTAMP_TZ: Const.SQL_TIMESTAMP_TZ,
+    SQL_TIMESTAMP_TZ_EX: Const.SQL_TIMESTAMP_TZ_EX,
+    SQL_TIME_TZ: Const.SQL_TIME_TZ,
+    SQL_TIME_TZ_EX: Const.SQL_TIME_TZ_EX,
+    SQL_DEC16: Const.SQL_DEC16,
+    SQL_DEC34: Const.SQL_DEC34,
+    SQL_BOOLEAN: Const.SQL_BOOLEAN,
+    SQL_NULL: Const.SQL_NULL,
+});
+
+/**
  * The most recent Connection created by attach()/create()/attachOrCreate().
  * Kept for backwards compatibility with the previous CommonJS module where
  * the connection was stored on the module object itself.
