@@ -4,6 +4,7 @@ import { escape } from '../utils';
 import Const from './const';
 import EventConnection from './eventConnection';
 import FbEventManager from './fbEventManager';
+import makeQueryStream from './query-stream';
 
 /***************************************
  *
@@ -346,6 +347,19 @@ class Database extends Events.EventEmitter {
 
         self.execute(query, params, callback, options);
         return self;
+    }
+
+    /**
+     * Run `query` and return an object-mode Readable emitting one row per
+     * chunk (what pg-query-stream / mysql2 .stream() return), with real
+     * backpressure: fetching pauses while the stream buffer is full. Runs
+     * in its own transaction, like db.query. Destroying the stream early
+     * (e.g. a pipeline() teardown) aborts the fetch and releases the
+     * statement. Rows go through the regular decode path, so typeCast,
+     * blobAsText and jsonAsObject all apply.
+     */
+    queryStream(query: string, params?: any, options?: any) {
+        return makeQueryStream(this, query, params, options);
     }
 
     query(query: string, params?: any, callback?: any, options: any = {}): this {

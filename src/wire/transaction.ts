@@ -2,6 +2,7 @@ import { doCallback, doError, fromCallback } from '../callback';
 import { parseNamedPlaceholders } from '../named-params';
 import { noop } from '../utils';
 import Const from './const';
+import makeQueryStream from './query-stream';
 
 /***************************************
  *
@@ -82,7 +83,7 @@ class Transaction {
             callback(err, statement);
         };
 
-        var query_cache = cnx.getCachedQuery(query);
+        var query_cache = cnx.takeCachedStatement(query);
 
         if (query_cache) {
             deliver(null, query_cache);
@@ -116,6 +117,8 @@ class Transaction {
             }
 
             function dropError(err: any) {
+                // do not put a statement that just failed back into the cache
+                statement._failed = true;
                 statement.release();
                 doCallback(err, callback);
             }
@@ -243,6 +246,16 @@ class Transaction {
         return self;
     }
 
+    /**
+     * Run `query` inside this transaction and return an object-mode
+     * Readable emitting one row per chunk, with real backpressure (see
+     * Database.queryStream). The transaction is NOT committed when the
+     * stream ends — commit or roll back yourself.
+     */
+    queryStream(query: string, params?: any, options?: any) {
+        return makeQueryStream(this, query, params, options);
+    }
+
     query(query: string, params?: any, callback?: any, options: any = {}): void {
         if (params instanceof Function) {
             callback = params;
@@ -279,6 +292,8 @@ class Transaction {
             }
 
             statement.executeBatch(self, rows, function(err: any, result: any) {
+                if (err)
+                    statement._failed = true;
                 statement.release();
                 if (callback)
                     callback(err, result);

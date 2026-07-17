@@ -185,6 +185,7 @@ options.searchPath = undefined; // optional; ordered list/array of schemas to re
 options.jsonAsObject = false; // optional; automatically stringify parameters and parse query results that contain JSON (FB >= 6.0)
 options.namedPlaceholders = false; // set to true to allow :name placeholders in SQL with a { name: value } params object (see Named placeholders)
 options.typeCast = undefined; // optional; custom type parser called for every result column value (see Custom type parsers)
+options.statementCacheSize = 0; // optional; per-connection LRU cache of prepared statements, 0 = disabled (see Prepared-statement cache)
 ```
 
 ### Connection URI strings
@@ -545,6 +546,78 @@ Notes:
 - Exceptions thrown by the hook are caught: the default value is used and
   a warning is printed. A throw cannot be allowed to escape into the wire
   decoder, so validate inside the hook and encode failures in the value.
+
+### Prepared-statement cache
+
+Setting `statementCacheSize` keeps a per-connection LRU cache of prepared
+statements (like mysql2's statement cache): running the same SQL string
+again transparently reuses the already-prepared server-side statement,
+skipping the prepare round-trip. No API changes are needed — `db.query`,
+`tx.query`, `sequentially`, `executeBatch` and the `*Async` wrappers all
+benefit automatically.
+
+```js
+Firebird.attach({ ...options, statementCacheSize: 100 }, (err, db) => {
+    // the second identical query reuses the prepared statement
+    db.query('SELECT * FROM t WHERE id = ?', [1], () => {
+        db.query('SELECT * FROM t WHERE id = ?', [2], () => { /* ... */ });
+    });
+});
+```
+
+How it works:
+
+- The number is the maximum of **idle** statements kept per connection;
+  the least-recently-used statement is dropped when the limit is exceeded.
+- A cached statement leaves the cache while in use, so concurrent runs of
+  the same SQL never share a server-side cursor — extra preparations run
+  in parallel and only one goes back into the cache.
+- Statements that failed and DDL statements are never cached.
+- Cache keys are exact SQL strings (after the `namedPlaceholders`
+  rewrite), so use parametrized queries to get hits.
+- The legacy `cacheQuery: true` / `maxCachedQuery` options remain
+  supported and now map onto the same LRU cache (with a default limit of
+  100 instead of the old unbounded map).
+
+> **Note (DDL):** a statement prepared before a metadata change (e.g.
+> `ALTER TABLE`) may fail when reused. If you mix DDL with hot queries on
+> the same connection, keep the cache small or disabled.
+
+### Streaming rows with queryStream
+
+`db.queryStream(sql, params, options)` returns an **object-mode
+`Readable`** emitting one row per chunk — the counterpart of
+`pg-query-stream` and mysql2's `.stream()`. It is built on
+`sequentially()`'s backpressure: fetching from the server pauses while
+the stream's buffer is full and resumes as the consumer drains it, so
+constant memory is used regardless of the result size.
+
+```js
+const { pipeline } = require('stream/promises');
+
+// async iteration
+for await (const row of db.queryStream('SELECT * FROM big_table')) {
+    console.log(row.ID);
+}
+
+// or piping into any Writable/Transform (HTTP response, CSV encoder, ...)
+await pipeline(
+    db.queryStream('SELECT * FROM big_table WHERE grp = ?', [42]),
+    myCsvTransform,
+    res);
+```
+
+- `db.queryStream` runs in its own transaction (like `db.query`);
+  `transaction.queryStream` runs inside your transaction, which is *not*
+  committed when the stream ends.
+- Destroying the stream early — including an error mid-`pipeline()` —
+  aborts the fetch and releases the statement; the connection stays
+  usable.
+- Options: everything `query` accepts (e.g. `signal`), plus
+  `highWaterMark` (rows buffered before fetching pauses, default 16) and
+  `asObject: false` for array rows.
+- Rows go through the regular decode path, so `typeCast`, `blobAsText`
+  and `jsonAsObject` all apply.
 
 ### Tablespaces and Schema Partitioning (Firebird 6.0+)
 

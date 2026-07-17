@@ -26,6 +26,21 @@ function parseValueIfJson(value: any, options: any) {
     return value;
 }
 
+/**
+ * Resolve the prepared-statement cache limit from the connection options:
+ * `statementCacheSize` (new), or the legacy `cacheQuery`/`maxCachedQuery`
+ * pair (which had no eviction; it now gets a bounded LRU). 0 = disabled.
+ */
+function statementCacheLimit(options: any): number {
+    if (options && options.statementCacheSize > 0) {
+        return Math.floor(options.statementCacheSize);
+    }
+    if (options && options.cacheQuery) {
+        return options.maxCachedQuery > 0 ? Math.floor(options.maxCachedQuery) : 100;
+    }
+    return 0;
+}
+
 const SQL_TYPE_NAMES: Record<number, string> = {
     [Const.SQL_TEXT]: 'TEXT',
     [Const.SQL_VARYING]: 'VARYING',
@@ -128,8 +143,8 @@ class Connection {
     _detachAuto: any;
     _retry_connection_id: any;
     _retry_connection_interval: number;
-    _max_cached_query: number;
-    _cache_query: Record<string, any> | null;
+    _statementCacheSize: number;
+    _statementCache: Map<string, any> | null;
     _messageFile: string;
     _authStartTime: number | undefined;
     _pendingAccept: any;
@@ -167,25 +182,59 @@ class Connection {
         this.error;
         this._retry_connection_id;
         this._retry_connection_interval = options.retryConnectionInterval || 1000;
-        this._max_cached_query = options.maxCachedQuery || -1;
-        this._cache_query = options.cacheQuery?{}:null;
+        this._statementCacheSize = statementCacheLimit(options);
+        this._statementCache = this._statementCacheSize > 0 ? new Map() : null;
         this._messageFile = options.messageFile || path.join(__dirname, 'firebird.msg');
     }
 
 
-    _setcachedquery(query: any, statement: any) {
-        if (this._cache_query){
-            if (this._max_cached_query === -1 || this._max_cached_query > Object.keys(this._cache_query).length){
-                this._cache_query[query] = statement;
-            }
+    /**
+     * Take an idle prepared statement for `query` out of the cache, or null.
+     * The statement leaves the cache while in use, so concurrent callers of
+     * the same query never share a server-side cursor — they simply prepare
+     * a fresh statement and the spare is dropped when released.
+     */
+    takeCachedStatement(query: any) {
+        const cache = this._statementCache;
+        if (!cache) {
+            return null;
         }
-    
-    
+        const statement = cache.get(query);
+        if (!statement) {
+            return null;
+        }
+        cache.delete(query);
+        return statement;
     }
 
+    /**
+     * Return a statement after use. With the statement cache enabled the
+     * statement goes back into the cache as most-recently-used (closing its
+     * cursor but keeping the prepared handle), evicting the least-recently
+     * used statement over the limit. Failed statements, DDL and spares for
+     * an already-cached query are dropped instead.
+     */
+    releaseStatement(statement: any, callback?: any) {
+        const cache = this._statementCache;
+        const cacheable = cache &&
+            statement.query &&
+            !statement._failed &&
+            statement.type !== Const.isc_info_sql_stmt_ddl &&
+            !cache.has(statement.query);
 
-    getCachedQuery(query: any) {
-        return this._cache_query ? this._cache_query[query] : null;
+        if (!cacheable) {
+            this.dropStatement(statement, callback);
+            return;
+        }
+
+        cache!.set(statement.query, statement);
+        while (cache!.size > this._statementCacheSize) {
+            const oldestKey = cache!.keys().next().value!;
+            const oldest = cache!.get(oldestKey);
+            cache!.delete(oldestKey);
+            this.dropStatement(oldest, undefined);
+        }
+        this.closeStatement(statement, callback);
     }
 
 
@@ -1140,7 +1189,6 @@ class Connection {
                 mainCallback.response.query = query;
                 self.db.emit('query', query);
                 ret = mainCallback.response;
-                self._setcachedquery(query, ret);
             }
     
             if (callback)
@@ -1239,7 +1287,6 @@ class Connection {
                 statement.query = query;
                 self.db.emit('query', query);
                 ret = statement;
-                self._setcachedquery(query, ret);
             }
     
             if (callback)

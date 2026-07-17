@@ -40,11 +40,7 @@ class Statement {
     }
 
     release(callback?: (err?: any) => void): void {
-        var cache_query = this.connection.getCachedQuery(this.query);
-        if (cache_query)
-            this.connection.closeStatement(this, callback);
-        else
-            this.connection.dropStatement(this, callback);
+        this.connection.releaseStatement(this, callback);
     }
 
     execute(transaction: any, params?: any, callback?: any, options?: any): void {

@@ -23,6 +23,8 @@ module.exports = defineConfig({
             'test/named-params.js',
             'test/returning-failure.js',
             'test/type-cast.js',
+            'test/statement-cache.js',
+            'test/query-stream.js',
             'test/keepalive.js',
             'test/db-crypt-config.js',
             'test/encoding.js',

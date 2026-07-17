@@ -224,7 +224,7 @@ A review of what [node-postgres (`pg`)](https://node-postgres.com/) and [`mysql2
 - **Authentication plugins** — Srp/Srp256/384/512 + Legacy, negotiated automatically (mysql2's auth-switch equivalent).
 - **Statement timeouts** — shipped for FB 4.0+.
 - **BigInt-safe numerics** — native `BigInt` for `INT128`, full IEEE 754 `DECFLOAT` (ahead of both drivers here).
-- **Prepared statements** — available via `newStatement()` (manual reuse; caching proposed below).
+- **Prepared statements** — available via `newStatement()` (manual reuse; transparent reuse via the `statementCacheSize` LRU cache).
 
 ### Not applicable to Firebird
 
@@ -242,8 +242,8 @@ Ordered roughly by expected user impact:
 5. **Connection URI strings** ✅ Implemented — `firebird://user:password@host:3050/path/to/db.fdb?encoding=UTF8` accepted everywhere an options object is (attach/create/attachOrCreate/drop/pool and the `*Async` wrappers), with alias vs absolute-path vs Windows-path handling, percent-decoding, typed query-parameter coercion and an exported `parseConnectionUri`. Documented in [README.md § Connection URI strings](README.md#connection-uri-strings).
 6. **Named placeholders** — mysql2's `namedPlaceholders: true` (`SELECT * FROM t WHERE id = :id` with `{id: 1}`), rewritten client-side to positional `?` params. Purely client-side, no protocol work.
 7. **Custom type parsers (`typeCast`)** ✅ Implemented — mysql2-style `typeCast(column, next)` connection option, called for every result column value (including NULLs) with full column metadata (`type`/`typeName`/`subType`/`scale`/`field`/`relation`/`alias`) and `next()` returning the default-decoded value (after `blobAsText`/`jsonAsObject`). Covers the row decode path and `blobAsText`-resolved text; SQL type codes exported as `Firebird.SQL_TYPES`. Subsumes future per-type flag requests (dates as strings, BIGINT as string, etc.). Documented in [README.md § Custom type parsers](README.md#custom-type-parsers-typecast).
-8. **Prepared-statement cache** — mysql2 keeps a per-connection LRU cache of prepared statements, transparently reusing them. A `statementCacheSize` option would speed up hot query paths without API changes.
-9. **`Readable` stream adapter** — `db.queryStream(sql, params)` returning an object-mode `Readable` (what `pg-query-stream` / mysql2 `.stream()` return), implemented on top of `sequentially`, so results can be `pipeline()`d into transforms/HTTP responses.
+8. **Prepared-statement cache** ✅ Implemented — `statementCacheSize` option: a per-connection LRU cache of **idle** prepared statements, transparently reused by `db.query`/`tx.query`/`sequentially`/`executeBatch` with no API changes. Statements leave the cache while in use (concurrent runs of the same SQL never share a cursor), failed statements and DDL are never cached, and LRU entries are dropped over the limit. The legacy `cacheQuery`/`maxCachedQuery` options map onto the same cache (now bounded). Documented in [README.md § Prepared-statement cache](README.md#prepared-statement-cache).
+9. **`Readable` stream adapter** ✅ Implemented — `db.queryStream(sql, params, options)` / `transaction.queryStream(...)` returning an object-mode `Readable` built on `sequentially`'s `next()`-based backpressure (fetching pauses while the buffer is full). Early destroy — including a `pipeline()` teardown — aborts the fetch and releases the statement. Composes with `typeCast`/`blobAsText`/`jsonAsObject`. Documented in [README.md § Streaming rows with queryStream](README.md#streaming-rows-with-querystream).
 10. **Configurable socket keepalive** ✅ Implemented — `enableKeepAlive` (default true) and `keepAliveInitialDelay` (default 60000 ms) connection options, same names as mysql2, also accepted as URI query parameters. Documented in [README.md § Connection options](README.md#connection-options).
 11. **`nestTables` / duplicate-column handling** — mysql2 can qualify result keys by table for `JOIN`s with colliding column names, which silently overwrite each other in object rows today. Worth considering after `typeCast`.
 12. **Multi-host pooling (`PoolCluster`)** — mysql2 routes across primaries/replicas with failover strategies. With Firebird 4+ logical replication this becomes relevant, but it is niche today — evaluate after pool observability lands.
@@ -259,7 +259,7 @@ Ordered roughly by expected user impact:
 | Next minor (cont.) | Query cancellation + `AbortSignal` ✅ done |
 | Next minor (cont.) | Firebird 4 batch API (bulk inserts) ✅ done |
 | Shipped in 2.9.0 | named placeholders; traditional `host[/port]:database` connection strings; deferred-op response queue fix |
-| Future minor | `typeCast` hook ✅ done; statement cache; `queryStream` Readable adapter; configurable keepalive ✅ done; Protocol 20 (lift the v19 cap once the prepare hang is resolved); database creation with different owner (#7718) |
+| Future minor | `typeCast` hook ✅ done; statement cache ✅ done (`statementCacheSize` LRU); `queryStream` Readable adapter ✅ done; configurable keepalive ✅ done; Protocol 20 (lift the v19 cap once the prepare hang is resolved); database creation with different owner (#7718) |
 | Future major | ESM/CJS dual exports; TS Phase C generics; multi-host pooling (if demand materializes) |
 
 ---

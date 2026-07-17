@@ -5,6 +5,8 @@
 // They now live in the TypeScript source tree and are compiled into the
 // published declaration files.
 
+import type { Readable } from 'stream';
+
 export type DatabaseCallback = (err: any, db: Database) => void;
 export type TransactionCallback = (err: any, transaction: Transaction) => void;
 export type QueryCallback = (err: any, result: any[]) => void;
@@ -127,6 +129,16 @@ export type QueryOptions = {
     signal?: AbortSignal;
 }
 
+export type QueryStreamOptions = QueryOptions & {
+    /**
+     * Rows buffered internally before fetching pauses (object-mode
+     * Readable highWaterMark, default 16).
+     */
+    highWaterMark?: number;
+    /** Emit array rows instead of objects (like db.execute). */
+    asObject?: boolean;
+}
+
 export interface Database {
     detach(callback?: SimpleCallback): Database;
     transaction(options: TransactionOptions|Isolation|TransactionCallback, callback?: TransactionCallback): Database;
@@ -136,6 +148,13 @@ export interface Database {
     /** Bulk-execute in its own transaction, all-or-nothing (Firebird 4.0+). */
     executeBatch(query: string, rows: QueryParams[], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): Database;
     sequentially(query: string, params: QueryParams, rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
+    /**
+     * Run `query` and return an object-mode Readable emitting one row per
+     * chunk, with backpressure (fetching pauses while the buffer is full).
+     * Runs in its own transaction. Destroying the stream early aborts the
+     * fetch and releases the statement.
+     */
+    queryStream(query: string, params?: QueryParams, options?: QueryStreamOptions): Readable;
     drop(callback: SimpleCallback): void;
     escape(value: any): string;
     attachEvent(callback: any): this;
@@ -176,6 +195,12 @@ export interface Transaction {
     /** Bulk-execute within this transaction; per-record failures do not roll back (Firebird 4.0+). */
     executeBatch(query: string, rows: QueryParams[], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): void;
     sequentially(query: string, params: QueryParams, rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
+    /**
+     * Run `query` inside this transaction and return an object-mode
+     * Readable emitting one row per chunk, with backpressure. The
+     * transaction is NOT committed when the stream ends.
+     */
+    queryStream(query: string, params?: QueryParams, options?: QueryStreamOptions): Readable;
     commit(callback?: SimpleCallback): void;
     commitRetaining(callback?: SimpleCallback): void;
     rollback(callback?: SimpleCallback): void;
@@ -381,6 +406,17 @@ export interface Options {
      * when a response spans TCP packets.
      */
     typeCast?: TypeCastFunction;
+    /**
+     * Per-connection LRU cache of prepared statements (like mysql2's
+     * statement cache). `db.query`/`tx.query` and friends transparently
+     * reuse the prepared handle for a repeated SQL string, skipping the
+     * prepare round-trip on hot paths. The number is the maximum of idle
+     * cached statements; least-recently-used ones are dropped over the
+     * limit. 0 / unset = disabled. Statements that failed and DDL are
+     * never cached; concurrent runs of the same SQL never share a
+     * statement (extra preparations are simply not cached).
+     */
+    statementCacheSize?: number;
 }
 
 /** Column metadata passed to the {@link Options.typeCast} hook. */
