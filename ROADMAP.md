@@ -49,11 +49,12 @@ These items come directly from current open issues and should be tracked as road
 
 ### P1 — Behavior fixes / sharp edges
 
-- **[Issue #341](https://github.com/hgourvest/node-firebird/issues/341) — RETURNING failure leads to uncaught error**
+- **[Issue #341](https://github.com/hgourvest/node-firebird/issues/341) — RETURNING failure leads to uncaught error** ✅ Resolved
   Goal: isolate statement failures and reset connection state correctly after errors.
   Deliverables:
-  - Harden error handling: ensure connection state machine resets on statement failure.
-  - Add regression test for failure + subsequent query on the same connection.
+  - Root cause fixed in `src/wire/connection.ts`: a failing `INSERT ... RETURNING` (`op_execute2`) left the trailing `op_response` of the empty `op_sql_response` unconsumed, shifting every later response to the wrong callback; the error is now consumed and delivered to the statement's callback (with `gdscode`/`gdsparams`), and the transaction/connection stay usable.
+  - Also fixed: stale per-packet fetch decode state leaking between responses that share a TCP segment (could desync pipelined statements the same way).
+  - Regression test added: `test/returning-failure.js` (failure + subsequent query on the same transaction, connection, pipelined mix, zero-row `UPDATE ... RETURNING`).
 
 - **[Issue #329](https://github.com/hgourvest/node-firebird/issues/329) — Pool idle connection deletion**
   Goal: make pool idle cleanup safe and observable.
@@ -252,7 +253,7 @@ Ordered roughly by expected user impact:
 | Target | Items |
 | :--- | :--- |
 | Shipped in 2.4.0 | TypeScript 7 migration (ES classes, generated typings); Firebird database events (POST_EVENT); Srp256/384/512 auth; ChaCha/ChaCha64 wire encryption; Protocol 18/19 features (scrollable cursors, multi-row RETURNING, parallel workers, inline BLOBs); Firebird 6.0 features (schemas, tablespaces, JSON, ROW type); raw Buffer params; P0 fixes #387, #357 |
-| Next minor | Promise/async-await API ✅ done (TS Phase B + `withConnection` / `withTransaction` helpers); pool observability ✅ done (events + metrics + idle reaping, resolves #329/#343); connection URI strings ✅ done; TS strictness hardening (Phase A.1); ServiceManager promise wrappers ✅ done; remaining P1 issue #341 |
+| Next minor | Promise/async-await API ✅ done (TS Phase B + `withConnection` / `withTransaction` helpers); pool observability ✅ done (events + metrics + idle reaping, resolves #329/#343); connection URI strings ✅ done; TS strictness hardening (Phase A.1); ServiceManager promise wrappers ✅ done; P1 issue #341 (failing RETURNING poisons connection) ✅ done |
 | Next minor (cont.) | Query cancellation + `AbortSignal` ✅ done |
 | Next minor (cont.) | Firebird 4 batch API (bulk inserts) ✅ done |
 | Shipped in 2.9.0 | named placeholders; traditional `host[/port]:database` connection strings; deferred-op response queue fix |

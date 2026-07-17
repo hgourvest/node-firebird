@@ -2291,6 +2291,19 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                 var _xdrpos;
                 statement.nbrowsfetched = statement.nbrowsfetched || 0;
 
+                // The f* decode state is only meaningful within a single
+                // decode call: incomplete packets are re-decoded from scratch
+                // on a fresh XdrReader (see the 'data' handler). State left by
+                // an earlier packet in the same data event (e.g. fstatus=100 /
+                // fcount=0 from a completed fetch) would make this decode
+                // consume just the opcode and desync every later response.
+                delete data.fstatus;
+                delete data.fcount;
+                delete data.fcolumn;
+                delete data.frow;
+                delete data.frows;
+                delete data.fcols;
+
                 if (isOpFetch && data.fop) { // could be set when a packet is not complete
                     data.readBuffer(68); // ??
                     op = data.readInt(); // ??
@@ -2320,6 +2333,14 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
 
                 const arrBlob = [];
                 const lowerV13 = statement.connection.accept.protocolVersion <  Const.PROTOCOL_VERSION13;
+
+                // op_sql_response (op_execute2) is always followed by an
+                // op_response carrying the execute status vector. The row loop
+                // below consumes it after the last row, but with zero rows
+                // (e.g. INSERT ... RETURNING failing on a constraint) it stays
+                // in the buffer, shifting every later response to the wrong
+                // callback and poisoning the connection (issue #341).
+                var sqlResponseTrailerPending = !isOpFetch && !data.fcount;
 
                 while (data.fcount && (data.fstatus !== 100)) {
                     let nullBitSet;
@@ -2403,6 +2424,17 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                         return cb(new Error("Packet is not complete"));
                     }
                     statement.nbrowsfetched++;
+                }
+
+                if (sqlResponseTrailerPending) {
+                    op = data.readInt();
+                    if (op === Const.op_response) {
+                        response = {};
+                        parseOpResponse(data, response);
+                        if (response.status) {
+                            return cb(null, response);
+                        }
+                    }
                 }
 
                 // ToDo: emit "result" with blob subtype string decoded
