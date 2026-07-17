@@ -66,6 +66,13 @@ describe('FB5/FB6 DPB options', function () {
     it('parallelWorkers must NOT change the replica mode (mistagged as set_db_replica before)', { timeout: 10000 }, async function () {
         await withFreshDb('pw', {}, async (db, options, reattach) => {
             const db2 = await reattach({ parallelWorkers: 2 });
+            if (db2.connection.accept.protocolVersion < Const.PROTOCOL_VERSION16) {
+                // MON$REPLICA_MODE exists since Firebird 4; on older servers
+                // just assert the attach with the option succeeds
+                const rows = await db2.queryAsync('SELECT 1 AS X FROM RDB$DATABASE');
+                assert.strictEqual(Number(rows[0].x), 1);
+                return;
+            }
             const rows = await db2.queryAsync('SELECT MON$REPLICA_MODE AS RM FROM MON$DATABASE');
             assert.strictEqual(Number(rows[0].rm), 0,
                 'attaching with parallelWorkers must not switch the database into replica mode');

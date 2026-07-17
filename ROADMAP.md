@@ -264,7 +264,7 @@ Ordered roughly by expected user impact:
 | Next minor (cont.) | Query cancellation + `AbortSignal` ✅ done |
 | Next minor (cont.) | Firebird 4 batch API (bulk inserts) ✅ done |
 | Shipped in 2.9.0 | named placeholders; traditional `host[/port]:database` connection strings; deferred-op response queue fix |
-| Future minor | `typeCast` hook ✅ done; statement cache ✅ done (`statementCacheSize` LRU); `queryStream` Readable adapter ✅ done; configurable keepalive ✅ done; Protocol 20 ✅ done (prepare hang fixed — `p_sqlst_flags`; v19 cap lifted); database creation with different owner (#7718) ✅ done (`options.owner`, plus FB5/FB6 DPB-tag fixes) |
+| Shipped in 2.10.0 | `typeCast` hook; statement cache (`statementCacheSize` LRU); `queryStream` Readable adapter; configurable keepalive; ServiceManager promise wrappers; failing `RETURNING` fix (#341); Firebird 2.5 prepare-hang fix (#312); full TS strict mode + wire-core types (Phase A.1/A.2); Protocol 20 (prepare hang fixed — `p_sqlst_flags`; v19 cap lifted); database creation with different owner (#7718, `options.owner`); FB5/FB6 DPB-tag fixes (`parallelWorkers` no longer switches the database into replica mode) + `isc_arg_warning` parsing |
 | Future major | ESM/CJS dual exports; TS Phase C generics; multi-host pooling (if demand materializes) |
 
 ---
