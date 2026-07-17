@@ -701,6 +701,21 @@ describe('Database', function() {
             assert.equal(row[1], 15);
         });
 
+        // Issue #322: sum() on a NUMERIC column returned an error on the 1.x
+        // driver (workaround was CAST) — must decode exactly, incl. GROUP BY.
+        it('should sum NUMERIC columns exactly (issue #322)', async function () {
+            await fromCallback(cb => db.query(
+                'CREATE TABLE sum_322 (grp VARCHAR(2), val NUMERIC(15,2))', cb));
+            await fromCallback(cb => db.query(
+                "INSERT INTO sum_322 SELECT 'A', 10.25 FROM rdb$database " +
+                "UNION ALL SELECT 'A', 20.50 FROM rdb$database " +
+                "UNION ALL SELECT 'B', 0.01 FROM rdb$database", cb));
+            const rows = await fromCallback(cb => db.query(
+                'SELECT grp, SUM(val) total FROM sum_322 GROUP BY grp ORDER BY grp', cb));
+            assert.strictEqual(rows[0].total, 30.75);
+            assert.strictEqual(rows[1].total, 0.01);
+        });
+
         it('should select rows as objects', async function() {
             const rows = await fromCallback(cb => db.query('SELECT COUNT(*), SUM(ID) FROM test', cb));
             var row = rows[0];

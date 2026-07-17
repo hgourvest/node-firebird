@@ -506,6 +506,13 @@ export class XdrReader {
         var len = this.readInt();
         if (!len)
             return;
+        // Firebird 2.5 sign-extends XDR opaque lengths above 32767: a
+        // 32768-byte array arrives as length 0xFFFF8000. A negative length
+        // is never valid, so recover the real length from the low 16 bits
+        // instead of corrupting the read position (issue #312 — hang when
+        // preparing a statement with very many parameters on FB 2.5).
+        if (len < 0)
+            len &= 0xFFFF;
         var r = this.buffer.slice(this.pos, this.pos + len);
         this.pos += align(len);
         return r;

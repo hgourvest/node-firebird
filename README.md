@@ -1974,6 +1974,12 @@ db.query('SELECT * FROM ACTORS WHERE NAME LIKE ?', ['James Wick%'], function (er
 });
 ```
 
+#### attach() *sometimes* fails with gdscode 335544472 ("Your user name and password are not defined") even though the credentials are correct
+
+If the failure is intermittent — the same code with the same credentials succeeds on most attempts and fails on others — update the driver: versions before 2.8.1 had two serialization mismatches in the SRP (Srp/Srp256/384/512) proof-of-password computation that made roughly 1 in 80 attaches fail with exactly this error (whenever the ephemeral SRP values happened to have a leading zero byte). Fixed in 2.8.1; see [issue #421](https://github.com/hgourvest/node-firebird/issues/421) and [issue #347](https://github.com/hgourvest/node-firebird/issues/347). Switching the user to `Legacy_UserManager`/`Legacy_Auth` "fixed" it on older versions only because that avoids the SRP code path entirely — with 2.8.1+ this workaround is no longer needed.
+
+If the failure is consistent, the credentials really don't match an account for the authentication plugin in use: check `AuthServer`/`UserManager` in `firebird.conf` and remember that SRP and Legacy user managers keep separate password stores — a user created under one plugin does not automatically exist for the other.
+
 ## Contributing
 
 Contributions are welcome — code, documentation, and bug reports alike.

@@ -56,6 +56,9 @@ These items come directly from current open issues and should be tracked as road
   - Also fixed: stale per-packet fetch decode state leaking between responses that share a TCP segment (could desync pipelined statements the same way).
   - Regression test added: `test/returning-failure.js` (failure + subsequent query on the same transaction, connection, pipelined mix, zero-row `UPDATE ... RETURNING`).
 
+- **[Issue #312](https://github.com/hgourvest/node-firebird/issues/312) — Hang when preparing a statement with too many parameters on Firebird 2.5** ✅ Resolved
+  Root cause (diagnosed by the reporter): Firebird 2.5 sign-extends XDR opaque lengths above 32767 (a 32768-byte describe response arrives with length `0xFFFF8000`), which corrupted the read position and left the prepare callback hanging. `XdrReader.readArray` now recovers the real length from the low 16 bits when the length is negative — valid positive lengths (including > 65535 on newer servers) are untouched, so the recovery only triggers on the 2.5 bug pattern. Unit test in `test/unit/serialize.test.ts`.
+
 - **[Issue #329](https://github.com/hgourvest/node-firebird/issues/329) — Pool idle connection deletion**
   Goal: make pool idle cleanup safe and observable.
   Deliverables:
@@ -79,6 +82,8 @@ These may be closed with a clear explanation or resolved with a small doc/code f
 - **[Issue #336](https://github.com/hgourvest/node-firebird/issues/336)** — Default encoding option (UTF-8 vs latin1) ✅ Resolved (`options.encoding` ships); now documented in [README.md § FAQ](README.md#faq), including the transliteration-mismatch caveat raised in the issue thread
 - **[Issue #332](https://github.com/hgourvest/node-firebird/issues/332)** — LIKE clause error in SELECT ⚠️ Open upstream (server-side DSQL behavior, not reproducible on Firebird 6.0); workaround documented in [README.md § FAQ](README.md#faq)
 - **[Issue #320](https://github.com/hgourvest/node-firebird/issues/320)** — Deno compatibility ✅ Resolved
+- **[Issue #322](https://github.com/hgourvest/node-firebird/issues/322)** — `sum()` on NUMERIC columns errored (workaround was CAST) ✅ Resolved — not reproducible on 2.x (fixed by the native-BigInt scaled INT64 decoding); regression test added (`test/index.js` — "should sum NUMERIC columns exactly")
+- **[Issue #347](https://github.com/hgourvest/node-firebird/issues/347)** — Sporadic gdscode 335544472 (wrong user/password) on attach ✅ Resolved — matches the SRP proof serialization bug fixed in 2.8.1 (issue #421, ~1.2% of Srp attaches); the reporter's `Legacy_UserManager` workaround bypassed the SRP path. FAQ entry added in [README.md § FAQ](README.md#faq)
 
 ---
 

@@ -124,6 +124,29 @@ describe('XdrWriter / XdrReader round-trips', () => {
         expect(new XdrReader(w.getData()).readInt128()).toBe(big);
     });
 
+    it('readArray recovers Firebird 2.5 sign-extended lengths (issue #312)', () => {
+        // FB 2.5 encodes opaque lengths > 32767 sign-extended: 32768 bytes
+        // arrive with length 0xFFFF8000. readArray must recover the real
+        // length from the low 16 bits instead of corrupting the position.
+        const payload = Buffer.alloc(32768, 0xab);
+        const buf = Buffer.alloc(4 + payload.length);
+        buf.writeInt32BE(-32768, 0); // 0xFFFF8000
+        payload.copy(buf, 4);
+
+        const r = new XdrReader(buf);
+        const arr = r.readArray()!;
+        expect(arr.length).toBe(32768);
+        expect(arr[0]).toBe(0xab);
+        expect(arr[arr.length - 1]).toBe(0xab);
+        expect(r.pos).toBe(4 + 32768); // already 4-aligned
+
+        // sane lengths are unaffected
+        const ok = Buffer.alloc(4 + 4);
+        ok.writeInt32BE(3, 0);
+        ok.write('abc', 4);
+        expect(new XdrReader(ok).readArray()!.toString()).toBe('abc');
+    });
+
     it('strings are 4-byte aligned with zero padding', () => {
         const w = new XdrWriter();
         w.addString('abcde', 'utf8'); // 5 bytes -> aligned to 8
