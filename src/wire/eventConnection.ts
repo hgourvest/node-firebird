@@ -22,8 +22,8 @@ class EventConnection {
         this._isOpened = false;
         this._socket = net.createConnection(port, host);
         this._bind_events(host, port, callback);
-        this.error;
-        this.eventcallback;
+        this.error = null;
+        this.eventcallback = null;
     }
 
     _bind_events(host: string, port: number, callback?: () => void): void {
@@ -60,9 +60,10 @@ class EventConnection {
                 xdr.buffer = buf;
             }
 
+            var op_pos = xdr.pos;
+
             try {
 
-                var op_pos = xdr.pos;
                 var tmp_event: Record<string, number>;
                 while (xdr.pos < xdr.buffer.length) {
                     do {
@@ -72,10 +73,12 @@ class EventConnection {
                     switch (r) {
                         case Const.op_event:
                             xdr.readInt(); // db handle
-                            buf = xdr.readArray();
+                            // op_event always carries a payload; readArray only
+                            // returns undefined for zero-length arrays
+                            buf = xdr.readArray()!;
                             // first byte is always set to 1
                             tmp_event = {};
-                            var lst_event = [];
+                            var lst_event: { name: string; count: number }[] = [];
                             var eventname = '';
                             var eventcount = 0;
                             var pos = 1;

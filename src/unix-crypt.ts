@@ -187,7 +187,7 @@ function permOp(a, b, n, m, results) {
 }
 
 function desSetKey(key) {
-    var schedule = [];
+    var schedule: number[] = [];
     var c = fourBytesToInt(key, 0);
     var d = fourBytesToInt(key, 4);
     var results = [0, 0];

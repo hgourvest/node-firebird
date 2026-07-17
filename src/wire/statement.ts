@@ -9,13 +9,16 @@ import { bindNamedParams, isNamedParamsObject } from '../named-params';
 
 class Statement {
     connection: any;
-    query: string;
-    type: number;
-    output: any[];
-    input: any[];
+    // populated externally from the op_allocate_statement /
+    // op_prepare_statement responses (see describe() in connection.ts),
+    // hence the definite assignment assertions
+    query!: string;
+    type!: number;
+    output!: any[];
+    input!: any[];
     options: any;
-    handle: number;
-    plan: string;
+    handle!: number;
+    plan!: string;
     /**
      * Placeholder names in positional order when this statement was
      * prepared from SQL with named placeholders (namedPlaceholders on),

@@ -92,7 +92,7 @@ class Socket {
     static Arc4 = Arc4;
 
     _socket: net.Socket;
-    compress: boolean;
+    compress: boolean = false;
     compressor: zlib.Deflate | null;
     compressorBuffer: Buffer[];
     decompressor: zlib.Inflate | null;
@@ -139,7 +139,7 @@ class Socket {
                 }
 
                 if (this.compress) {
-                    this.decompressor.write(data, () => {
+                    this.decompressor!.write(data, () => {
                         mainCb(Buffer.concat(this.decompressorBuffer));
                         this.decompressorBuffer = []; // Reset buffer
                     });
@@ -178,7 +178,7 @@ class Socket {
         }
 
         if (this.compress) {
-            this.compressor.write(data, () => {
+            this.compressor!.write(data, () => {
                 var compressedData = Buffer.concat(this.compressorBuffer);
                 this.compressorBuffer = []; // Reset buffer
 
@@ -238,8 +238,8 @@ class Socket {
             const stretchedKey = crypto.createHash('sha256').update(sessionKey).digest();
             const ivlen = pluginName === 'ChaCha64' ? 8 : (iv ? iv.length : 16);
 
-            this.encryptCipher = new ChaChaCipher(stretchedKey, iv, ivlen, true);
-            this.decryptCipher = new ChaChaCipher(stretchedKey, iv, ivlen, false);
+            this.encryptCipher = new ChaChaCipher(stretchedKey, iv!, ivlen, true);
+            this.decryptCipher = new ChaChaCipher(stretchedKey, iv!, ivlen, false);
         } else {
             throw new Error('Unsupported encryption plugin: ' + pluginName);
         }

@@ -845,7 +845,7 @@ class Connection {
         msg.pos = 0;
     
         msg.addInt(Const.op_drop_database);
-        msg.addInt(this.dbhandle);
+        msg.addInt(this.dbhandle!);
     
         var self = this;
         this._queueEvent(function(err) {
@@ -941,7 +941,7 @@ class Connection {
         }*/
     
         msg.addInt(Const.op_transaction);
-        msg.addInt(this.dbhandle);
+        msg.addInt(this.dbhandle!);
         msg.addBlr(blr);
         callback.response = new Transaction(this);
     
@@ -1027,7 +1027,7 @@ class Connection {
         var msg = this._msg;
         msg.pos = 0;
         msg.addInt(Const.op_allocate_statement);
-        msg.addInt(this.dbhandle);
+        msg.addInt(this.dbhandle!);
         callback.response = new Statement(this);
         this._queueEvent(callback);
     }
@@ -1095,7 +1095,7 @@ class Connection {
         blr.pos = 0;
     
         msg.addInt(Const.op_allocate_statement);
-        msg.addInt(this.dbhandle);
+        msg.addInt(this.dbhandle!);
         mainCallback.lazy_count = 1;
     
         const describeBytes = this.accept.protocolVersion >= Const.PROTOCOL_VERSION20 ? Const.DESCRIBE_WITH_SCHEMA : Const.DESCRIBE;
@@ -1607,7 +1607,7 @@ class Connection {
     
             if (!(params instanceof Array)) {
                 if (params !== undefined && typeof params === 'object' && params !== null) {
-                    var mappedParams = [];
+                    var mappedParams: any[] = [];
                     for (var i = 0; i < input.length; i++) {
                         mappedParams.push(undefined);
                     }
@@ -1825,7 +1825,7 @@ class Connection {
         const self = this;
         const custom = statement.options || {};
         const asStream = custom.asStream && custom.on;
-        const data = asStream ? null : [];
+        const data: any[] | null = asStream ? null : [];
         let streamIndex = 0;
         const loop = (err, ret) => {
             if (err) {
@@ -1856,7 +1856,7 @@ class Connection {
                     }
 
                     doSynchronousLoop(ret.data, (row, _i, next) => {
-                        const pos = asStream ? streamIndex++ : (data.push(row) - 1);
+                        const pos = asStream ? streamIndex++ : (data!.push(row) - 1);
                         if (asStream) {
                             executeStreamRow(custom, row, pos, statement.output, next);
                         } else {
@@ -2012,7 +2012,7 @@ class Connection {
         var blr = this._blr;
         msg.pos = 0;
         msg.addInt(Const.op_service_start);
-        msg.addInt(this.svchandle);
+        msg.addInt(this.svchandle!);
         msg.addInt(0)
         msg.addBlr(spbaction);
         this._queueEvent(callback);
@@ -2032,7 +2032,7 @@ class Connection {
         blr.addByte(Const.isc_spb_current_version);
         //blr.addByteInt32(Const.isc_info_svc_timeout, timeout);
         msg.addInt(Const.op_service_info);
-        msg.addInt(this.svchandle);
+        msg.addInt(this.svchandle!);
         msg.addInt(0);
         msg.addBlr(blr);
         blr.pos = 0
@@ -2058,7 +2058,7 @@ class Connection {
     
         msg.pos = 0;
         msg.addInt(Const.op_service_detach);
-        msg.addInt(this.svchandle); // Database Object ID
+        msg.addInt(this.svchandle!); // Database Object ID
     
         self._queueEvent(function (err, ret) {
             delete (self.svchandle);
@@ -2083,7 +2083,7 @@ class Connection {
         msg.pos = 0;
         msg.addInt(Const.op_connect_request);
         msg.addInt(1); // async
-        msg.addInt(self.dbhandle);
+        msg.addInt(self.dbhandle!);
         msg.addInt(eventid);
         if (process.env.FIREBIRD_DEBUG) {
             console.log('[fb-debug] auxConnection: sending op_connect_request(53) dbhandle=%d eventid=%d queue_before=%d xdr_saved=%s',
@@ -2125,7 +2125,7 @@ class Connection {
         blr.pos = 0;
         msg.pos = 0;
         msg.addInt(Const.op_que_events);
-        msg.addInt(this.dbhandle);
+        msg.addInt(this.dbhandle!);
         // prepare EPB
         blr.addByte(1) // epb_version
         for (var event in events) {
@@ -2159,7 +2159,7 @@ class Connection {
         var msg = self._msg;
         msg.pos = 0;
         msg.addInt(Const.op_cancel_events);
-        msg.addInt(self.dbhandle);
+        msg.addInt(self.dbhandle!);
         msg.addInt(eventid);
     
         function cb(err, ret) {
@@ -2331,7 +2331,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                     }
                 }
 
-                const arrBlob = [];
+                const arrBlob: any[] = [];
                 const lowerV13 = statement.connection.accept.protocolVersion <  Const.PROTOCOL_VERSION13;
 
                 // op_sql_response (op_execute2) is always followed by an
@@ -2807,7 +2807,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                 }
                 return cb(new Error('Unexpected:' + r));
         }
-    } catch (err) {
+    } catch (err: any) {
         if (process.env.FIREBIRD_DEBUG) {
             console.warn('[fb-debug] decodeResponse exception: %s (RangeError=%s) pos=%d buflen=%d',
                 err.message, err instanceof RangeError, data.pos, data.buffer.length);

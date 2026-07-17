@@ -71,11 +71,13 @@ function resolveTextEncoding(options?: any): BufferEncoding {
  * describe response before decode()/calcBlr() are called.
  */
 export abstract class SQLVarBase {
-    type: number;
-    subType: number;
-    scale: number;
-    length: number;
-    nullable: boolean;
+    // populated externally (see the doc comment above), hence the definite
+    // assignment assertions
+    type!: number;
+    subType!: number;
+    scale!: number;
+    length!: number;
+    nullable!: boolean;
     field?: string;
     relation?: string;
     relationSchema?: string;

@@ -1,5 +1,5 @@
 import Const from './wire/const';
-import { doError, doCallback, fromCallback } from './callback';
+import { doError, doCallback, fromCallback, type Callback } from './callback';
 import Connection from './wire/connection';
 import Pool from './pool';
 import { escape as escapeValue } from './utils';
@@ -146,7 +146,9 @@ export function attachOrCreate(options: Options | string, callback: DatabaseCall
                 if (!err) {
                     if (self.db)
                         self.db.emit('connect', ret);
-                    doCallback(ret, callback);
+                    // DatabaseCallback stays permissive (db non-optional) for
+                    // API users; internally the error path passes no db
+                    doCallback(ret, callback as Callback<Database>);
                     return;
                 }
 

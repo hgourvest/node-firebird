@@ -44,7 +44,8 @@ function hookAbortSignal(connection: any, signal: any, callback: any): any {
 class Transaction {
     connection: any;
     db: any;
-    handle: number;
+    // populated externally from the op_transaction response
+    handle!: number;
     [key: string]: any;
 
     constructor(connection: any) {

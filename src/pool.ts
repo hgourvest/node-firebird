@@ -161,7 +161,7 @@ class Pool extends Events.EventEmitter {
         if ((self.dbinuse + self._creating) >= self.max)
             return self;
 
-        var cb = self.pending.shift();
+        const cb = self.pending.shift();
         if (!cb)
             return self;
         if (self.pooldb.length) {
