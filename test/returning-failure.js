@@ -1,4 +1,5 @@
 const Firebird = require('../lib');
+const Const = require('../lib/wire/const');
 const Config = require('./config');
 
 const assert = require('assert');
@@ -64,7 +65,16 @@ describe('Failing RETURNING statements (issue #341)', function () {
     it('returns no row (not an error) for a zero-row UPDATE ... RETURNING', async function () {
         const result = await db.queryAsync(
             'UPDATE ret_test SET name = ? WHERE id = ? RETURNING id', ['x', 999]);
-        assert.deepStrictEqual(result, []);
+        if (db.connection.accept.protocolVersion >= Const.PROTOCOL_VERSION18) {
+            // FB5+ executes RETURNING through a real cursor: zero rows
+            assert.deepStrictEqual(result, []);
+        } else {
+            // Pre-protocol-18 servers answer the singleton op_execute2 with
+            // an all-NULL output message when no row matched — the driver
+            // faithfully reports it (the wire cannot distinguish it from a
+            // matched row whose returned columns are NULL)
+            assert.deepStrictEqual(result, { id: null });
+        }
         // connection still in sync
         const rows = await db.queryAsync('SELECT COUNT(*) AS cnt FROM ret_test');
         assert.strictEqual(Number(rows[0].cnt), 3);

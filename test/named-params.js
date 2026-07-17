@@ -1,4 +1,5 @@
 const Firebird = require('../lib');
+const Const = require('../lib/wire/const');
 const Config = require('./config');
 
 const assert = require('assert');
@@ -94,8 +95,10 @@ describe('Named placeholders (:name)', function () {
     });
 
     it('binds object rows in executeBatch (Firebird 4.0+)', async function (ctx) {
-        // Skip on servers without the batch API (protocol < 16)
-        if (db.connection.accept.protocolVersion < 16) return ctx.skip();
+        // Skip on servers without the batch API (protocol < 16).
+        // protocolVersion carries FB_PROTOCOL_FLAG, so compare against the
+        // flagged constant — a bare "< 16" never skipped anything.
+        if (db.connection.accept.protocolVersion < Const.PROTOCOL_VERSION16) return ctx.skip();
 
         const result = await db.executeBatchAsync(
             'INSERT INTO named_test (id, name, score) VALUES (:id, :name, :score)',

@@ -1,4 +1,5 @@
 const Firebird = require('../lib');
+const Const = require('../lib/wire/const');
 const Config = require('./config');
 
 const assert = require('assert');
@@ -23,7 +24,16 @@ describe('queryStream (object-mode Readable)', function () {
             'CREATE TABLE stream_test (id INT NOT NULL PRIMARY KEY, name VARCHAR(20))');
         const rows = [];
         for (let i = 1; i <= ROWS; i++) rows.push([i, 'row' + i]);
-        await db.executeBatchAsync('INSERT INTO stream_test VALUES (?, ?)', rows);
+        if (db.connection.accept.protocolVersion >= Const.PROTOCOL_VERSION16) {
+            await db.executeBatchAsync('INSERT INTO stream_test VALUES (?, ?)', rows);
+        } else {
+            // no batch API before Firebird 4 — seed in a single transaction
+            await db.withTransaction(async (tx) => {
+                for (const row of rows) {
+                    await tx.queryAsync('INSERT INTO stream_test VALUES (?, ?)', row);
+                }
+            });
+        }
     });
 
     afterAll(async function () {
