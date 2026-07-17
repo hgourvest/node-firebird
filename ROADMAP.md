@@ -121,9 +121,11 @@ Superseded by the migration: the hand-maintained `.d.ts` files are gone. Declara
 - Blob columns being functions is a runtime quirk; the typings are accurate but may surprise users new to the library.
 - Some options and event payloads vary by server version or protocol; typings stay permissive in those areas to avoid false type errors.
 
-### Phase A.1 — Strictness hardening (next)
+### Phase A.1 — Strictness hardening ✅ Done
 
-The sources currently compile with `strict: false` (`noImplicitAny` and `noImplicitThis` are also off) to keep the migration diff reviewable. Follow-up: enable strict flags incrementally, file by file, without runtime changes.
+The sources now compile with full `"strict": true` (including `noImplicitAny`, `strictNullChecks`, `strictPropertyInitialization`, `useUnknownInCatchVariables`). The hardening was done without runtime changes: wire-populated fields use definite-assignment assertions, connection/service handles use non-null assertions at send sites, and the intentionally dynamic wire-core parameters carry explicit `: any` annotations — making the remaining looseness visible and greppable (`grep ': any' src/wire`) for the follow-up tightening below.
+
+**Follow-up (Phase A.2, future):** replace the explicit `: any` annotations in `src/wire/connection.ts` with real types (Statement/Transaction/Callback shapes), which is a semantic typing effort rather than a compiler-flag one.
 
 ### Phase B — Dual API: callbacks + promises ✅ Done
 
@@ -253,7 +255,7 @@ Ordered roughly by expected user impact:
 | Target | Items |
 | :--- | :--- |
 | Shipped in 2.4.0 | TypeScript 7 migration (ES classes, generated typings); Firebird database events (POST_EVENT); Srp256/384/512 auth; ChaCha/ChaCha64 wire encryption; Protocol 18/19 features (scrollable cursors, multi-row RETURNING, parallel workers, inline BLOBs); Firebird 6.0 features (schemas, tablespaces, JSON, ROW type); raw Buffer params; P0 fixes #387, #357 |
-| Next minor | Promise/async-await API ✅ done (TS Phase B + `withConnection` / `withTransaction` helpers); pool observability ✅ done (events + metrics + idle reaping, resolves #329/#343); connection URI strings ✅ done; TS strictness hardening (Phase A.1); ServiceManager promise wrappers ✅ done; P1 issue #341 (failing RETURNING poisons connection) ✅ done |
+| Next minor | Promise/async-await API ✅ done (TS Phase B + `withConnection` / `withTransaction` helpers); pool observability ✅ done (events + metrics + idle reaping, resolves #329/#343); connection URI strings ✅ done; TS strictness hardening (Phase A.1) ✅ done (full `strict: true`); ServiceManager promise wrappers ✅ done; P1 issue #341 (failing RETURNING poisons connection) ✅ done |
 | Next minor (cont.) | Query cancellation + `AbortSignal` ✅ done |
 | Next minor (cont.) | Firebird 4 batch API (bulk inserts) ✅ done |
 | Shipped in 2.9.0 | named placeholders; traditional `host[/port]:database` connection strings; deferred-op response queue fix |

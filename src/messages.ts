@@ -138,7 +138,7 @@ export const lookupMessages = function(status: FbStatusItem[], messageFile: stri
             buffer = Buffer.alloc(bucket_size);
 
             var i = 0;
-            var text;
+            var text: string | undefined;
 
             function loop() {
                 lookup(status[i], function(line) {

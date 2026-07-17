@@ -26,7 +26,7 @@ const
  * Commonly used Firebird charsets not listed here fall back to the
  * connection-level DEFAULT_ENCODING (typically 'utf8').
  */
-const FirebirdToNodeEncoding = Object.freeze({
+const FirebirdToNodeEncoding: Readonly<Record<string, string>> = Object.freeze({
     UTF8:        'utf8',
     UNICODE_FSS: 'utf8',
     WIN1252:     'latin1',
@@ -36,7 +36,7 @@ const FirebirdToNodeEncoding = Object.freeze({
     NONE:        'latin1',   // unspecified charset – treat as binary-safe latin1
 });
 
-const FirebirdCharsetWidths = {
+const FirebirdCharsetWidths: Record<string, number> = {
     'UTF8': 4,
     'UNICODE_FSS': 3,
     'SJIS': 2,

@@ -994,7 +994,7 @@ class ServiceManager extends Events.EventEmitter {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
-        this.connection.svcquery([Const.isc_info_svc_line], buffersize, timeout, function (err, data) {
+        this.connection.svcquery([Const.isc_info_svc_line], buffersize, timeout, function (err: any, data: any) {
             if (err || !data.buffer) {
                 doError(new Error(err||'Bad query return'), callback);
                 return;
@@ -1007,7 +1007,7 @@ class ServiceManager extends Events.EventEmitter {
         var buffersize = options.buffersize || (8 * 1024);
         var timeout = options.timeout || 60;
         var self = this;
-        this.connection.svcquery([Const.isc_info_svc_to_eof], buffersize, timeout, function (err, data) {
+        this.connection.svcquery([Const.isc_info_svc_to_eof], buffersize, timeout, function (err: any, data: any) {
             if (err || !data.buffer) {
                 doError(new Error(err||'Bad query return'), callback);
                 return;
@@ -1020,7 +1020,7 @@ class ServiceManager extends Events.EventEmitter {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
-        this.connection.svcquery([Const.isc_info_svc_running], buffersize, timeout, function (err, data) {
+        this.connection.svcquery([Const.isc_info_svc_running], buffersize, timeout, function (err: any, data: any) {
             if (err || !data.buffer) {
                 doError(new Error(err||'Bad query return'), callback);
                 return;
@@ -1033,7 +1033,7 @@ class ServiceManager extends Events.EventEmitter {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
-        this.connection.svcquery([Const.isc_info_svc_get_users], buffersize, timeout, function (err, data) {
+        this.connection.svcquery([Const.isc_info_svc_get_users], buffersize, timeout, function (err: any, data: any) {
             if (err || !data.buffer) {
                 doError(new Error(err||'Bad query return'), callback);
                 return;
@@ -1046,7 +1046,7 @@ class ServiceManager extends Events.EventEmitter {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
-        this.connection.svcquery([Const.isc_info_svc_limbo_trans], buffersize, timeout, function (err, data) {
+        this.connection.svcquery([Const.isc_info_svc_limbo_trans], buffersize, timeout, function (err: any, data: any) {
             if (err || !data.buffer) {
                 doError(new Error(err||'Bad query return'), callback);
                 return;

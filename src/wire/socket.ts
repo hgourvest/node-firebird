@@ -250,7 +250,7 @@ class Socket {
      */
     get(target: any, field: string | symbol): any {
         if (field in this) {
-            return this[field].bind(this);
+            return (this as any)[field].bind(this);
         }
 
         if (typeof target[field] === 'function') {

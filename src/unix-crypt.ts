@@ -152,25 +152,25 @@ var SPTRANS=
             0x8200020, 32768, 0x208020 ]
 ];
 
-function hPermOp(a, n, m) {
+function hPermOp(a: number, n: number, m: number) {
     var t = (a << 16 - n ^ a) & m;
     a = a ^ t ^ t >>> 16 - n;
     return a;
 }
 
-function intToFourBytes(iValue, b, offset) {
+function intToFourBytes(iValue: number, b: Buffer, offset: number) {
     b[offset++] = iValue & 0xff;
     b[offset++] = iValue >>> 8 & 0xff;
     b[offset++] = iValue >>> 16 & 0xff;
     b[offset++] = iValue >>> 24 & 0xff;
 }
 
-function byteToUnsigned(b) {
+function byteToUnsigned(b: number) {
     var value = b;
     return value < 0 ? value + 256 : value;
 }
 
-function fourBytesToInt(b, offset) {
+function fourBytesToInt(b: Buffer, offset: number) {
     var value = byteToUnsigned(b[offset++]);
     value |= byteToUnsigned(b[offset++]) << 8;
     value |= byteToUnsigned(b[offset++]) << 16;
@@ -178,7 +178,7 @@ function fourBytesToInt(b, offset) {
     return value;
 }
 
-function permOp(a, b, n, m, results) {
+function permOp(a: number, b: number, n: number, m: number, results: number[]) {
     var t = (a >>> n ^ b) & m;
     a ^= t << n;
     b ^= t;
@@ -186,7 +186,7 @@ function permOp(a, b, n, m, results) {
     results[1] = b;
 }
 
-function desSetKey(key) {
+function desSetKey(key: Buffer) {
     var schedule: number[] = [];
     var c = fourBytesToInt(key, 0);
     var d = fourBytesToInt(key, 4);
@@ -232,7 +232,7 @@ function desSetKey(key) {
     return schedule;
 }
 
-function dEncrypt(el, r, s, e0, e1, sArr) {
+function dEncrypt(el: number, r: number, s: number, e0: number, e1: number, sArr: number[]) {
     var v = r ^ r >>> 16;
     var u = v & e0;
     v &= e1;
@@ -245,7 +245,7 @@ function dEncrypt(el, r, s, e0, e1, sArr) {
     return el;
 }
 
-function body(schedule, eSwap0, eSwap1) {
+function body(schedule: number[], eSwap0: number, eSwap1: number) {
     var left = 0;
     var right = 0;
     var t = 0;
