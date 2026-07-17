@@ -1,8 +1,13 @@
-import { doCallback, doError, fromCallback } from '../callback';
+import { doCallback, doError, fromCallback, type Callback, type SimpleCallback } from '../callback';
 import { parseNamedPlaceholders } from '../named-params';
 import { noop } from '../utils';
 import Const from './const';
 import makeQueryStream from './query-stream';
+import type Connection from './connection';
+import type Database from './database';
+import type Statement from './statement';
+import type { BatchCb, StatementCb, InternalQueryOptions } from './wire-types';
+import type { BatchOptions, BatchResult, QueryOptions, QueryParams, QueryStreamOptions, SequentialCallback } from '../types';
 
 /***************************************
  *
@@ -27,7 +32,7 @@ function abortError(signal: any): Error {
  * GDSCode.CANCELLED). Returns the wrapped callback that detaches the
  * listener once the operation settles.
  */
-function hookAbortSignal(connection: any, signal: any, callback: any): any {
+function hookAbortSignal(connection: Connection, signal: AbortSignal, callback: any): any {
     var settled = false;
     var onAbort = function() {
         if (!settled)
@@ -43,27 +48,29 @@ function hookAbortSignal(connection: any, signal: any, callback: any): any {
 }
 
 class Transaction {
-    connection: any;
-    db: any;
+    connection: Connection;
+    db: Database;
     // populated externally from the op_transaction response
     handle!: number;
-    [key: string]: any;
 
-    constructor(connection: any) {
+    constructor(connection: Connection) {
         this.connection = connection;
         this.db = connection.db;
     }
 
     /** Per-call options.namedPlaceholders overrides the connection option. */
-    private namedPlaceholdersEnabled(options?: any): boolean {
+    private namedPlaceholdersEnabled(options?: InternalQueryOptions): boolean {
         if (options && options.namedPlaceholders !== undefined)
             return !!options.namedPlaceholders;
         return !!(this.connection.options && this.connection.options.namedPlaceholders);
     }
 
-    newStatement(query: string, callback: (err: any, statement?: any) => void, options?: any): void {
+    newStatement(query: string, callback: StatementCb, options?: InternalQueryOptions): void {
         var cnx = this.connection;
         var self = this;
+        // the public strict callback shape and the internal optional-args
+        // shape only differ in optionality; treat it as the internal one
+        var cb = callback as Callback<Statement>;
 
         // With namedPlaceholders on, prepare the positional rewrite and
         // remember the name order on the statement so statement.execute can
@@ -77,10 +84,10 @@ class Transaction {
             }
         }
 
-        var deliver = function(err: any, statement?: any) {
+        var deliver = function(err: any, statement?: Statement) {
             if (statement)
                 statement.namedParams = names;
-            callback(err, statement);
+            cb(err, statement);
         };
 
         var query_cache = cnx.takeCachedStatement(query);
@@ -92,7 +99,7 @@ class Transaction {
         }
     }
 
-    execute(query: string, params?: any, callback?: any, options?: any): void {
+    execute(query: string, params?: QueryParams | Callback, callback?: any, options?: InternalQueryOptions): void {
         if (params instanceof Function) {
             options = callback;
             callback = params;
@@ -109,17 +116,19 @@ class Transaction {
         }
 
         var self = this;
-        this.newStatement(query, function(err: any, statement: any) {
+        this.newStatement(query, function(err: any, statement?: Statement) {
 
-            if (err) {
+            if (err || !statement) {
                 doError(err, callback);
                 return;
             }
 
             function dropError(err: any) {
                 // do not put a statement that just failed back into the cache
-                statement._failed = true;
-                statement.release();
+                // (statement is guaranteed by the guard above; hoisting keeps
+                // the narrowing from reaching this function declaration)
+                statement!._failed = true;
+                statement!.release();
                 doCallback(err, callback);
             }
 
@@ -182,7 +191,7 @@ class Transaction {
         }, options);
     }
 
-    sequentially(query: string, params?: any, on?: any, callback?: any, options: any = {}): this {
+    sequentially(query: string, params?: any, on?: any, callback?: any, options: InternalQueryOptions | boolean = {}): this {
         if (params instanceof Function) {
             options = callback;
             callback = on;
@@ -200,7 +209,7 @@ class Transaction {
         }
 
         var self = this;
-        var _on = function(row: any, i: number, meta: any, next: (err?: any) => void) {
+        var _on = function(row: any, i: number, meta: any[], next: (err?: any) => void) {
             var done = false;
             var finish = function(err?: any) {
                 if (done) {
@@ -252,11 +261,11 @@ class Transaction {
      * Database.queryStream). The transaction is NOT committed when the
      * stream ends — commit or roll back yourself.
      */
-    queryStream(query: string, params?: any, options?: any) {
+    queryStream(query: string, params?: QueryParams, options?: QueryStreamOptions) {
         return makeQueryStream(this, query, params, options);
     }
 
-    query(query: string, params?: any, callback?: any, options: any = {}): void {
+    query(query: string, params?: QueryParams | Callback, callback?: any, options: InternalQueryOptions = {}): void {
         if (params instanceof Function) {
             callback = params;
             params = undefined;
@@ -283,15 +292,15 @@ class Transaction {
      * commit or roll back yourself (or use db.executeBatch for
      * all-or-nothing semantics).
      */
-    executeBatch(query: string, rows: any[][], callback?: any, options?: any): void {
+    executeBatch(query: string, rows: QueryParams[], callback?: BatchCb, options?: BatchOptions & QueryOptions): void {
         var self = this;
-        this.newStatement(query, function(err: any, statement: any) {
-            if (err) {
+        this.newStatement(query, function(err: any, statement?: Statement) {
+            if (err || !statement) {
                 doError(err, callback);
                 return;
             }
 
-            statement.executeBatch(self, rows, function(err: any, result: any) {
+            statement.executeBatch(self, rows, function(err: any, result: BatchResult) {
                 if (err)
                     statement._failed = true;
                 statement.release();
@@ -301,40 +310,40 @@ class Transaction {
         }, options);
     }
 
-    executeBatchAsync(query: string, rows: any[][], options?: any): Promise<any> {
+    executeBatchAsync(query: string, rows: QueryParams[], options?: BatchOptions & QueryOptions): Promise<BatchResult> {
         var self = this;
         return fromCallback(function(cb) { self.executeBatch(query, rows, cb, options); });
     }
 
-    commit(callback?: (err?: any) => void): void {
+    commit(callback?: SimpleCallback): void {
         this.connection.commit(this, callback);
     }
 
-    rollback(callback?: (err?: any) => void): void {
+    rollback(callback?: SimpleCallback): void {
         this.connection.rollback(this, callback);
     }
 
-    commitRetaining(callback?: (err?: any) => void): void {
+    commitRetaining(callback?: SimpleCallback): void {
         this.connection.commitRetaining(this, callback);
     }
 
-    rollbackRetaining(callback?: (err?: any) => void): void {
+    rollbackRetaining(callback?: SimpleCallback): void {
         this.connection.rollbackRetaining(this, callback);
     }
 
     /* Promise / async-await API — wrappers over the callback methods above. */
 
-    queryAsync(query: string, params?: any, options?: any): Promise<any[]> {
+    queryAsync(query: string, params?: QueryParams, options?: InternalQueryOptions): Promise<any[]> {
         var self = this;
         return fromCallback(function(cb) { self.query(query, params, cb, options); });
     }
 
-    executeAsync(query: string, params?: any, options?: any): Promise<any[]> {
+    executeAsync(query: string, params?: QueryParams, options?: InternalQueryOptions): Promise<any[]> {
         var self = this;
         return fromCallback(function(cb) { self.execute(query, params, cb, options); });
     }
 
-    sequentiallyAsync(query: string, params?: any, on?: any, options?: any): Promise<void> {
+    sequentiallyAsync(query: string, params?: any, on?: SequentialCallback, options?: InternalQueryOptions | boolean): Promise<void> {
         if (params instanceof Function) {
             options = on;
             on = params;
@@ -344,7 +353,7 @@ class Transaction {
         return fromCallback(function(cb) { self.sequentially(query, params, on, cb, options); });
     }
 
-    newStatementAsync(query: string): Promise<any> {
+    newStatementAsync(query: string): Promise<Statement> {
         var self = this;
         return fromCallback(function(cb) { self.newStatement(query, cb); });
     }

@@ -421,6 +421,28 @@ export class XdrReader {
     buffer: Buffer;
     pos: number;
 
+    // Row-decode scratch state used by decodeResponse (connection.ts) while
+    // decoding op_fetch_response / op_sql_response. Only meaningful within a
+    // single decode call: incomplete packets are re-decoded from scratch on
+    // a fresh XdrReader, and decodeResponse clears these at branch entry so
+    // nothing leaks between packets sharing a data event (issue #341).
+    /** opcode carried over for a resumed decode (vestigial, see connection.ts) */
+    r?: number | null;
+    /** partial fetch-op flag (vestigial) */
+    fop?: boolean;
+    /** fetch status of the current row batch (100 = end of cursor) */
+    fstatus?: number;
+    /** rows remaining in the current packet */
+    fcount?: number;
+    /** column index the row decode stopped at */
+    fcolumn?: number;
+    /** row currently being decoded (object or array) */
+    frow?: any;
+    /** rows decoded so far in this call */
+    frows?: any[];
+    /** cached object-row keys (column aliases) */
+    fcols?: string[];
+
     constructor(buffer: Buffer) {
         this.buffer = buffer;
         this.pos = 0;

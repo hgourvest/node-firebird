@@ -4,8 +4,10 @@
  * SQL Schemas support tests for Firebird 6.0 (Protocol 20+).
  *
  * These tests validate:
- *  1. DPB constants for schema parameters (isc_dpb_search_path,
- *     isc_dpb_default_schema) are correctly defined.
+ *  1. DPB constants for schema parameters (isc_dpb_search_path) are
+ *     correctly defined. (There is no default-schema DPB tag in Firebird:
+ *     defaultSchema is implemented by putting the schema first in the
+ *     search path — CURRENT_SCHEMA is the first existing schema of it.)
  *  2. isc_info_sql_relation_schema SQL info constant is defined.
  *  3. DESCRIBE_WITH_SCHEMA array includes isc_info_sql_relation_schema and is
  *     a strict superset of DESCRIBE.
@@ -293,20 +295,27 @@ describe('Firebird 6.0 — SQL Schemas support', function () {
     // -----------------------------------------------------------------------
 
     describe('DPB constants', function () {
-        it('should define isc_dpb_search_path = 94', function () {
-            assert.strictEqual(Const.isc_dpb_search_path, 94,
-                'isc_dpb_search_path must be 94 (as per Firebird 6.0 source)');
+        // Values from src/include/firebird/impl/consts_pub.h (Firebird 6.0).
+        it('should define isc_dpb_search_path = 105', function () {
+            assert.strictEqual(Const.isc_dpb_search_path, 105,
+                'isc_dpb_search_path must be 105 (as per Firebird 6.0 consts_pub.h)');
         });
 
-        it('should define isc_dpb_default_schema = 95', function () {
-            assert.strictEqual(Const.isc_dpb_default_schema, 95,
-                'isc_dpb_default_schema must be 95 (as per Firebird 6.0 source)');
+        it('should define isc_dpb_owner = 102', function () {
+            assert.strictEqual(Const.isc_dpb_owner, 102,
+                'isc_dpb_owner must be 102 (as per Firebird 6.0 consts_pub.h)');
         });
 
-        it('schema DPB tags must follow max_inline_blob_size (93) consecutively', function () {
-            assert.strictEqual(Const.isc_dpb_max_inline_blob_size, 93);
-            assert.strictEqual(Const.isc_dpb_search_path, 94);
-            assert.strictEqual(Const.isc_dpb_default_schema, 95);
+        it('should define the FB5/FB6 DPB tags with their real values', function () {
+            // These used to be wrong (92/93/94/95 are the FB4 replica/bind/
+            // decfloat tags): parallelWorkers silently switched the database
+            // into replica mode and searchPath failed the attach.
+            assert.strictEqual(Const.isc_dpb_set_db_replica, 92);
+            assert.strictEqual(Const.isc_dpb_set_bind, 93);
+            assert.strictEqual(Const.isc_dpb_decfloat_round, 94);
+            assert.strictEqual(Const.isc_dpb_decfloat_traps, 95);
+            assert.strictEqual(Const.isc_dpb_parallel_workers, 100);
+            assert.strictEqual(Const.isc_dpb_max_inline_blob_size, 104);
         });
     });
 
@@ -522,15 +531,13 @@ describe('Firebird 6.0 — SQL Schemas support', function () {
             assert.ok(Const.PROTOCOL_VERSION20 & Const.FB_PROTOCOL_FLAG);
         });
 
-        it('PROTOCOL_VERSION19 should be the highest version in SUPPORTED_PROTOCOL (P20 capped)', function () {
-            // Protocol 20 is intentionally excluded from SUPPORTED_PROTOCOL to avoid
-            // Firebird 6.0 prepare-statement hangs. P19 is the current maximum.
+        it('PROTOCOL_VERSION20 should be the highest version in SUPPORTED_PROTOCOL', function () {
+            // Protocol 20 is negotiated since the op_prepare_statement p_sqlst_flags
+            // field was implemented (the cause of the former prepare hang).
             const versions = Const.SUPPORTED_PROTOCOL.map((p) => p[0]);
             const maxVer   = Math.max(...versions);
-            assert.strictEqual(maxVer, Const.PROTOCOL_VERSION19,
-                'PROTOCOL_VERSION19 should be the highest negotiated version (P20 intentionally capped)');
-            // P20 constant is still exported for future use
-            assert.ok(Const.PROTOCOL_VERSION20, 'PROTOCOL_VERSION20 constant should still be defined');
+            assert.strictEqual(maxVer, Const.PROTOCOL_VERSION20,
+                'PROTOCOL_VERSION20 should be the highest negotiated version');
         });
     });
 
@@ -614,18 +621,18 @@ describe('Firebird 6.0 — SQL Schemas support', function () {
             });
         });
 
-        it('should send isc_dpb_default_schema (tag 95) in the DPB', function () {
+        it('should send isc_dpb_search_path (tag 105) in the DPB', function () {
             assert.ok(
-                capturedBytes.includes(Buffer.from([Const.isc_dpb_default_schema])),
-                'DPB must contain isc_dpb_default_schema tag (95 / 0x5f)'
+                capturedBytes.includes(Buffer.from([Const.isc_dpb_search_path])),
+                'DPB must contain isc_dpb_search_path tag (105 / 0x69)'
             );
         });
 
-        it('should send isc_dpb_search_path (tag 94) in the DPB', function () {
-            assert.ok(
-                capturedBytes.includes(Buffer.from([Const.isc_dpb_search_path])),
-                'DPB must contain isc_dpb_search_path tag (94 / 0x5e)'
-            );
+        it('must NOT send the FB4 decfloat tags the schema options were mistagged as', function () {
+            // tag byte followed by a length byte that would start "MYSCHEMA"
+            const boguslead = Buffer.from([Const.isc_dpb_decfloat_traps, 8, 0x4d]); // 'M'
+            assert.ok(!capturedBytes.includes(boguslead),
+                'defaultSchema must not be serialised as isc_dpb_decfloat_traps');
         });
 
         it('DPB payload should contain the schema name bytes "MYSCHEMA"', function () {

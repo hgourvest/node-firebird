@@ -269,7 +269,8 @@ const SUPPORTED_PROTOCOL = [
     [protocol.PROTOCOL_VERSION16, connect.ARCHITECTURE_GENERIC, acceptType.ptype_lazy_send, acceptType.ptype_lazy_send, 7],
     [protocol.PROTOCOL_VERSION17, connect.ARCHITECTURE_GENERIC, acceptType.ptype_lazy_send, acceptType.ptype_lazy_send, 8],
     [protocol.PROTOCOL_VERSION18, connect.ARCHITECTURE_GENERIC, acceptType.ptype_lazy_send, acceptType.ptype_lazy_send, 9],
-    [protocol.PROTOCOL_VERSION19, connect.ARCHITECTURE_GENERIC, acceptType.ptype_lazy_send, acceptType.ptype_lazy_send, 10]
+    [protocol.PROTOCOL_VERSION19, connect.ARCHITECTURE_GENERIC, acceptType.ptype_lazy_send, acceptType.ptype_lazy_send, 10],
+    [protocol.PROTOCOL_VERSION20, connect.ARCHITECTURE_GENERIC, acceptType.ptype_lazy_send, acceptType.ptype_lazy_send, 11]
 ];
 
 const authPlugin = {
@@ -472,16 +473,27 @@ const dpb = {
     isc_dpb_reset_icu 				: 89,
     isc_dpb_map_attach 				: 90,
     isc_dpb_session_time_zone 		: 91,
-    isc_dpb_parallel_workers        : 92,
-    isc_dpb_max_inline_blob_size    : 93,
-    // Firebird 6.0 SQL Schema parameters
+    // Firebird 4.0
+    isc_dpb_set_db_replica          : 92,
+    isc_dpb_set_bind                : 93,
+    isc_dpb_decfloat_round          : 94,
+    isc_dpb_decfloat_traps          : 95,
+    isc_dpb_clear_map               : 96,
+    // Firebird 5.0
+    isc_dpb_upgrade_db              : 97,
+    isc_dpb_parallel_workers        : 100,
+    isc_dpb_worker_attach           : 101,
+    // Firebird 6.0
+    // isc_dpb_owner sets the owner of a newly created database to a user
+    // other than the connecting one (create only; requires superuser).
+    isc_dpb_owner                   : 102,
+    isc_dpb_max_blob_cache_size     : 103,
+    isc_dpb_max_inline_blob_size    : 104, // Firebird 5.0.3+
     // isc_dpb_search_path sets the comma-separated ordered list of schema
     // names to search for unqualified object names (similar to PostgreSQL
-    // search_path).  Available on Protocol 20+ (Firebird 6.0).
-    isc_dpb_search_path             : 94,
-    // isc_dpb_default_schema overrides the session's current schema
-    // (CURRENT_SCHEMA) at connection time.  Available on Protocol 20+.
-    isc_dpb_default_schema          : 95,
+    // search_path). CURRENT_SCHEMA is the first existing schema of the list.
+    // Available on Protocol 20+ (Firebird 6.0).
+    isc_dpb_search_path             : 105,
 };
 
 const cnct = {

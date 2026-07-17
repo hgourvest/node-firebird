@@ -1,10 +1,23 @@
 import Events from 'events';
-import { doError, fromCallback } from '../callback';
+import { doError, fromCallback, type Callback, type SimpleCallback } from '../callback';
 import { escape } from '../utils';
 import Const from './const';
 import EventConnection from './eventConnection';
 import FbEventManager from './fbEventManager';
 import makeQueryStream from './query-stream';
+import type Connection from './connection';
+import type Transaction from './transaction';
+import type Statement from './statement';
+import type { BatchCb, StatementCb, InternalQueryOptions } from './wire-types';
+import type { BatchOptions, BatchResult, Isolation, QueryParams, QueryStreamOptions, TransactionCallback, TransactionOptions } from '../types';
+
+/** Callback for startTransaction: the internal optional-args shape, or the
+ *  public TransactionCallback (non-optional transaction) from types.ts. */
+type TransactionCb = Callback<Transaction> | TransactionCallback;
+
+/** startTransaction options: resolved options object, a bare isolation
+ *  array, or omitted entirely (callback in the options position). */
+type TransactionArg = TransactionOptions | Isolation | TransactionCb | undefined;
 
 /***************************************
  *
@@ -41,7 +54,7 @@ import makeQueryStream from './query-stream';
  *
  ***************************************/
 
-function readblob(blob: any, callback: (err: any, data?: any) => void): void {
+function readblob(blob: any, callback: Callback): void {
     if (blob === undefined || blob === null) {
         callback(null, blob);
         return;
@@ -81,7 +94,7 @@ function readblob(blob: any, callback: (err: any, data?: any) => void): void {
     });
 }
 
-function fetchBlobSyncRow(row: any, meta: any[], callback: (err: any, row?: any) => void): void {
+function fetchBlobSyncRow(row: any, meta: any[], callback: Callback): void {
     if (!row || !meta || !meta.length) {
         callback(null, row);
         return;
@@ -119,10 +132,10 @@ function fetchBlobSyncRow(row: any, meta: any[], callback: (err: any, row?: any)
 }
 
 class Database extends Events.EventEmitter {
-    connection: any;
+    connection: Connection;
     eventid: number;
 
-    constructor(connection: any) {
+    constructor(connection: Connection) {
         super();
         this.connection = connection;
         connection.db = this;
@@ -133,7 +146,7 @@ class Database extends Events.EventEmitter {
         return escape(value, this.connection.accept.protocolVersion);
     }
 
-    detach(callback?: (err?: any, obj?: any) => void, force?: boolean): this {
+    detach(callback?: Callback, force?: boolean): this {
         var self = this;
 
         if (!force && self.connection._pending.length > 0) {
@@ -151,7 +164,7 @@ class Database extends Events.EventEmitter {
                 if (callback)
                     callback(err, obj);
 
-            }, force);
+            });
         } else {
             self.emit('detach', false);
             if (callback)
@@ -161,32 +174,35 @@ class Database extends Events.EventEmitter {
         return self;
     }
 
-    transaction(options: any, callback?: (err: any, transaction?: any) => void): this {
+    transaction(options: TransactionArg, callback?: TransactionCb): this {
         return this.startTransaction(options, callback);
     }
 
-    startTransaction(options: any, callback?: (err: any, transaction?: any) => void): this {
+    startTransaction(options: TransactionArg, callback?: TransactionCb): this {
         this.connection.startTransaction(options, callback);
         return this;
     }
 
-    newStatement(query: string, callback: (err: any, statement?: any) => void): this {
-        this.startTransaction(function(err: any, transaction: any) {
+    newStatement(query: string, callback: StatementCb): this {
+        // the public strict callback shape and the internal optional-args
+        // shape only differ in optionality; treat it as the internal one
+        const cb = callback as Callback<Statement>;
+        this.startTransaction(function(err: any, transaction?: Transaction) {
 
-            if (err) {
-                callback(err);
+            if (err || !transaction) {
+                cb(err);
                 return;
             }
 
-            transaction.newStatement(query, function(err: any, statement: any) {
+            transaction.newStatement(query, function(err: any, statement?: Statement) {
 
                 if (err) {
-                    callback(err);
+                    cb(err);
                     return;
                 }
 
                 transaction.commit(function(err: any) {
-                    callback(err, statement);
+                    cb(err, statement);
                 });
             });
         });
@@ -194,7 +210,7 @@ class Database extends Events.EventEmitter {
         return this;
     }
 
-    execute(query: string, params?: any, callback?: any, options?: any): this {
+    execute(query: string, params?: QueryParams | Callback, callback?: any, options?: InternalQueryOptions): this {
         if (params instanceof Function) {
             options = callback;
             callback = params;
@@ -203,9 +219,9 @@ class Database extends Events.EventEmitter {
 
         var self = this;
 
-        self.connection.startTransaction(function(err: any, transaction: any) {
+        self.connection.startTransaction(function(err: any, transaction?: Transaction) {
 
-            if (err) {
+            if (err || !transaction) {
                 doError(err, callback);
                 return;
             }
@@ -239,17 +255,17 @@ class Database extends Events.EventEmitter {
      * err.batchCompletion. Use transaction.executeBatch for partial-success
      * handling.
      */
-    executeBatch(query: string, rows: any[][], callback?: any, options?: any): this {
+    executeBatch(query: string, rows: QueryParams[], callback?: BatchCb, options?: BatchOptions): this {
         var self = this;
 
-        self.connection.startTransaction(function(err: any, transaction: any) {
-            if (err) {
+        self.connection.startTransaction(function(err: any, transaction?: Transaction) {
+            if (err || !transaction) {
                 doError(err, callback);
                 return;
             }
 
-            transaction.executeBatch(query, rows, function(err: any, result: any) {
-                if (err) {
+            transaction.executeBatch(query, rows, function(err: any, result?: BatchResult) {
+                if (err || !result) {
                     transaction.rollback(function() {
                         doError(err, callback);
                     });
@@ -278,7 +294,7 @@ class Database extends Events.EventEmitter {
         return self;
     }
 
-    sequentially(query: string, params?: any, on?: any, callback?: any, options: any = {}): this {
+    sequentially(query: string, params?: any, on?: any, callback?: any, options: InternalQueryOptions | boolean = {}): this {
         if (params instanceof Function) {
             options = callback;
             callback = on;
@@ -296,7 +312,7 @@ class Database extends Events.EventEmitter {
         }
 
         var self = this;
-        var _on = function(row: any, i: number, meta: any, next: (err?: any) => void) {
+        var _on = function(row: any, i: number, meta: any[], next: (err?: any) => void) {
             var done = false;
             var finish = function(err?: any) {
                 if (done) {
@@ -358,11 +374,11 @@ class Database extends Events.EventEmitter {
      * statement. Rows go through the regular decode path, so typeCast,
      * blobAsText and jsonAsObject all apply.
      */
-    queryStream(query: string, params?: any, options?: any) {
+    queryStream(query: string, params?: QueryParams, options?: QueryStreamOptions) {
         return makeQueryStream(this, query, params, options);
     }
 
-    query(query: string, params?: any, callback?: any, options: any = {}): this {
+    query(query: string, params?: QueryParams | Callback, callback?: any, options: InternalQueryOptions = {}): this {
         if (params instanceof Function) {
             options = callback || {};
             callback = params;
@@ -380,7 +396,7 @@ class Database extends Events.EventEmitter {
         return self;
     }
 
-    drop(callback?: (err?: any) => void): void {
+    drop(callback?: SimpleCallback): void {
         return this.connection.dropDatabase(callback);
     }
 
@@ -391,7 +407,7 @@ class Database extends Events.EventEmitter {
      * GDSCode.CANCELLED. `kind` defaults to fb_cancel_raise; cancellation is
      * per-attachment, not per-statement.
      */
-    cancel(kind?: number | ((err?: any) => void), callback?: (err?: any) => void): this {
+    cancel(kind?: number | SimpleCallback, callback?: SimpleCallback): this {
         if (typeof kind === 'function') {
             callback = kind;
             kind = undefined;
@@ -400,7 +416,7 @@ class Database extends Events.EventEmitter {
         return this;
     }
 
-    attachEvent(callback: (err: any, evt?: any) => void): this {
+    attachEvent(callback: Callback<FbEventManager>): this {
         var self = this;
         const eventid = self.eventid++;
         if (process.env.FIREBIRD_DEBUG) {
@@ -464,7 +480,7 @@ class Database extends Events.EventEmitter {
      * @param {function} [callback] - Asynchronous completion callback.
      * @returns {Database}
      */
-    createTablespace(name: string, filePath: string, callback?: any): this {
+    createTablespace(name: string, filePath: string, callback?: Callback): this {
         const sql = `CREATE TABLESPACE ${name} FILE '${filePath}'`;
         return this.execute(sql, [], callback);
     }
@@ -478,7 +494,7 @@ class Database extends Events.EventEmitter {
      * @param {function} [callback] - Asynchronous completion callback.
      * @returns {Database}
      */
-    alterTablespace(name: string, filePath: string, callback?: any): this {
+    alterTablespace(name: string, filePath: string, callback?: Callback): this {
         const sql = `ALTER TABLESPACE ${name} SET FILE TO '${filePath}'`;
         return this.execute(sql, [], callback);
     }
@@ -491,7 +507,7 @@ class Database extends Events.EventEmitter {
      * @param {function} [callback] - Asynchronous completion callback.
      * @returns {Database}
      */
-    dropTablespace(name: string, callback?: any): this {
+    dropTablespace(name: string, callback?: Callback): this {
         const sql = `DROP TABLESPACE ${name}`;
         return this.execute(sql, [], callback);
     }
@@ -506,7 +522,7 @@ class Database extends Events.EventEmitter {
      * @param {function} [callback] - Asynchronous completion callback.
      * @returns {Database}
      */
-    createSchema(schemaName: string, tablespaceName?: string | ((err?: any) => void), callback?: any): this {
+    createSchema(schemaName: string, tablespaceName?: string | Callback, callback?: Callback): this {
         if (typeof tablespaceName === 'function') {
             callback = tablespaceName;
             tablespaceName = undefined;
@@ -525,22 +541,24 @@ class Database extends Events.EventEmitter {
      * callback API — the promises resolve with the rows alone.
      */
 
-    queryAsync(query: string, params?: any, options?: any): Promise<any[]> {
+    queryAsync(query: string, params?: QueryParams, options?: InternalQueryOptions): Promise<any[]> {
         var self = this;
         return fromCallback(function(cb) { self.query(query, params, cb, options); });
     }
 
-    executeAsync(query: string, params?: any, options?: any): Promise<any[]> {
+    executeAsync(query: string, params?: QueryParams, options?: InternalQueryOptions): Promise<any[]> {
         var self = this;
         return fromCallback(function(cb) { self.execute(query, params, cb, options); });
     }
 
-    executeBatchAsync(query: string, rows: any[][], options?: any): Promise<any> {
+    executeBatchAsync(query: string, rows: QueryParams[], options?: BatchOptions): Promise<BatchResult> {
         var self = this;
         return fromCallback(function(cb) { self.executeBatch(query, rows, cb, options); });
     }
 
-    sequentiallyAsync(query: string, params?: any, on?: any, options?: any): Promise<void> {
+    /** `on` may hold the options when the params argument is the row callback
+     *  (public overload: sequentiallyAsync(query, rowCallback, options)). */
+    sequentiallyAsync(query: string, params?: any, on?: any, options?: InternalQueryOptions | boolean): Promise<void> {
         if (params instanceof Function) {
             options = on;
             on = params;
@@ -550,16 +568,16 @@ class Database extends Events.EventEmitter {
         return fromCallback(function(cb) { self.sequentially(query, params, on, cb, options); });
     }
 
-    transactionAsync(options?: any): Promise<any> {
+    transactionAsync(options?: TransactionOptions | Isolation): Promise<Transaction> {
         var self = this;
         return fromCallback(function(cb) { self.startTransaction(options, cb); });
     }
 
-    startTransactionAsync(options?: any): Promise<any> {
+    startTransactionAsync(options?: TransactionOptions | Isolation): Promise<Transaction> {
         return this.transactionAsync(options);
     }
 
-    newStatementAsync(query: string): Promise<any> {
+    newStatementAsync(query: string): Promise<Statement> {
         var self = this;
         return fromCallback(function(cb) { self.newStatement(query, cb); });
     }
@@ -574,7 +592,7 @@ class Database extends Events.EventEmitter {
         return fromCallback(function(cb) { self.drop(cb); });
     }
 
-    attachEventAsync(): Promise<any> {
+    attachEventAsync(): Promise<FbEventManager> {
         var self = this;
         return fromCallback(function(cb) { self.attachEvent(cb); });
     }
@@ -589,7 +607,7 @@ class Database extends Events.EventEmitter {
      * resolves, rolls back when it rejects (the original error is rethrown,
      * even if the rollback itself fails).
      */
-    async withTransaction<T>(work: (transaction: any) => Promise<T> | T, options?: any): Promise<T> {
+    async withTransaction<T>(work: (transaction: Transaction) => Promise<T> | T, options?: TransactionOptions | Isolation): Promise<T> {
         const transaction = await this.transactionAsync(options);
         try {
             const result = await work(transaction);

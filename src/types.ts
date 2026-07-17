@@ -355,11 +355,11 @@ export interface Options {
     /**
      * **Firebird 6.0+ only (Protocol 20+)**
      *
-     * Sets the session's current schema at connection time.  Equivalent to
-     * executing `SET SCHEMA <name>` immediately after connecting.
-     *
-     * Unqualified object references (tables, procedures, etc.) that do not
-     * match any schema in the `searchPath` fall back to `PUBLIC`.
+     * Sets the session's current schema at connection time. `CURRENT_SCHEMA`
+     * in Firebird is the first existing schema of the search path, so this
+     * option is implemented by putting the schema at the front of the
+     * `searchPath` sent to the server (with `PUBLIC` kept as a fallback when
+     * no explicit `searchPath` is given).
      *
      * Example: `defaultSchema: 'myapp'`
      */
@@ -381,6 +381,18 @@ export interface Options {
      * (typically `PUBLIC` then `SYSTEM`).
      */
     searchPath?: string | string[];
+    /**
+     * **Firebird 6.0+ only**
+     *
+     * Owner of a newly created database (`isc_dpb_owner`), allowing a
+     * superuser to create a database owned by another user
+     * ([firebird#7718](https://github.com/FirebirdSQL/firebird/issues/7718)).
+     * Only honored by `create`/`attachOrCreate` when the database is
+     * created; ignored on plain attach and by older servers.
+     *
+     * Example: `owner: 'APP_OWNER'`
+     */
+    owner?: string;
     /**
      * **Firebird 6.0+ only (Protocol 20+)**
      *

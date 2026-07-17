@@ -91,6 +91,13 @@ class ChaChaCipher {
 class Socket {
     static Arc4 = Arc4;
 
+    // The constructor returns a Proxy whose get trap falls through to the
+    // underlying net.Socket, so callers can use net.Socket members not
+    // reimplemented here. Declare the ones the driver relies on (type-only,
+    // nothing is emitted).
+    declare end: net.Socket['end'];
+    declare removeAllListeners: net.Socket['removeAllListeners'];
+
     _socket: net.Socket;
     compress: boolean = false;
     compressor: zlib.Deflate | null;

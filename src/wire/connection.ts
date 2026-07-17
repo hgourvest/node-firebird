@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 
 import { XdrWriter, BlrWriter, XdrReader, BitSet, BlrReader } from './serialize';
-import { doCallback, doError } from '../callback';
+import { doCallback, doError, type Callback, type SimpleCallback } from '../callback';
 import * as srp from '../srp';
 import * as crypt from '../unix-crypt';
 import Const from './const';
@@ -14,6 +14,8 @@ import Statement from './statement';
 import Transaction from './transaction';
 import { lookupMessages, noop, parseDate } from '../utils';
 import Socket from './socket';
+import type { QueueCallback, QueueEntry, WireResponse, InternalOptions, InternalQueryOptions, BatchCb, Quad, AcceptPacket } from './wire-types';
+import type { BatchOptions, BatchResult, QueryParams } from '../types';
 
 function parseValueIfJson(value: any, options: any) {
     if (options && options.jsonAsObject && typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
@@ -31,12 +33,44 @@ function parseValueIfJson(value: any, options: any) {
  * `statementCacheSize` (new), or the legacy `cacheQuery`/`maxCachedQuery`
  * pair (which had no eviction; it now gets a bounded LRU). 0 = disabled.
  */
-function statementCacheLimit(options: any): number {
-    if (options && options.statementCacheSize > 0) {
-        return Math.floor(options.statementCacheSize);
+/**
+ * Build the isc_dpb_search_path value from the defaultSchema / searchPath
+ * options (Firebird 6.0 / protocol 20+). There is no "default schema" DPB
+ * tag in Firebird: CURRENT_SCHEMA is simply the first existing schema of
+ * the search path, so defaultSchema is implemented by putting it at the
+ * front of the list. When only defaultSchema is given, PUBLIC is kept as a
+ * fallback so unqualified names outside the new schema still resolve (the
+ * server always appends SYSTEM itself). Returns null when neither option
+ * is set.
+ */
+function buildSchemaSearchPath(options: InternalOptions): string | null {
+    var list: string[] = [];
+    if (options.searchPath) {
+        list = Array.isArray(options.searchPath)
+            ? options.searchPath.slice()
+            : String(options.searchPath).split(',').map(function(s: string) { return s.trim(); }).filter(Boolean);
+    }
+    var def = options.defaultSchema;
+    if (def) {
+        if (list.length === 0) {
+            // defaultSchema alone: keep PUBLIC as a fallback after it
+            list = def === 'PUBLIC' ? ['PUBLIC'] : [def, 'PUBLIC'];
+        } else {
+            // explicit searchPath: respect it, just move defaultSchema first
+            list = [def].concat(list.filter(function(s) { return s !== def; }));
+        }
+    }
+    return list.length ? list.join(',') : null;
+}
+
+function statementCacheLimit(options: InternalOptions): number {
+    const size = options && options.statementCacheSize;
+    if (size && size > 0) {
+        return Math.floor(size);
     }
     if (options && options.cacheQuery) {
-        return options.maxCachedQuery > 0 ? Math.floor(options.maxCachedQuery) : 100;
+        const legacy = options.maxCachedQuery;
+        return legacy && legacy > 0 ? Math.floor(legacy) : 100;
     }
     return 0;
 }
@@ -75,14 +109,14 @@ const SQL_TYPE_NAMES: Record<number, string> = {
  * more than once when a response spans TCP packets, so the hook must be
  * a pure function of its inputs.
  */
-function applyTypeCast(options: any, meta: any, defaultValue: any) {
+function applyTypeCast(options: InternalOptions, meta: Partial<Xsql.SQLVarBase>, defaultValue: any) {
     const typeCast = options && options.typeCast;
     if (typeof typeCast !== 'function') {
         return defaultValue;
     }
     const column = {
-        type: meta.type,
-        typeName: SQL_TYPE_NAMES[meta.type] || 'UNKNOWN',
+        type: meta.type!,
+        typeName: SQL_TYPE_NAMES[meta.type!] || 'UNKNOWN',
         subType: meta.subType,
         scale: meta.scale,
         length: meta.length,
@@ -116,10 +150,12 @@ class Connection {
     static parseValueIfJson: typeof parseValueIfJson;
     static describe: typeof describe;
 
-    db: any;
-    svc: any;
-    options: any;
-    accept: any;
+    db: Database;
+    svc: ServiceManager | undefined;
+    options: InternalOptions;
+    /** protocol negotiation result (op_accept / op_cond_accept / op_accept_data);
+     *  populated during the connect/attach handshake */
+    accept!: AcceptPacket;
     error: any;
     dbhandle: number | undefined;
     svchandle: number | undefined;
@@ -128,10 +164,12 @@ class Connection {
 
     _msg: XdrWriter;
     _blr: BlrWriter;
-    _queue: any[];
+    /** response queue: one entry per expected server response (see wire-types) */
+    _queue: QueueEntry[];
     _pending: string[];
-    _socket: any;
-    _xdr: any;
+    _socket: Socket;
+    /** partially received packet buffered between 'data' events */
+    _xdr: XdrReader | undefined;
     _isOpened: boolean;
     _isClosed: boolean;
     _isDetach: boolean;
@@ -144,15 +182,17 @@ class Connection {
     _retry_connection_id: any;
     _retry_connection_interval: number;
     _statementCacheSize: number;
-    _statementCache: Map<string, any> | null;
+    _statementCache: Map<string, Statement> | null;
     _messageFile: string;
     _authStartTime: number | undefined;
     _pendingAccept: any;
     _inlineBlobs: Map<string, Buffer> | undefined;
 
-    constructor(host: string, port: number, callback: any, options: any, db?: any, svc?: any) {
+    constructor(host: string, port: number, callback: SimpleCallback | undefined, options: InternalOptions, db?: Database, svc?: ServiceManager) {
         var self = this;
-        this.db = db;
+        // db is absent for service-manager connections; the wire core only
+        // touches it on database attachments, where it is always set
+        this.db = db!;
         this.svc = svc
         this._msg = new XdrWriter(32);
         this._blr = new BlrWriter(32);
@@ -175,8 +215,8 @@ class Connection {
         // the same values.
         if (options && !options.user) options.user = Const.DEFAULT_USER;
         if (options && !options.password) options.password = Const.DEFAULT_PASSWORD;
-        if (options && options.blobChunkSize > 65535) options.blobChunkSize = 65535;
-        if (options && options.blobReadChunkSize > 65535) options.blobReadChunkSize = 65535;
+        if (options && options.blobChunkSize && options.blobChunkSize > 65535) options.blobChunkSize = 65535;
+        if (options && options.blobReadChunkSize && options.blobReadChunkSize > 65535) options.blobReadChunkSize = 65535;
         this.options = options;
         this._bind_events(host, port, callback);
         this.error;
@@ -194,7 +234,7 @@ class Connection {
      * the same query never share a server-side cursor — they simply prepare
      * a fresh statement and the spare is dropped when released.
      */
-    takeCachedStatement(query: any) {
+    takeCachedStatement(query: string) {
         const cache = this._statementCache;
         if (!cache) {
             return null;
@@ -214,7 +254,7 @@ class Connection {
      * used statement over the limit. Failed statements, DDL and spares for
      * an already-cached query are dropped instead.
      */
-    releaseStatement(statement: any, callback?: any) {
+    releaseStatement(statement: Statement, callback?: QueueCallback) {
         const cache = this._statementCache;
         const cacheable = cache &&
             statement.query &&
@@ -230,7 +270,7 @@ class Connection {
         cache!.set(statement.query, statement);
         while (cache!.size > this._statementCacheSize) {
             const oldestKey = cache!.keys().next().value!;
-            const oldest = cache!.get(oldestKey);
+            const oldest = cache!.get(oldestKey)!;
             cache!.delete(oldestKey);
             this.dropStatement(oldest, undefined);
         }
@@ -255,7 +295,7 @@ class Connection {
     }
 
 
-    _bind_events(host: any, port: any, callback: any) {
+    _bind_events(host: string, port: number, callback: SimpleCallback | undefined) {
 
         var self = this;
 
@@ -281,7 +321,9 @@ class Connection {
 
             self._retry_connection_id = setTimeout(function() {
                 self._socket.removeAllListeners();
-                self._socket = null;
+                // transiently null while the replacement Connection is built
+                // (restored by the Object.assign(self, ctx) below)
+                self._socket = null!;
 
                 var ctx = new Connection(host, port, function(err: any) {
                     ctx.connect(self.options, function(err: any) {
@@ -450,7 +492,7 @@ class Connection {
 
 
 
-    sendOpContAuth(authData: any, authDataEnc: any, pluginName: any) {
+    sendOpContAuth(authData: string, authDataEnc: BufferEncoding, pluginName: string) {
         var msg = this._msg;
         msg.pos = 0;
     
@@ -465,7 +507,7 @@ class Connection {
     }
 
 
-    sendOpCrypt(encryptPlugin: any) {
+    sendOpCrypt(encryptPlugin: string) {
         var msg = this._msg;
         msg.pos = 0;
 
@@ -477,7 +519,7 @@ class Connection {
     }
 
 
-    sendOpCryptKeyCallback(pluginData: any) {
+    sendOpCryptKeyCallback(pluginData: BlrWriter) {
         var msg = this._msg;
         msg.pos = 0;
 
@@ -494,7 +536,7 @@ class Connection {
      * makes that operation fail with isc_cancelled (GDSCode.CANCELLED); the
      * op_cancel packet itself has no response, so nothing is queued here.
      */
-    cancelOperation(kind: any, callback: any) {
+    cancelOperation(kind?: number | SimpleCallback, callback?: SimpleCallback) {
         if (typeof kind === 'function') {
             callback = kind;
             kind = undefined;
@@ -521,7 +563,7 @@ class Connection {
 
 
     /** Write a prebuilt packet and queue its response callback. */
-    _queueEventBuffer(buffer: any, callback: any) {
+    _queueEventBuffer(buffer: Buffer, callback: QueueCallback | undefined) {
         if (this._isClosed) {
             if (callback)
                 callback(new Error('Connection is closed.'));
@@ -533,7 +575,7 @@ class Connection {
     }
 
 
-    _queueEvent(callback: any, defer = false) {
+    _queueEvent(callback: QueueCallback | undefined, defer = false) {
         var self = this;
     
         if (self._isClosed) {
@@ -562,7 +604,7 @@ class Connection {
     }
 
 
-    connect(options: any, callback: any) {
+    connect(options: InternalOptions, callback: Callback<AcceptPacket> | undefined) {
         var pluginName = options.pluginName || Const.AUTH_PLUGIN_LIST[0];
         var msg = this._msg;
         var blr = this._blr;
@@ -573,7 +615,7 @@ class Connection {
         msg.pos = 0;
         blr.pos = 0;
     
-        blr.addString(Const.CNCT_login, options.user, Const.DEFAULT_ENCODING);
+        blr.addString(Const.CNCT_login, options.user!, Const.DEFAULT_ENCODING);
         blr.addString(Const.CNCT_plugin_name, pluginName, Const.DEFAULT_ENCODING);
         blr.addString(Const.CNCT_plugin_list, Const.AUTH_PLUGIN_LIST.join(','), Const.DEFAULT_ENCODING);
     
@@ -587,7 +629,7 @@ class Connection {
             specificData = this.clientKeys.public.toString(16);
             blr.addMultiblockPart(Const.CNCT_specific_data, specificData, Const.DEFAULT_ENCODING);
         } else if (pluginName === Const.AUTH_PLUGIN_LEGACY) {
-            specificData = crypt.crypt(options.password, Const.LEGACY_AUTH_SALT).substring(2);
+            specificData = crypt.crypt(options.password!, Const.LEGACY_AUTH_SALT).substring(2);
             blr.addMultiblockPart(Const.CNCT_specific_data, specificData, Const.DEFAULT_ENCODING);
         } else {
             doError(new Error('Invalide auth plugin \'' + pluginName + '\''), callback);
@@ -603,10 +645,17 @@ class Connection {
         msg.addInt(Const.CONNECT_VERSION3);
         msg.addInt(Const.ARCHITECTURE_GENERIC);
         msg.addString(options.database || options.filename, Const.DEFAULT_ENCODING);
-        var maxProtocols = options.maxNegotiatedProtocols !== undefined ? options.maxNegotiatedProtocols : 10;
+        // Send the full list by default. Servers parse every entry and ignore
+        // versions they do not know (verified back to Firebird 2.5), so the
+        // list length itself is harmless; the option remains as an escape
+        // hatch to cap negotiation at an older protocol.
+        var maxProtocols = options.maxNegotiatedProtocols !== undefined ? options.maxNegotiatedProtocols : Const.SUPPORTED_PROTOCOL.length;
         var protocolsToSend = Const.SUPPORTED_PROTOCOL;
         if (protocolsToSend.length > maxProtocols) {
-            protocolsToSend = protocolsToSend.slice(-maxProtocols);
+            // keep the FIRST N entries: the list is ordered oldest→newest, so
+            // capping the count caps the newest protocol offered (e.g. 10 =
+            // stop at protocol 19, the documented pre-Firebird-6 behavior)
+            protocolsToSend = protocolsToSend.slice(0, maxProtocols);
         }
 
         msg.addInt(protocolsToSend.length);  // Count of Protocol version understood count.
@@ -706,7 +755,7 @@ class Connection {
     }
 
 
-    attach(options: any, callback?: any, db?: any) {
+    attach(options: InternalOptions, callback?: Callback<Database>, db?: Database) {
         this._lowercase_keys = options.lowercase_keys || Const.DEFAULT_LOWERCASE_KEYS;
     
         var database = options.database || options.filename;
@@ -770,25 +819,13 @@ class Connection {
         }
 
         // Firebird 6.0 SQL Schema parameters (Protocol 20+).
-        // These DPB tags configure the session's current schema and the
-        // schema search path for unqualified object name resolution.
         if (this.accept.protocolVersion >= Const.PROTOCOL_VERSION20) {
-            if (options.defaultSchema) {
-                // Sets CURRENT_SCHEMA for the session.  Equivalent to issuing
-                // SET SCHEMA <name> immediately after connecting.
-                blr.addString(Const.isc_dpb_default_schema, options.defaultSchema, Const.DEFAULT_ENCODING);
-            }
-            if (options.searchPath) {
-                // Comma-separated ordered schema name list, like PostgreSQL's
-                // search_path.  Unqualified object references are resolved by
-                // scanning schemas in this order.
-                const sp = Array.isArray(options.searchPath)
-                    ? options.searchPath.join(',')
-                    : String(options.searchPath);
+            const sp = buildSchemaSearchPath(options);
+            if (sp) {
                 blr.addString(Const.isc_dpb_search_path, sp, Const.DEFAULT_ENCODING);
             }
         }
-    
+
         msg.addInt(Const.op_attach);
         msg.addInt(0);  // Database Object ID
         msg.addString(database, Const.DEFAULT_ENCODING);
@@ -821,7 +858,7 @@ class Connection {
     }
 
 
-    detach(callback: any) {
+    detach(callback: Callback | undefined) {
 
         var self = this;
 
@@ -846,7 +883,7 @@ class Connection {
     }
 
 
-    createDatabase(options: any, callback: any) {
+    createDatabase(options: InternalOptions, callback: Callback<Database> | undefined) {
         // Mirror attach(): honour the lowercase_keys option so that db.query()
         // called on a freshly-created database returns the expected column case.
         this._lowercase_keys = options.lowercase_keys || Const.DEFAULT_LOWERCASE_KEYS;
@@ -909,15 +946,17 @@ class Connection {
 
         // Firebird 6.0 SQL Schema parameters (Protocol 20+).
         if (this.accept.protocolVersion >= Const.PROTOCOL_VERSION20) {
-            if (options.defaultSchema) {
-                blr.addString(Const.isc_dpb_default_schema, options.defaultSchema, Const.DEFAULT_ENCODING);
-            }
-            if (options.searchPath) {
-                const sp = Array.isArray(options.searchPath)
-                    ? options.searchPath.join(',')
-                    : String(options.searchPath);
+            const sp = buildSchemaSearchPath(options);
+            if (sp) {
                 blr.addString(Const.isc_dpb_search_path, sp, Const.DEFAULT_ENCODING);
             }
+        }
+
+        if (options.owner) {
+            // Firebird 6.0+ (issue #7718): create the database owned by a
+            // different user (requires superuser rights). Older servers
+            // ignore unknown DPB tags, so this is safe to always send.
+            blr.addString(Const.isc_dpb_owner, options.owner, Const.DEFAULT_ENCODING);
         }
     
         blr.addNumeric(Const.isc_dpb_sql_dialect, 3);
@@ -951,7 +990,7 @@ class Connection {
     }
 
 
-    dropDatabase(callback: any) {
+    dropDatabase(callback: SimpleCallback | undefined) {
         var msg = this._msg;
         msg.pos = 0;
     
@@ -970,7 +1009,7 @@ class Connection {
     }
 
 
-    throwClosed(callback: any) {
+    throwClosed(callback: ((err: Error, ...args: any[]) => void) | undefined) {
         var err = new Error('Connection is closed.');
         this.db.emit('error', err);
         if (callback)
@@ -979,7 +1018,9 @@ class Connection {
     }
 
 
-    startTransaction(options: any, callback: any) {
+    /** `options` is a resolved options object, a bare isolation array, or
+     *  the callback itself when no options are given. */
+    startTransaction(options: any, callback?: any) {
     
         if (typeof(options) === 'function') {
             var tmp = options;
@@ -1061,7 +1102,7 @@ class Connection {
     }
 
 
-    commit(transaction: any, callback: any) {
+    commit(transaction: Transaction, callback: QueueCallback | undefined) {
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1078,7 +1119,7 @@ class Connection {
     }
 
 
-    rollback(transaction: any, callback: any) {
+    rollback(transaction: Transaction, callback: QueueCallback | undefined) {
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1095,7 +1136,7 @@ class Connection {
     }
 
 
-    commitRetaining(transaction: any, callback: any) {
+    commitRetaining(transaction: Transaction, callback: QueueCallback | undefined) {
 
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1111,7 +1152,7 @@ class Connection {
     }
 
 
-    rollbackRetaining(transaction: any, callback: any) {
+    rollbackRetaining(transaction: Transaction, callback: QueueCallback | undefined) {
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1127,7 +1168,7 @@ class Connection {
     }
 
 
-    allocateStatement(callback: any) {
+    allocateStatement(callback: QueueCallback) {
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1144,7 +1185,7 @@ class Connection {
     }
 
 
-    dropStatement(statement: any, callback: any) {
+    dropStatement(statement: Statement, callback: QueueCallback | undefined) {
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1162,7 +1203,7 @@ class Connection {
     }
 
 
-    closeStatement(statement: any, callback: any) {
+    closeStatement(statement: Statement, callback: QueueCallback | undefined) {
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1180,9 +1221,9 @@ class Connection {
     }
 
 
-    allocateAndPrepareStatement(transaction: any, query: any, plan: any, callback: any) {
+    allocateAndPrepareStatement(transaction: Transaction, query: string, plan: boolean, callback: Callback<Statement>) {
         var self = this;
-        var mainCallback: any = function(err: any, ret: any) {
+        var mainCallback: QueueCallback = function(err: any, ret: any) {
             if (!err) {
                 mainCallback.response.handle = ret.handle;
                 describe(ret.buffer, mainCallback.response);
@@ -1223,6 +1264,12 @@ class Connection {
         msg.addString(query, Const.DEFAULT_ENCODING);
         msg.addBlr(blr);
         msg.addInt(65535); // buffer_length
+        if (this.accept.protocolVersion >= Const.PROTOCOL_VERSION20) {
+            // p_sqlst_flags (IStatement::PREPARE_* bits, none needed) — the
+            // server blocks reading this field if it is missing, which was
+            // the protocol-20 "prepare hang"
+            msg.addInt(0);
+        }
         mainCallback.lazy_count += 1;
     
         mainCallback.response = new Statement(this);
@@ -1230,13 +1277,13 @@ class Connection {
     }
 
 
-    prepare(transaction: any, query: any, plan: any, callback: any) {
+    prepare(transaction: Transaction, query: string, plan: boolean, callback: Callback<Statement>) {
         var self = this;
     
         if (this.accept.protocolMinimumType === Const.ptype_lazy_send) { // V11 Statement or higher
             self.allocateAndPrepareStatement(transaction, query, plan, callback);
         } else { // V10 Statement
-            self.allocateStatement(function (err: any, statement: any) {
+            self.allocateStatement(function (err: any, statement: Statement) {
                 if (err) {
                     doError(err, callback);
                     return;
@@ -1249,7 +1296,8 @@ class Connection {
 
 
 
-    prepareStatement(transaction: any, statement: any, query: any, plan: any, callback: any) {
+    /** `plan` may be the callback itself when no plan flag is given. */
+    prepareStatement(transaction: Transaction, statement: Statement, query: string, plan: boolean | Callback<Statement>, callback?: Callback<Statement>) {
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1278,6 +1326,9 @@ class Connection {
         msg.addString(query, Const.DEFAULT_ENCODING);
         msg.addBlr(blr);
         msg.addInt(65535); // buffer_length
+        if (this.accept.protocolVersion >= Const.PROTOCOL_VERSION20) {
+            msg.addInt(0); // p_sqlst_flags (see allocateAndPrepareStatement)
+        }
     
         var self = this;
         this._queueEvent(function(err: any, ret: any) {
@@ -1309,7 +1360,7 @@ class Connection {
      * { recordCount, updateCounts, errors: [{recordNumber, error}],
      *   errorRecordNumbers, success }.
      */
-    executeBatch(transaction: any, statement: any, rows: any, callback: any, options: any) {
+    executeBatch(transaction: Transaction, statement: Statement, rows: QueryParams[], callback: BatchCb | undefined, options?: BatchOptions) {
         options = options || {};
 
         if (this._isClosed)
@@ -1355,7 +1406,7 @@ class Connection {
 
         var self = this;
         var encoders = built.encoders;
-        var chunkSize = options.chunkSize > 0 ? options.chunkSize : 500;
+        var chunkSize = options.chunkSize && options.chunkSize > 0 ? options.chunkSize : 500;
         var chunkCount = Math.ceil(rows.length / chunkSize);
 
         var failure: any = null;
@@ -1423,7 +1474,8 @@ class Connection {
                 msg.addInt(end - start);
 
                 for (var i = start; i < end; i++) {
-                    var row = rows[i];
+                    // validated as an array of input.length values above
+                    var row = rows[i] as any[];
 
                     var nullBits = new BitSet();
                     for (var j = 0; j < input.length; j++) {
@@ -1499,7 +1551,8 @@ class Connection {
     }
 
 
-    executeStatement(transaction: any, statement: any, params: any, callback: any, custom: any) {
+    /** `params` may be the callback itself when the statement has no parameters. */
+    executeStatement(transaction: Transaction, statement: Statement, params: any, callback?: QueueCallback, custom?: InternalQueryOptions) {
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1523,7 +1576,7 @@ class Connection {
             op = Const.op_execute2;
         }
     
-        function PrepareParams(params: any, input: any, callback: any) {
+        function PrepareParams(params: any[], input: Xsql.SQLVarBase[], callback: (prms: any[]) => void) {
 
             var value, meta;
             var ret = new Array(params.length);
@@ -1752,7 +1805,7 @@ class Connection {
     
             if (params.length !== input.length) {
                 self._pending.pop();
-                callback(new Error('Expected parameters: (params=' + params.length + ' vs. expected=' + input.length + ') - ' + statement.query));
+                callback!(new Error('Expected parameters: (params=' + params.length + ' vs. expected=' + input.length + ') - ' + statement.query));
                 return;
             }
     
@@ -1767,7 +1820,7 @@ class Connection {
     }
 
 
-    sendExecute(op: number, statement: any, transaction: any, callback: any, parameters?: any[]) {
+    sendExecute(op: number, statement: Statement, transaction: Transaction, callback: QueueCallback | undefined, parameters?: any[]) {
         var msg = this._msg;
         var blr = this._blr;
         msg.pos = 0;
@@ -1847,14 +1900,15 @@ class Connection {
             msg.addInt(statement.options?.maxInlineBlobSize !== undefined ? statement.options.maxInlineBlobSize : (this.options?.maxInlineBlobSize || 0)); // p_sqldata_inline_blob_size
         }
     
-        callback.statement = statement;
+        callback!.statement = statement;
         this._queueEvent(callback);
     }
 
 
 
 
-    fetch(statement: any, transaction: any, count: any, callback: any) {
+    /** `count` may be the callback itself when no fetch size is given. */
+    fetch(statement: Statement, transaction: Transaction, count: any, callback?: QueueCallback) {
     
         var msg = this._msg;
         var blr = this._blr;
@@ -1874,12 +1928,12 @@ class Connection {
         msg.addInt(0); // message number
         msg.addInt(count || Const.DEFAULT_FETCHSIZE); // fetch count
     
-        callback.statement = statement;
+        callback!.statement = statement;
         this._queueEvent(callback);
     }
 
 
-    fetchScroll(statement: any, transaction: any, direction: any, offset: any, count: any, callback: any) {
+    fetchScroll(statement: Statement, transaction: Transaction, direction: string | number, offset: any, count: any, callback?: QueueCallback) {
         if (typeof count === 'function') {
             callback = count;
             count = undefined;
@@ -1925,12 +1979,12 @@ class Connection {
         msg.addInt(dirInt); // fetch operation
         msg.addInt(offsetVal); // fetch position (offset)
     
-        callback.statement = statement;
+        callback!.statement = statement;
         this._queueEvent(callback);
     }
 
 
-    fetchAll(statement: any, transaction: any, callback: any) {
+    fetchAll(statement: Statement, transaction: Transaction, callback: Callback<any[]>) {
         const self = this;
         const custom = statement.options || {};
         const asStream = custom.asStream && custom.on;
@@ -2001,7 +2055,7 @@ class Connection {
 
 
 
-    openBlob(blob: any, transaction: any, callback: any) {
+    openBlob(blob: Quad, transaction: Transaction, callback: QueueCallback) {
         var msg = this._msg;
         msg.pos = 0;
         msg.addInt(Const.op_open_blob);
@@ -2011,7 +2065,7 @@ class Connection {
     }
 
 
-    closeBlob(blob: any, callback: any, defer = true) {
+    closeBlob(blob: any, callback?: QueueCallback, defer = true) {
         var msg = this._msg;
         msg.pos = 0;
         msg.addInt(Const.op_close_blob);
@@ -2020,7 +2074,7 @@ class Connection {
     }
 
 
-    getSegment(blob: any, callback: any) {
+    getSegment(blob: any, callback: QueueCallback) {
         var msg = this._msg;
         msg.pos = 0;
         msg.addInt(Const.op_get_segment);
@@ -2031,7 +2085,7 @@ class Connection {
     }
 
 
-    createBlob2(transaction: any, callback: any) {
+    createBlob2(transaction: Transaction, callback: QueueCallback) {
         var msg = this._msg;
         msg.pos = 0;
         msg.addInt(Const.op_create_blob2);
@@ -2043,7 +2097,7 @@ class Connection {
     }
 
 
-    batchSegments(blob: any, buffer: any, callback: any) {
+    batchSegments(blob: any, buffer: Buffer, callback: QueueCallback) {
         var msg = this._msg;
         var blr = this._blr;
         msg.pos = 0;
@@ -2057,7 +2111,7 @@ class Connection {
     }
 
 
-    svcattach(options: any, callback?: any, svc?: any) {
+    svcattach(options: InternalOptions, callback?: Callback<ServiceManager>, svc?: ServiceManager) {
         this._lowercase_keys = options.lowercase_keys || Const.DEFAULT_LOWERCASE_KEYS;
         var database = options.database || options.filename;
         var user = options.user || Const.DEFAULT_USER;
@@ -2118,7 +2172,7 @@ class Connection {
     }
 
 
-    svcstart(spbaction: any, callback: any) {
+    svcstart(spbaction: BlrWriter, callback: QueueCallback | undefined) {
         var msg = this._msg;
         var blr = this._blr;
         msg.pos = 0;
@@ -2130,7 +2184,7 @@ class Connection {
     }
 
 
-    svcquery(spbquery: any, resultbuffersize: any, timeout: any,callback: any) {
+    svcquery(spbquery: number[], resultbuffersize: number, timeout: number | undefined, callback: QueueCallback | undefined) {
         if (resultbuffersize > Const.MAX_BUFFER_SIZE) {
             doError(new Error('Buffer is too big'), callback);
             return;
@@ -2154,7 +2208,7 @@ class Connection {
     }
 
 
-    svcdetach(callback: any) {
+    svcdetach(callback: Callback | undefined) {
         var self = this;
 
         if (self._isClosed) {
@@ -2180,7 +2234,7 @@ class Connection {
 
 
 
-    auxConnection(eventid: any, callback: any) {
+    auxConnection(eventid: number | Callback, callback?: Callback) {
         if (typeof eventid === 'function') {
             // Preserve the older auxConnection(callback) call shape; plain
             // auxiliary connections historically used event id 0.
@@ -2221,13 +2275,13 @@ class Connection {
                     socket_info.family, socket_info.port, socket_info.host, self._queue.length);
             }
     
-            callback(undefined, socket_info);
+            callback!(undefined, socket_info);
         }
         this._queueEvent(cb);
     }
 
 
-    queEvents(events: any, eventid: any, callback: any) {
+    queEvents(events: Record<string, number>, eventid: number, callback: Callback) {
         var self = this;
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -2263,7 +2317,7 @@ class Connection {
     }
 
 
-    closeEvents(eventid: any, callback: any) {
+    closeEvents(eventid: number, callback: Callback) {
         var self = this;
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -2292,7 +2346,7 @@ const opcodeNames = Object.fromEntries(
     Object.entries(Const).filter(([k]) => k.startsWith('op_')).map(([k, v]) => [v, k])
 );
 
-function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any, cb: (err?: any, obj?: any) => void) {
+function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cnx: Connection, lowercase_keys: boolean | undefined, cb: (err?: any, obj?: any) => void) {
     try {
         do {
             var r = data.r || data.readInt();
@@ -2313,7 +2367,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                     cnx._inlineBlobs = new Map();
                 }
                 const cacheKey = `${blob_id.high}:${blob_id.low}`;
-                cnx._inlineBlobs.set(cacheKey, blob_data);
+                cnx._inlineBlobs.set(cacheKey, blob_data!);
                 r = Const.op_dummy; // Continue loop to read next opcode
             }
         } while (r === Const.op_dummy);
@@ -2395,7 +2449,8 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
             }
             case Const.op_fetch_response:
             case Const.op_sql_response:
-                var statement = callback.statement;
+                // fetch/sql_response entries always carry their statement
+                var statement = callback!.statement!;
                 var output = statement.output;
                 var custom = statement.options || {};
                 var isOpFetch = r === Const.op_fetch_response;
@@ -2457,7 +2512,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                     let nullBitSet;
                     if (!lowerV13) {
                         const nullBitsLen = Math.floor((output.length + 7) / 8);
-                        nullBitSet = new BitSet(data.readBuffer(nullBitsLen, false));
+                        nullBitSet = new BitSet(data.readBuffer(nullBitsLen, false)!);
                         data.readBuffer((4 - nullBitsLen) & 3, false); // Skip padding
                     }
 
@@ -2465,7 +2520,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                         item = output[data.fcolumn];
 
                         if (!lowerV13 && nullBitSet!.get(data.fcolumn)) {
-                            const nullKey = custom.asObject ? data.fcols[data.fcolumn] : data.fcolumn;
+                            const nullKey = custom.asObject ? data.fcols![data.fcolumn!] : data.fcolumn;
                             data.frow[nullKey] = applyTypeCast(cnx.options, item, null);
 
                             continue;
@@ -2473,7 +2528,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
 
                         try {
                             _xdrpos = data.pos;
-                            const key = custom.asObject ? data.fcols[data.fcolumn] : data.fcolumn;
+                            const key = custom.asObject ? data.fcols![data.fcolumn!] : data.fcolumn;
                             const row = data.frows.length;
                             let value = item.decode(data, lowerV13, cnx.options);
                             // text blobs resolved by blobAsText run through the
@@ -2496,7 +2551,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                                 : applyTypeCast(cnx.options, item, parseValueIfJson(value, cnx.options));
                         } catch (e) {
                             // uncomplete packet read
-                            data.pos = _xdrpos;
+                            data.pos = _xdrpos!;
                             data.r = r;
                             return cb(new Error('Packet is not complete'));
                         }
@@ -2576,7 +2631,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                 }
 
                 if (r === Const.op_cond_accept || r === Const.op_accept_data) {
-                    var d = new BlrReader(data.readArray());
+                    var d = new BlrReader(data.readArray()!);
                     accept.pluginName = data.readString(Const.DEFAULT_ENCODING);
                     var is_authenticated = data.readInt();
                     var keys = data.readString(Const.DEFAULT_ENCODING); // keys
@@ -2607,7 +2662,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                             if (!d.buffer) {
                                 cnx._pendingAccept = accept;
                                 cnx.sendOpContAuth(
-                                    cnx.clientKeys.public.toString(16),
+                                    cnx.clientKeys!.public.toString(16),
                                     Const.DEFAULT_ENCODING,
                                     accept.pluginName
                                 );
@@ -2638,20 +2693,20 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
 
                             if (process.env.FIREBIRD_DEBUG) {
                                 console.log('--- DEBUG SRP Handshake ---');
-                                console.log('salt:', cnx.serverKeys.salt);
-                                console.log('server public key:', cnx.serverKeys.public.toString(16));
-                                console.log('client public key:', cnx.clientKeys.public.toString(16));
+                                console.log('salt:', cnx.serverKeys!.salt);
+                                console.log('server public key:', cnx.serverKeys!.public.toString(16));
+                                console.log('client public key:', cnx.clientKeys!.public.toString(16));
                                 console.log('hashAlgo:', accept.srpAlgo);
                             }
 
                             const _t1 = Date.now();
                             var proof = srp.clientProof(
-                                cnx.options.user.toUpperCase(),
-                                cnx.options.password,
-                                cnx.serverKeys.salt,
-                                cnx.clientKeys.public,
-                                cnx.serverKeys.public,
-                                cnx.clientKeys.private,
+                                cnx.options.user!.toUpperCase(),
+                                cnx.options.password!,
+                                cnx.serverKeys!.salt,
+                                cnx.clientKeys!.public,
+                                cnx.serverKeys!.public,
+                                cnx.clientKeys!.private,
                                 accept.srpAlgo
                             );
 
@@ -2668,7 +2723,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                             accept.authData = proof.authData.toString(16);
                             accept.sessionKey = proof.clientSessionKey;
                         } else if (accept.pluginName === Const.AUTH_PLUGIN_LEGACY) {
-                            accept.authData = crypt.crypt(cnx.options.password, Const.LEGACY_AUTH_SALT).substring(2);
+                            accept.authData = crypt.crypt(cnx.options.password!, Const.LEGACY_AUTH_SALT).substring(2);
                         } else {
                             return cb(new Error('Unknow auth plugin : ' + accept.pluginName));
                         }
@@ -2706,7 +2761,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
 
                 return cb(undefined, accept);
             case Const.op_cont_auth:
-                var d = new BlrReader(data.readArray());
+                var d = new BlrReader(data.readArray()!);
                 var pluginName = data.readString(Const.DEFAULT_ENCODING);
                 data.readString(Const.DEFAULT_ENCODING); // plist
                 data.readString(Const.DEFAULT_ENCODING); // pkey
@@ -2733,7 +2788,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                     // the proof with the new plugin's hash algorithm - rather than
                     // as the server's M2 proof, otherwise the client silently waits
                     // forever for an op_accept the server will never send (#254).
-                    if (!cnx.serverKeys || cnx.serverKeys.pluginName !== pluginName) {
+                    if (!cnx.serverKeys || cnx.serverKeys!.pluginName !== pluginName) {
                         // Check buffer contains salt
                         var saltLen = d.buffer.readUInt16LE(0);
                         if (saltLen > 32 * 2) {
@@ -2766,20 +2821,20 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
 
                         if (process.env.FIREBIRD_DEBUG) {
                             console.log('--- DEBUG SRP Handshake ---');
-                            console.log('salt:', cnx.serverKeys.salt);
-                            console.log('server public key:', cnx.serverKeys.public.toString(16));
-                            console.log('client public key:', cnx.clientKeys.public.toString(16));
+                            console.log('salt:', cnx.serverKeys!.salt);
+                            console.log('server public key:', cnx.serverKeys!.public.toString(16));
+                            console.log('client public key:', cnx.clientKeys!.public.toString(16));
                             console.log('hashAlgo:', srpAlgo);
                         }
 
                         const _t1 = Date.now();
                         var proof = srp.clientProof(
-                            cnx.options.user.toUpperCase(),
-                            cnx.options.password,
-                            cnx.serverKeys.salt,
-                            cnx.clientKeys.public,
-                            cnx.serverKeys.public,
-                            cnx.clientKeys.private,
+                            cnx.options.user!.toUpperCase(),
+                            cnx.options.password!,
+                            cnx.serverKeys!.salt,
+                            cnx.clientKeys!.public,
+                            cnx.serverKeys!.public,
+                            cnx.clientKeys!.private,
                             srpAlgo
                         );
 
@@ -2816,7 +2871,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
                             cnx._pendingAccept.protocolVersion,
                             cnx._authStartTime ? Date.now() - cnx._authStartTime : -1);
                     }
-                    var legacyAuthData = crypt.crypt(cnx.options.password, Const.LEGACY_AUTH_SALT).substring(2);
+                    var legacyAuthData = crypt.crypt(cnx.options.password!, Const.LEGACY_AUTH_SALT).substring(2);
                     cnx.sendOpContAuth(legacyAuthData, Const.DEFAULT_ENCODING, pluginName);
                     return; // wait for op_accept
                 }
@@ -2829,7 +2884,7 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
 
                     if (pluginName === Const.AUTH_PLUGIN_LEGACY) { // Fallback to LegacyAuth
                         cnx.accept.pluginName = pluginName;
-                        cnx.accept.authData = crypt.crypt(cnx.options.password, Const.LEGACY_AUTH_SALT).substring(2);
+                        cnx.accept.authData = crypt.crypt(cnx.options.password!, Const.LEGACY_AUTH_SALT).substring(2);
 
                         cnx.sendOpContAuth(
                             cnx.accept.authData,
@@ -2938,8 +2993,8 @@ function decodeResponse(data: any, callback: any, cnx: any, lowercase_keys: any,
  * Read one XDR status vector (as in op_response / op_batch_cs error
  * vectors): a stream of isc_arg_* items terminated by isc_arg_end.
  */
-function readStatusVector(data: any): { status: any[]; sqlcode?: number } {
-    var result: { status: any[]; sqlcode?: number } = { status: [] };
+function readStatusVector(data: XdrReader): { status: any[]; warnings?: any[]; sqlcode?: number } {
+    var result: { status: any[]; warnings?: any[]; sqlcode?: number } = { status: [] };
     var item: any = {};
 
     while (true) {
@@ -2969,13 +3024,24 @@ function readStatusVector(data: any): { status: any[]; sqlcode?: number } {
                     result.sqlcode = n;
                 }
                 break;
+            case Const.isc_arg_warning:
+                // A warning attached to a SUCCESS vector (e.g. "parallel
+                // workers value capped"). Keep it out of `status` so the
+                // operation is not mistaken for a failure; later string/
+                // number items attach to the warning entry.
+                var wnum = data.readInt();
+                item = { gdscode: wnum };
+                if (wnum) {
+                    (result.warnings = result.warnings || []).push(item);
+                }
+                break;
             default:
                 throw new Error('Unexpected status vector item: ' + op);
         }
     }
 }
 
-function parseOpResponse(data: any, response: any, cb?: (err?: any, response?: any) => void) {
+function parseOpResponse(data: XdrReader, response: WireResponse, cb?: (err?: any, response?: any) => void) {
     var handle = data.readInt();
 
     if (!response.handle) {
@@ -3039,17 +3105,30 @@ function parseOpResponse(data: any, response: any, cb?: (err?: any, response?: a
                 }
 
                 break;
-            default:
-                if (cb) {
-                    cb(new Error('Unexpected: ' + op))
-                } else {
-                    throw new Error('Unexpected: ' + op);
+            case Const.isc_arg_warning:
+                // A warning attached to a SUCCESS response (e.g. Firebird's
+                // "parallel workers value capped" on attach). Keep it out of
+                // `status` so the response is not mistaken for an error;
+                // later string/number items attach to the warning entry.
+                num = data.readInt();
+                item = { gdscode: num };
+                if (num) {
+                    (response.warnings = response.warnings || []).push(item);
                 }
+                break;
+            default:
+                // Stop parsing: continuing the loop after an unknown item
+                // re-read the same bytes forever (the caller resets the
+                // reader position when the error is delivered).
+                if (cb) {
+                    return cb(new Error('Unexpected: ' + op));
+                }
+                throw new Error('Unexpected: ' + op);
         }
     }
 }
 
-function describe(buff: Buffer, statement: any) {
+function describe(buff: Buffer, statement: Statement) {
     var br = new BlrReader(buff);
     var parameters: any = null;
     var type: any, param: any;
@@ -3057,7 +3136,7 @@ function describe(buff: Buffer, statement: any) {
     while (br.pos < br.buffer.length) {
         switch (br.readByteCode()) {
             case Const.isc_info_sql_stmt_type:
-                statement.type = br.readInt();
+                statement.type = br.readInt()!;
                 break;
             case Const.isc_info_sql_get_plan:
                 statement.plan = br.readString(Const.DEFAULT_ENCODING);
@@ -3396,7 +3475,7 @@ function CalcBlr(blr: BlrWriter, xsqlda: any[]) {
     blr.addByte(Const.blr_eoc);
 }
 
-function fetch_blob_async_transaction(statement: any, id: any, column: any, row: any, meta?: any) {
+function fetch_blob_async_transaction(statement: Statement, id: Quad, column: string | number, row: number, meta?: Xsql.SQLVarBase) {
     const infoValue = { row, column, value: '', meta };
 
     return (transactionArg: any) => {
@@ -3409,10 +3488,10 @@ function fetch_blob_async_transaction(statement: any, id: any, column: any, row:
 
         const singleTransaction = transactionArg === undefined;
 
-        let promiseTransaction;
+        let promiseTransaction: Promise<Transaction>;
         if (singleTransaction) {
             promiseTransaction = new Promise((resolve, reject) => {
-                statement.connection.startTransaction(Const.ISOLATION_READ_UNCOMMITTED, (err: any, transaction: any) => {
+                statement.connection.startTransaction(Const.ISOLATION_READ_UNCOMMITTED, (err: any, transaction: Transaction) => {
                     if (err) {
                         return reject(err);
                     }
@@ -3478,8 +3557,8 @@ function fetch_blob_async_transaction(statement: any, id: any, column: any, row:
     };
 }
 
-function fetch_blob_async(statement: any, id: any, name: any, row: any) {
-    const cbTransaction = (transaction: any, close: any, callback: any) => {
+function fetch_blob_async(statement: Statement, id: Quad, name: string | number, row: number) {
+    const cbTransaction = (transaction: Transaction, close: any, callback: any) => {
         statement.connection._pending.push('openBlob');
         statement.connection.openBlob(id, transaction, (err: any, blob: any) => {
             let e: any = new Events.EventEmitter();
@@ -3541,7 +3620,7 @@ function fetch_blob_async(statement: any, id: any, name: any, row: any) {
         });
     };
 
-    return (transaction: any, callback: any) => {
+    return (transaction: Transaction, callback: any) => {
         // callback(error, nameField, eventEmitter, row)
         const singleTransaction = callback === undefined;
         const actualCallback = singleTransaction ? transaction : callback;
@@ -3572,7 +3651,7 @@ function fetch_blob_async(statement: any, id: any, name: any, row: any) {
 
         if (singleTransaction) {
             callback = transaction;
-            statement.connection.startTransaction(Const.ISOLATION_READ_UNCOMMITTED, (err: any, transaction: any) => {
+            statement.connection.startTransaction(Const.ISOLATION_READ_UNCOMMITTED, (err: any, transaction: Transaction) => {
                 if (err) {
                     callback(err);
                     return;

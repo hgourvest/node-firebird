@@ -168,7 +168,7 @@ Shipped as part of the TypeScript migration (v2.4.0): the prototype-based codeba
 | 3.0 | 14, 15 | ✅ Implemented |
 | 4.0 | 16, 17 | ✅ Implemented |
 | 5.0 | 18, 19 | ✅ Implemented |
-| 6.0 | 20 | ⚠️ Capped to v19 (Avoids Prepare Hangs) |
+| 6.0 | 20 | ✅ Implemented |
 
 ### Firebird 3 Support
 
@@ -200,10 +200,10 @@ Shipped as part of the TypeScript migration (v2.4.0): the prototype-based codeba
 
 ### Firebird 6 and Beyond
 
-- **Protocol Version List Limit:** ✅ Implemented — capping at Protocol 19 (defaults to 10 for backward compatibility) successfully avoids the query preparation hang experienced on Protocol 20 while maintaining full encryption and feature compatibility up to Firebird 5.x.
+- **Protocol Version 20:** ✅ Implemented — the Protocol 20 "prepare hang" was root-caused (the server reads a trailing `p_sqlst_flags` field from `op_prepare_statement` since `PROTOCOL_PREPARE_FLAG`/protocol 20; the client did not send it, leaving the server blocked mid-packet) and fixed: the field is now sent, Protocol 20 is offered by default, and schema metadata (`relationSchema` via `isc_info_sql_relation_schema`) is returned on describe. `maxNegotiatedProtocols` remains as an escape hatch — the offered list is capped oldest-first, so `10` stops at Protocol 19 (the previous behavior). Integration tests in `test/protocol20.js`.
 - **Srp384 and Srp512 Authentication Plugins:** ✅ Implemented — support for the SHA-384 and SHA-512 based Secure Remote Password (SRP) authentication plugins, dynamically upgraded during the connection handshake.
 - **ChaCha and ChaCha64 Wire Encryption:** ✅ Implemented — support for the `ChaCha` and `ChaCha64` symmetric encryption algorithms in the wire protocol (incorporating SHA-256 session key stretching and IV mapping), providing a modern, secure alternative to the deprecated `Arc4` (RC4) cipher.
-- **Creation with Different Owner (Issue #7718):** ❌ Planned — support for specifying a custom database owner during database creation.
+- **Creation with Different Owner (Issue #7718):** ✅ Implemented — `options.owner` sends `isc_dpb_owner` (102) on database creation, letting a superuser create a database owned by another user. Landed together with a DPB-tag correctness fix: `parallelWorkers`, `maxInlineBlobSize`, `searchPath` and `defaultSchema` were serialised with the WRONG tags (92–95 are the Firebird 4 replica/bind/decfloat tags — `parallelWorkers` silently switched the database into replica mode, `searchPath` failed the attach). The real values are 100/104/105; `defaultSchema` (which has no DPB tag of its own) is implemented by putting the schema first in the search path, since `CURRENT_SCHEMA` is the first existing schema of it. `isc_arg_warning` status-vector entries (e.g. "parallel workers value capped") are now parsed instead of hanging the connection. Live tests in `test/dpb-options.js`.
 
 ---
 
@@ -264,7 +264,7 @@ Ordered roughly by expected user impact:
 | Next minor (cont.) | Query cancellation + `AbortSignal` ✅ done |
 | Next minor (cont.) | Firebird 4 batch API (bulk inserts) ✅ done |
 | Shipped in 2.9.0 | named placeholders; traditional `host[/port]:database` connection strings; deferred-op response queue fix |
-| Future minor | `typeCast` hook ✅ done; statement cache ✅ done (`statementCacheSize` LRU); `queryStream` Readable adapter ✅ done; configurable keepalive ✅ done; Protocol 20 (lift the v19 cap once the prepare hang is resolved); database creation with different owner (#7718) |
+| Future minor | `typeCast` hook ✅ done; statement cache ✅ done (`statementCacheSize` LRU); `queryStream` Readable adapter ✅ done; configurable keepalive ✅ done; Protocol 20 ✅ done (prepare hang fixed — `p_sqlst_flags`; v19 cap lifted); database creation with different owner (#7718) ✅ done (`options.owner`, plus FB5/FB6 DPB-tag fixes) |
 | Future major | ESM/CJS dual exports; TS Phase C generics; multi-host pooling (if demand materializes) |
 
 ---

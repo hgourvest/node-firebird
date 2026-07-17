@@ -144,7 +144,7 @@ export function create(options: Options | string, callback: DatabaseCallback): v
                 return;
             }
 
-            cnx.createDatabase(options, callback);
+            cnx.createDatabase(options, callback as any);
         });
     }, options);
 }
@@ -182,7 +182,7 @@ export function attachOrCreate(options: Options | string, callback: DatabaseCall
                     return;
                 }
 
-                cnx.createDatabase(options, callback);
+                cnx.createDatabase(options, callback as any);
             });
         });
 

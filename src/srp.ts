@@ -67,7 +67,7 @@ export function clientSeed(a: bigint = toBigInt(crypto.randomBytes(SRP_KEY_SIZE)
  * @param b BigInt Server private key.
  * @returns {{private: BigInt, public: BigInt}}
  */
-export function serverSeed(user: string, password: string, salt: Buffer, b?: bigint | string, hashAlgo: string = 'sha1'): KeyPair {
+export function serverSeed(user: string, password: string, salt: Buffer | string, b?: bigint | string, hashAlgo: string = 'sha1'): KeyPair {
     if (typeof b === 'string') {
         hashAlgo = b;
         b = undefined;
@@ -104,7 +104,7 @@ export function serverSeed(user: string, password: string, salt: Buffer, b?: big
  * @param b BigInt Server private key.
  * @returns {BigInt}
  */
-export function serverSession(user: string, password: string, salt: Buffer, A: bigint, B: bigint, b: bigint, hashAlgo: string = 'sha1'): bigint {
+export function serverSession(user: string, password: string, salt: Buffer | string, A: bigint, B: bigint, b: bigint, hashAlgo: string = 'sha1'): bigint {
     var u = getScramble(A, B, 'sha1');
     var v = getVerifier(user, password, salt, 'sha1');
     var vu = modPow(v, u, PRIME.N);
@@ -121,7 +121,7 @@ export function serverSession(user: string, password: string, salt: Buffer, A: b
 /**
  * M = H(H(N) xor H(g), H(I), s, A, B, K)
  */
-export function clientProof(user: string, password: string, salt: Buffer, A: bigint, B: bigint, a: bigint, hashAlgo: string = 'sha1'): ClientProof {
+export function clientProof(user: string, password: string, salt: Buffer | string, A: bigint, B: bigint, a: bigint, hashAlgo: string = 'sha1'): ClientProof {
     var K = clientSession(user, password, salt, A, B, a, 'sha1');
     var n1, n2;
 
@@ -222,7 +222,7 @@ function getScramble(A: bigint, B: bigint, hashAlgo: string = 'sha1'): bigint {
  * @returns Buffer The raw session-key digest (fixed length, may start
  *                 with a zero byte — significant for the proof).
  */
-function clientSession(user: string, password: string, salt: Buffer, A: bigint, B: bigint, a: bigint, hashAlgo: string = 'sha1'): Buffer {
+function clientSession(user: string, password: string, salt: Buffer | string, A: bigint, B: bigint, a: bigint, hashAlgo: string = 'sha1'): Buffer {
     var u = getScramble(A, B, 'sha1');
     var x = getUserHash(user, salt, password, 'sha1');
     var gx = modPow(PRIME.g, x, PRIME.N);
@@ -264,7 +264,7 @@ function clientSession(user: string, password: string, salt: Buffer, A: bigint, 
  * @param password string Connection password.
  * @returns {BigInt}
  */
-function getUserHash(user: string, salt: Buffer, password: string, hashAlgo: string = 'sha1'): bigint {
+function getUserHash(user: string, salt: Buffer | string, password: string, hashAlgo: string = 'sha1'): bigint {
     var hash1 = getHash(hashAlgo, user.toUpperCase(), ':', password);
     var hash2 = getHash(hashAlgo, salt, toBuffer(hash1));
 
@@ -279,7 +279,7 @@ function getUserHash(user: string, salt: Buffer, password: string, hashAlgo: str
  * @param salt  BigInt Connection salt.
  * @returns {BigInt}
  */
-function getVerifier(user: string, password: string, salt: Buffer, hashAlgo: string = 'sha1'): bigint {
+function getVerifier(user: string, password: string, salt: Buffer | string, hashAlgo: string = 'sha1'): bigint {
     return modPow(PRIME.g, getUserHash(user, salt, password, hashAlgo), PRIME.N);
 }
 

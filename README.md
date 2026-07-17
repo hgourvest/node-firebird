@@ -179,9 +179,10 @@ options.enableKeepAlive = true; // TCP keepalive probing to detect dead/stale co
 options.keepAliveInitialDelay = 60000; // ms a socket must be idle before the first keepalive probe (ignored when enableKeepAlive is false)
 options.parallelWorkers = undefined; // optional; request multiple thread workers for maintenance/index tasks (FB >= 5)
 options.maxInlineBlobSize = undefined; // optional; threshold size in bytes for inline blob transmission (default 65535, FB >= 5.0.3)
-options.maxNegotiatedProtocols = 10; // optional; limit maximum protocol versions negotiated (default 10 for compatibility, set to 11 for FB >= 6.0)
-options.defaultSchema = undefined; // optional; sets session CURRENT_SCHEMA at connect time (FB >= 6.0)
+options.maxNegotiatedProtocols = undefined; // optional; cap how many protocol versions are offered, oldest first (default: all, up to Protocol 20; set to 10 to stop at Protocol 19)
+options.defaultSchema = undefined; // optional; sets session CURRENT_SCHEMA at connect time by putting the schema first in the search path (FB >= 6.0)
 options.searchPath = undefined; // optional; ordered list/array of schemas to resolve unqualified object references (FB >= 6.0)
+options.owner = undefined; // optional; owner of a newly created database — lets a superuser create a database for another user (create only, FB >= 6.0)
 options.jsonAsObject = false; // optional; automatically stringify parameters and parse query results that contain JSON (FB >= 6.0)
 options.namedPlaceholders = false; // set to true to allow :name placeholders in SQL with a { name: value } params object (see Named placeholders)
 options.typeCast = undefined; // optional; custom type parser called for every result column value (see Custom type parsers)
@@ -1911,13 +1912,13 @@ db.transaction(function (err, tx) {
 
 #### Is the wire protocol version hard-coded?
 
-No. node-firebird negotiates the highest protocol version both the client and server support, up to `options.maxNegotiatedProtocols` (default `10`, i.e. Protocol 19 — see [Protocol Implementation Status](ROADMAP.md#4-protocol-implementation-status) in the roadmap for the full version table). Raise it if you're on Firebird 6.0 and want to attempt Protocol 20:
+No. node-firebird negotiates the highest protocol version both the client and server support — up to Protocol 20 (Firebird 6.0) by default; see [Protocol Implementation Status](ROADMAP.md#4-protocol-implementation-status) in the roadmap for the full version table. Servers ignore protocol versions they do not know, so offering the full list is safe on old servers too. To cap negotiation at an older protocol, limit how many versions are offered (the list is ordered oldest first):
 
 ```js
-options.maxNegotiatedProtocols = 11; // offers Protocol 20 as well as 19
+options.maxNegotiatedProtocols = 10; // stop at Protocol 19 (pre-Firebird 6 behavior)
 ```
 
-The default is capped at 10 (Protocol 19) rather than the full list because Protocol 20 has a known query-preparation hang on some Firebird 6.0 builds — see the "Firebird 6 and Beyond" note in [ROADMAP.md](ROADMAP.md#4-protocol-implementation-status).
+Historical note: Protocol 20 used to be excluded by default because of a query-preparation hang — the client did not send the `p_sqlst_flags` field that protocol 20 added to `op_prepare_statement`, leaving the server blocked mid-packet. The field is now sent and Protocol 20 is fully negotiated.
 
 #### BLOB reads/writes are very slow, especially for large files over a remote connection
 

@@ -12,6 +12,8 @@ module.exports = defineConfig({
             'test/unit/*.test.ts',
             'test/arc4.js',
             'test/protocol.js',
+            'test/protocol20.js',
+            'test/dpb-options.js',
             'test/srp.js',
             'test/service.js',
             'test/utf8-user-identification.js',

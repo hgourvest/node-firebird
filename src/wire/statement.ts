@@ -4,19 +4,24 @@
  *
  ***************************************/
 
-import { doError, fromCallback } from '../callback';
+import { doError, fromCallback, type Callback, type SimpleCallback } from '../callback';
 import { bindNamedParams, isNamedParamsObject } from '../named-params';
+import type Connection from './connection';
+import type Transaction from './transaction';
+import type { SQLVarBase } from './xsqlvar';
+import type { QueryOptions, QueryParams } from '../types';
 
 class Statement {
-    connection: any;
+    connection: Connection;
     // populated externally from the op_allocate_statement /
     // op_prepare_statement responses (see describe() in connection.ts),
     // hence the definite assignment assertions
     query!: string;
     type!: number;
-    output!: any[];
-    input!: any[];
-    options: any;
+    output!: SQLVarBase[];
+    input!: SQLVarBase[];
+    /** per-execute query options (asObject/asStream/timeout/...) */
+    options: QueryOptions & { [key: string]: any } | undefined;
     handle!: number;
     plan!: string;
     /**
@@ -25,25 +30,29 @@ class Statement {
      * null/undefined otherwise. Set by Transaction.newStatement.
      */
     namedParams?: string[] | null;
-    [key: string]: any;
+    /** set when an execute/fetch on this statement errored — the statement
+     *  is dropped on release instead of going back into the cache */
+    _failed?: boolean;
+    /** rows fetched so far by the current cursor (decodeResponse) */
+    nbrowsfetched?: number;
 
-    constructor(connection: any) {
+    constructor(connection: Connection) {
         this.connection = connection;
     }
 
-    close(callback?: (err?: any) => void): void {
+    close(callback?: SimpleCallback): void {
         this.connection.closeStatement(this, callback);
     }
 
-    drop(callback?: (err?: any) => void): void {
+    drop(callback?: SimpleCallback): void {
         this.connection.dropStatement(this, callback);
     }
 
-    release(callback?: (err?: any) => void): void {
+    release(callback?: SimpleCallback): void {
         this.connection.releaseStatement(this, callback);
     }
 
-    execute(transaction: any, params?: any, callback?: any, options?: any): void {
+    execute(transaction: Transaction, params?: any, callback?: any, options?: any): void {
         if (params instanceof Function) {
             options = callback;
             callback = params;
@@ -63,11 +72,11 @@ class Statement {
         this.connection.executeStatement(transaction, this, params, callback, options);
     }
 
-    fetch(transaction: any, count: number | string, callback: (err: any, result?: any) => void): void {
+    fetch(transaction: Transaction, count: number | string, callback: Callback): void {
         this.connection.fetch(this, transaction, count, callback);
     }
 
-    fetchScroll(transaction: any, direction: string | number, offset?: any, count?: any, callback?: any): void {
+    fetchScroll(transaction: Transaction, direction: string | number, offset?: any, count?: any, callback?: any): void {
         if (typeof count === 'function') {
             callback = count;
             count = undefined;
@@ -80,7 +89,7 @@ class Statement {
         this.connection.fetchScroll(this, transaction, direction, offset, count, callback);
     }
 
-    fetchAll(transaction: any, callback: (err: any, result?: any) => void): void {
+    fetchAll(transaction: Transaction, callback: Callback): void {
         this.connection.fetchAll(this, transaction, callback);
     }
 
@@ -90,7 +99,7 @@ class Statement {
      * statement was prepared with named placeholders, of values-by-name
      * objects (the two forms can be mixed).
      */
-    executeBatch(transaction: any, rows: any[][], callback?: any, options?: any): void {
+    executeBatch(transaction: Transaction, rows: QueryParams[], callback?: any, options?: any): void {
         var names = this.namedParams;
         if (names && Array.isArray(rows)) {
             try {
@@ -107,27 +116,27 @@ class Statement {
 
     /* Promise / async-await API — wrappers over the callback methods above. */
 
-    executeAsync(transaction: any, params?: any, options?: any): Promise<any> {
+    executeAsync(transaction: Transaction, params?: any, options?: any): Promise<any> {
         var self = this;
         return fromCallback(function(cb) { self.execute(transaction, params, cb, options); });
     }
 
-    executeBatchAsync(transaction: any, rows: any[][], options?: any): Promise<any> {
+    executeBatchAsync(transaction: Transaction, rows: QueryParams[], options?: any): Promise<any> {
         var self = this;
         return fromCallback(function(cb) { self.executeBatch(transaction, rows, cb, options); });
     }
 
-    fetchAsync(transaction: any, count: number | string): Promise<any> {
+    fetchAsync(transaction: Transaction, count: number | string): Promise<any> {
         var self = this;
         return fromCallback(function(cb) { self.fetch(transaction, count, cb); });
     }
 
-    fetchScrollAsync(transaction: any, direction: string | number, offset?: any, count?: any): Promise<any> {
+    fetchScrollAsync(transaction: Transaction, direction: string | number, offset?: any, count?: any): Promise<any> {
         var self = this;
         return fromCallback(function(cb) { self.fetchScroll(transaction, direction, offset, count, cb); });
     }
 
-    fetchAllAsync(transaction: any): Promise<any> {
+    fetchAllAsync(transaction: Transaction): Promise<any> {
         var self = this;
         return fromCallback(function(cb) { self.fetchAll(transaction, cb); });
     }
