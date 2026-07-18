@@ -160,13 +160,16 @@ describe('resolveTextEncoding (via SQLVarText.decode)', function () {
     });
 
     it('falls back to utf8 for unknown/unsupported Firebird charsets', function () {
+        // note: SJIS_0208 no longer qualifies as "unknown" — its 2-byte
+        // width is registered (the old bare-'SJIS' key never matched), so
+        // the width trim applies to it now; use a truly unknown name here
         const text = 'Hello';
         const sqlVar = new SQLVarText();
         sqlVar.subType = 0;
         sqlVar.length = Buffer.byteLength(text, 'utf8');
 
         const reader = makeTextReader(text, 'utf8');
-        const result = sqlVar.decode(reader, false, { encoding: 'SJIS_0208' });
+        const result = sqlVar.decode(reader, false, { encoding: 'NOT_A_CHARSET' });
         assert.strictEqual(result, text);
     });
 });

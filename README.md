@@ -1525,7 +1525,27 @@ Commonly used Firebird character sets are automatically mapped to their correspo
 | `ASCII`                | `ascii`                 | 7-bit ASCII. |
 | `NONE`                 | `latin1`                | Raw/unspecified character set. Treated as binary-safe 8-bit characters. |
 
-Accented characters and fixed-length `CHAR(N)` column whitespace/truncation are handled automatically matching the connection character set width definitions.
+Beyond Node's native encodings, the driver ships **codepage codecs** for the
+single-byte charsets (decode *and* encode — columns, parameters, SQL
+literals and `blobAsText` blobs all transcode):
+
+> `WIN1250`–`WIN1258` (Central European, Cyrillic, Greek, Turkish, Hebrew,
+> Arabic, Baltic, Vietnamese), `ISO8859_2`–`ISO8859_9`, `ISO8859_13`,
+> `KOI8R`, `KOI8U`, `DOS866`
+
+```js
+const options = { /* ... */ encoding: 'WIN1251' };
+await db.queryAsync('INSERT INTO T VALUES (?)', ['Привет']); // encoded as cp1251
+```
+
+The codecs are built from Node's ICU tables at first use (present in every
+official Node build). `attachOrCreate`/`create` honour `options.encoding`
+for the new database's default charset too. Accented characters and
+fixed-length `CHAR(N)` whitespace/truncation are handled automatically per
+the charset width — and single-byte columns (including charset `NONE`) are
+readable in full under the default UTF8 connection (the declared fetch
+lengths are widened per the charset-width ratio, fixing the
+`string right truncation` errors of issue [#422](https://github.com/hgourvest/node-firebird/issues/422)).
 
 #### Custom Charset Connection Example
 ```js
@@ -2163,34 +2183,22 @@ Answers to recurring questions from the [issue tracker](https://github.com/hgour
 
 #### Text comes back as `������` with a WIN1250/1251/1253/1257 database (issue [#319](https://github.com/hgourvest/node-firebird/issues/319))
 
-Node's `Buffer` has no built-in decoders for most Windows codepages, so
-the driver can only map charsets Node knows natively (UTF-8, WIN1252 →
-`latin1`, …); anything else currently falls back to UTF-8 and mojibakes.
-Until codepage tables ship in the driver, the working pattern is to move
-the transcoding to your side with [iconv-lite](https://www.npmjs.com/package/iconv-lite):
-connect with `encoding: 'NONE'` (bytes pass through untranscoded, see
-[§ Character Set & Encoding Support](#character-set--encoding-support)),
-read the raw bytes via `latin1` (a lossless byte↔char mapping), and
-decode with the real codepage — a [`typeCast` hook](#custom-type-parsers-typecast)
-does it transparently for every text column:
+Resolved — the driver now ships codepage codecs for the single-byte
+charsets (`WIN1250`–`WIN1258`, `ISO8859_2`–`9`/`13`, `KOI8R`/`KOI8U`,
+`DOS866`): just set the matching connection encoding and both reads and
+writes transcode correctly, including parameters, SQL literals and
+`blobAsText` blobs:
 
 ```js
-const iconv = require('iconv-lite');
-const options = {
-  // ...
-  encoding: 'NONE',
-  typeCast: (column, next) => {
-    const v = next();
-    return (column.typeName === 'VARYING' || column.typeName === 'TEXT') && typeof v === 'string'
-      ? iconv.decode(Buffer.from(v, 'latin1'), 'win1253')
-      : v;
-  },
-};
+const options = { /* ... */ encoding: 'WIN1253' };
 ```
 
-For writes, pass already-encoded bytes as Buffers
-(`iconv.encode(str, 'win1253')`) — raw Buffer parameters are written
-without transliteration.
+See [§ Character Set & Encoding Support](#character-set--encoding-support).
+For a charset *outside* that list (e.g. `DOS437`/`DOS850`), the
+[iconv-lite](https://www.npmjs.com/package/iconv-lite) escape hatch still
+works: connect with `encoding: 'NONE'`, read raw bytes via `latin1` in a
+[`typeCast` hook](#custom-type-parsers-typecast) and decode with the real
+codepage; write already-encoded bytes as Buffer parameters.
 
 #### Can I use aggregate functions like `LIST()`? I get "no database to handle" when I call the result.
 

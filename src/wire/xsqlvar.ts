@@ -1,5 +1,7 @@
 import Const from './const';
 import { BlrReader } from './serialize';
+import { getCodec } from './codepages';
+import type { TextCodec } from './codepages';
 import type { XdrReader, XdrWriter, BlrWriter } from './serialize';
 import type { RecordCounts } from '../types';
 
@@ -15,6 +17,8 @@ const
     DateOffset = 40587,
     TimeCoeff = 86400000,
     MsPerMinute = 60000;
+
+const EMPTY_BUFFER = Buffer.alloc(0);
 
 /**
  * Maps Firebird character-set names (upper-case) to the Node.js Buffer
@@ -41,11 +45,19 @@ const FirebirdToNodeEncoding: Readonly<Record<string, string>> = Object.freeze({
 const FirebirdCharsetWidths: Record<string, number> = {
     'UTF8': 4,
     'UNICODE_FSS': 3,
-    'SJIS': 2,
-    'EUCJ': 2
+    // real Firebird names — the bare 'SJIS'/'EUCJ' keys never matched a
+    // valid encoding option and silently resolved to width 1
+    'SJIS_0208': 2,
+    'EUCJ_0208': 2,
+    'KSC_5601': 2,
+    'BIG_5': 2,
+    'GB_2312': 2,
+    'GBK': 2,
+    'CP943C': 2,
+    'GB18030': 4,
 };
 
-function getFirebirdCharsetWidth(charset?: string): number {
+export function getFirebirdCharsetWidth(charset?: string): number {
     if (!charset) return 4;
     const upper = charset.toUpperCase();
     return FirebirdCharsetWidths[upper] || 1;
@@ -58,11 +70,83 @@ function getFirebirdCharsetWidth(charset?: string): number {
  * @param {object|null} options  Connection options object (may be falsy).
  * @returns {string}             A Node.js-compatible encoding string.
  */
-function resolveTextEncoding(options?: any): BufferEncoding {
+export function resolveTextEncoding(options?: any): BufferEncoding {
     const encoding = (options && options.encoding)
         ? options.encoding.toUpperCase()
         : Const.DEFAULT_ENCODING;
     return (FirebirdToNodeEncoding[encoding] || Const.DEFAULT_ENCODING.toLowerCase()) as BufferEncoding;
+}
+
+/**
+ * Codec for the CONNECTION charset when it is a codepage Node cannot
+ * handle natively (WIN1251, ISO8859_7, KOI8R, …); null on the native
+ * path (UTF8/latin1/ascii) and for unknown charsets. With a codec
+ * connection charset the server transliterates all text to that
+ * codepage, so every text column, parameter, SQL string and text blob
+ * goes through the codec (issues #319/#301).
+ */
+export function resolveTextCodec(options?: any): TextCodec | null {
+    return resolveTextState(options).codec;
+}
+
+interface TextState {
+    key: string | undefined;
+    codec: TextCodec | null;
+    enc: BufferEncoding;
+    width: number;
+}
+
+/**
+ * Per-connection text handling, resolved once and memoized on the
+ * long-lived options object: the decode loop calls this per CELL, and
+ * recomputing uppercased names + map lookups a million times per large
+ * fetch is pure waste. Invalidated if options.encoding ever changes.
+ */
+export function resolveTextState(options?: any): TextState {
+    const key = options && options.encoding;
+    if (options && options.__textState && options.__textState.key === key) {
+        return options.__textState;
+    }
+    const encoding = (key || Const.DEFAULT_ENCODING).toUpperCase();
+    const state: TextState = {
+        key,
+        codec: FirebirdToNodeEncoding[encoding] ? null : getCodec(encoding),
+        enc: (FirebirdToNodeEncoding[encoding] || Const.DEFAULT_ENCODING.toLowerCase()) as BufferEncoding,
+        width: getFirebirdCharsetWidth(encoding),
+    };
+    if (options) {
+        options.__textState = state;
+    }
+    return state;
+}
+
+/**
+ * Encode text in the CONNECTION charset — the byte form the server
+ * expects for parameters, SQL statement text and text-blob content.
+ */
+export function encodeConnectionText(options: any, value: string): Buffer {
+    const state = resolveTextState(options);
+    if (state.codec) {
+        return state.codec.encode(value);
+    }
+    if (state.enc === 'ascii') {
+        // Node's 'ascii' encoding masks high bits (0xE4 → 'd') — replace
+        // non-ASCII with '?' instead, matching the codec policy
+        value = value.replace(/[^\x00-\x7F]/g, '?');
+    }
+    return Buffer.from(value, state.enc);
+}
+
+/**
+ * Decode connection-charset bytes to text (the read counterpart of
+ * encodeConnectionText — used for text blobs).
+ */
+export function decodeConnectionText(options: any, buffer: Buffer): string {
+    const codec = resolveTextCodec(options);
+    if (codec) {
+        return codec.decode(buffer);
+    }
+    return buffer.toString(resolveTextEncoding(options));
 }
 
 //------------------------------------------------------
@@ -88,6 +172,9 @@ export abstract class SQLVarBase {
     owner?: string;
     charSetId?: number;
     collationId?: number;
+    /** Original declared byte length when scaleOutputLengths widened
+     *  `length` for the fetch capacity check (issue #422). */
+    nativeLength?: number;
 
     abstract decode(data: XdrReader, lowerV13: boolean, options?: any): any;
     abstract calcBlr(blr: BlrWriter): void;
@@ -274,7 +361,9 @@ export function describeField(meta: Partial<SQLVarBase>) {
         typeName: SQL_TYPE_NAMES[meta.type!] || 'UNKNOWN',
         subType: meta.subType,
         scale: meta.scale,
-        length: meta.length,
+        // report the column's true declared length, not the widened fetch
+        // buffer (see scaleOutputLengths)
+        length: meta.nativeLength !== undefined ? meta.nativeLength : meta.length,
         nullable: meta.nullable,
         field: meta.field,
         relation: meta.relation,
@@ -337,22 +426,12 @@ export function parseRecordCounts(buffer: Buffer | undefined): RecordCounts {
 export class SQLVarText extends SQLVarBase {
     decode(data: XdrReader, lowerV13: boolean, options?: any) {
         let ret;
-        const textEncoding = resolveTextEncoding(options);
-        if (this.subType > 1) {
-            // ToDo: with column charset
-            ret = data.readText(this.length, textEncoding);
-            const encoding = options && options.encoding ? options.encoding : 'UTF8';
-            const width = getFirebirdCharsetWidth(encoding);
-            const charLength = Math.floor(this.length / width);
-            if (ret.length > charLength) {
-                ret = ret.substring(0, charLength);
-            }
-        } else if (this.subType === 0) {
-            // without charset definition
-            ret = data.readText(this.length, textEncoding);
-            const encoding = options && options.encoding ? options.encoding : 'UTF8';
-            const width = getFirebirdCharsetWidth(encoding);
-            const charLength = Math.floor(this.length / width);
+        if (this.subType > 1 || this.subType === 0) {
+            const state = resolveTextState(options);
+            ret = state.codec
+                ? state.codec.decode(data.readBuffer(this.length) || EMPTY_BUFFER)
+                : data.readText(this.length, state.enc);
+            const charLength = Math.floor(this.length / state.width);
             if (ret.length > charLength) {
                 ret = ret.substring(0, charLength);
             }
@@ -383,13 +462,11 @@ export class SQLVarNull extends SQLVarText {
 export class SQLVarString extends SQLVarBase {
     decode(data: XdrReader, lowerV13: boolean, options?: any) {
         let ret;
-        const textEncoding = resolveTextEncoding(options);
-        if (this.subType > 1) {
-            // ToDo: with column charset
-            ret = data.readString(textEncoding);
-        } else if (this.subType === 0) {
-            // without charset definition
-            ret = data.readString(textEncoding);
+        if (this.subType > 1 || this.subType === 0) {
+            const state = resolveTextState(options);
+            ret = state.codec
+                ? state.codec.decode(data.readArray() || EMPTY_BUFFER)
+                : data.readString(state.enc);
         } else {
             ret = data.readBuffer();
         }

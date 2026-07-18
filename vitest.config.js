@@ -37,6 +37,7 @@ module.exports = defineConfig({
             'test/keepalive.js',
             'test/db-crypt-config.js',
             'test/encoding.js',
+            'test/codepages.js',
             'test/timezone.js',
             'test/decfloat.js',
             'test/mock-server.js',

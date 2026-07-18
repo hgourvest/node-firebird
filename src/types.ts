@@ -445,6 +445,13 @@ export interface Options {
      */
     namedPlaceholders?: boolean;
     /**
+     * Default character set of a NEWLY CREATED database (create /
+     * attachOrCreate only). Falls back to the connection `encoding`, then
+     * UTF8 — pass e.g. `defaultCharset: 'UTF8'` to keep a modern database
+     * default while connecting with a legacy codepage `encoding`.
+     */
+    defaultCharset?: string;
+    /**
      * Qualify object-row keys by source table (same option as mysql2), so
      * JOINed columns with the same name stop overwriting each other:
      * `true` nests each row as `row[table][column]`; a string separator

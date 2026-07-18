@@ -8,6 +8,7 @@ import * as srp from '../srp';
 import * as crypt from '../unix-crypt';
 import Const from './const';
 import * as Xsql from './xsqlvar';
+import { charsetWidthById } from './codepages';
 import ServiceManager from './service';
 import Database from './database';
 import Statement from './statement';
@@ -77,6 +78,21 @@ function statementCacheLimit(options: InternalOptions): number {
 
 // SQL type-code names live in xsqlvar.ts alongside the descriptors
 const SQL_TYPE_NAMES = Xsql.SQL_TYPE_NAMES;
+
+/**
+ * Build the wire parameter for a text value in the CONNECTION charset:
+ * plain SQLParamString for UTF-8 connections, pre-encoded bytes for
+ * everything else — SQLParamString hardwires utf8, which corrupted
+ * writes on latin1/codepage connections (issues #319/#301).
+ */
+function textParam(options: InternalOptions, value: string) {
+    const codec = Xsql.resolveTextCodec(options);
+    const enc = Xsql.resolveTextEncoding(options);
+    if (!codec && enc === 'utf8') {
+        return new Xsql.SQLParamString(value);
+    }
+    return new Xsql.SQLParamBuffer(Xsql.encodeConnectionText(options, value));
+}
 
 /**
  * Run the user's typeCast hook (options.typeCast) for one column value.
@@ -797,7 +813,9 @@ class Connection {
         blr.pos = 0;
     
         blr.addByte(Const.isc_dpb_version1);
-        blr.addString(Const.isc_dpb_lc_ctype, options.encoding || 'UTF8', Const.DEFAULT_ENCODING);
+        // charset names are sent verbatim — normalize case so encoding:
+        // 'utf8'/'win1251' (e.g. from URI query params) is accepted
+        blr.addString(Const.isc_dpb_lc_ctype, String(options.encoding || 'UTF8').toUpperCase(), Const.DEFAULT_ENCODING);
         
         // For Firebird 3+ (protocol 13+), add UTF-8 filename flag to ensure all DPB strings are handled with UTF-8
         if (this.accept.protocolVersion >= Const.PROTOCOL_VERSION13) {
@@ -925,8 +943,15 @@ class Connection {
     
         blr.pos = 0;
         blr.addByte(Const.isc_dpb_version1);
-        blr.addString(Const.isc_dpb_set_db_charset, 'UTF8', Const.DEFAULT_ENCODING);
-        blr.addString(Const.isc_dpb_lc_ctype, 'UTF8', Const.DEFAULT_ENCODING);
+        // honour options.encoding on the CREATE path too — hardcoding UTF8
+        // for lc_ctype made attachOrCreate silently ignore the requested
+        // connection charset (issue #319: 'Malformed string' for codepage
+        // text). The new database's DEFAULT charset follows the connection
+        // encoding unless options.defaultCharset overrides it.
+        blr.addString(Const.isc_dpb_set_db_charset,
+            String(options.defaultCharset || options.encoding || 'UTF8').toUpperCase(), Const.DEFAULT_ENCODING);
+        blr.addString(Const.isc_dpb_lc_ctype,
+            String(options.encoding || 'UTF8').toUpperCase(), Const.DEFAULT_ENCODING);
         
         // For Firebird 3+ (protocol 13+), add UTF-8 filename flag to ensure all DPB strings are handled with UTF-8
         if (this.accept.protocolVersion >= Const.PROTOCOL_VERSION13) {
@@ -1286,7 +1311,9 @@ class Connection {
         msg.addInt(transaction.handle);
         msg.addInt(0xFFFF);
         msg.addInt(3); // dialect = 3
-        msg.addString(query, Const.DEFAULT_ENCODING);
+        // SQL text travels in the CONNECTION charset (codepage
+        // connections encode via codec — greek/cyrillic literals included)
+        msg.addStringBuffer(Xsql.encodeConnectionText(this.options, query));
         msg.addBlr(blr);
         msg.addInt(65535); // buffer_length
         if (this.accept.protocolVersion >= Const.PROTOCOL_VERSION20) {
@@ -1348,7 +1375,9 @@ class Connection {
         msg.addInt(transaction.handle);
         msg.addInt(statement.handle);
         msg.addInt(3); // dialect = 3
-        msg.addString(query, Const.DEFAULT_ENCODING);
+        // SQL text travels in the CONNECTION charset (codepage
+        // connections encode via codec — greek/cyrillic literals included)
+        msg.addStringBuffer(Xsql.encodeConnectionText(this.options, query));
         msg.addBlr(blr);
         msg.addInt(65535); // buffer_length
         if (this.accept.protocolVersion >= Const.PROTOCOL_VERSION20) {
@@ -1703,9 +1732,9 @@ class Connection {
                     if (Buffer.isBuffer(value))
                         b = value;
                     else if (typeof(value) === 'string')
-                        b = Buffer.from(value, Const.DEFAULT_ENCODING);
+                        b = Xsql.encodeConnectionText(self.options, value);
                     else if (!isStream)
-                        b = Buffer.from(JSON.stringify(value), Const.DEFAULT_ENCODING);
+                        b = Xsql.encodeConnectionText(self.options, JSON.stringify(value));
     
                     // Use configured transfer size or default to 1024
                     var chunkSize = self.options.blobChunkSize || 1024;
@@ -1856,7 +1885,7 @@ class Connection {
                                             ret[i] = new Xsql.SQLParamDouble(value);
                                         break;
                                     case 'string':
-                                        ret[i] = new Xsql.SQLParamString(value);
+                                        ret[i] = textParam(self.options, value);
                                         break;
                                     case 'boolean':
                                         // metadata-directed: BOOLEAN targets get a
@@ -1867,7 +1896,7 @@ class Connection {
                                         break;
                                     default:
                                         //throw new Error('Unexpected parametter: ' + JSON.stringify(params) + ' - ' + JSON.stringify(input));
-                                        ret[i] = new Xsql.SQLParamString(value.toString());
+                                        ret[i] = textParam(self.options, value.toString());
                                         break;
                                 }
                             }
@@ -2282,9 +2311,9 @@ class Connection {
         if (Buffer.isBuffer(value)) {
             b = value;
         } else if (typeof value === 'string') {
-            b = Buffer.from(value, Const.DEFAULT_ENCODING);
+            b = Xsql.encodeConnectionText(this.options, value);
         } else {
-            b = Buffer.from(JSON.stringify(value), Const.DEFAULT_ENCODING);
+            b = Xsql.encodeConnectionText(this.options, JSON.stringify(value));
         }
 
         self.createBlob2(transaction, function(err: any, blob: any) {
@@ -3465,6 +3494,43 @@ function describe(buff: Buffer, statement: Statement) {
     }
     unpackCharSetCollation(statement.input);
     unpackCharSetCollation(statement.output);
+    scaleOutputLengths(statement.output, statement.connection && statement.connection.options);
+}
+
+/**
+ * Widen declared OUTPUT byte lengths for text columns whose charset the
+ * server did NOT transliterate in the describe. Under a UTF8 connection
+ * the server rewrites known charsets (a WIN1251 VARCHAR(15) is described
+ * as UTF8 with length 60) — but NONE (and any untransliterated charset)
+ * keeps its native length, and the engine's fetch-time capacity check
+ * then treats those bytes as connection-charset characters: VARCHAR(15)
+ * NONE declared as 15 bytes only fits floor(15/4) = 3 characters and
+ * longer values fail with "string right truncation" (issue #422).
+ * Declaring charCapacity × connectionWidth bytes makes the check pass;
+ * the width-based trim in the text decoders restores the column's true
+ * character capacity. The native length is preserved for metadata.
+ */
+function scaleOutputLengths(output: any[], options: any) {
+    if (!output || !output.length) return;
+    const connWidth = Xsql.getFirebirdCharsetWidth(options && options.encoding);
+    if (connWidth <= 1) return;
+
+    for (let i = 0; i < output.length; i++) {
+        const p = output[i];
+        if (!p || (p.type !== Const.SQL_TEXT && p.type !== Const.SQL_VARYING)) continue;
+        // OCTETS (id 1) is binary and never transliterated
+        if (p.charSetId === undefined || p.charSetId === 1) continue;
+        const colWidth = charsetWidthById(p.charSetId);
+        if (colWidth >= connWidth) continue;
+
+        p.nativeLength = p.length;
+        // BLR encodes the length as a 16-bit word — cap the widened value
+        // (a >16KB single-byte column keeps its full byte capacity, it just
+        // can't be over-declared four-fold)
+        p.length = Math.min(
+            Math.floor(p.length / colWidth) * connWidth,
+            Math.floor(0xFFFF / connWidth) * connWidth);
+    }
 }
 
 /**
@@ -3490,7 +3556,7 @@ function buildBatchEncoders(input: any[], options: any) {
         return String(v);
     };
     var toBytes = function(v: any, meta: any, column: number): Buffer {
-        var b = Buffer.isBuffer(v) ? v : Buffer.from(toText(v), Const.DEFAULT_ENCODING);
+        var b = Buffer.isBuffer(v) ? v : Xsql.encodeConnectionText(options, toText(v));
         if (b.length > meta.length) {
             throw new Error('Batch value for column ' + column + ' is ' + b.length +
                 ' bytes but the column accepts at most ' + meta.length + ' (' + (meta.field || '?') + ')');
@@ -3703,12 +3769,16 @@ function CalcBlr(blr: BlrWriter, xsqlda: any[]) {
 
 function fetch_blob_async_transaction(statement: Statement, id: Quad, column: string | number, row: number, meta?: Xsql.SQLVarBase, table?: string) {
     const infoValue = { row, column, value: '', meta, table };
+    // decode ONCE from the concatenated bytes: per-segment toString() both
+    // ignored the connection charset (#301 — cyrillic mojibake) and could
+    // split a multi-byte UTF-8 character across segment boundaries
+    const chunks: Buffer[] = [];
 
     return (transactionArg: any) => {
         const cacheKey = `${id.high}:${id.low}`;
         if (statement.connection._inlineBlobs && statement.connection._inlineBlobs.has(cacheKey)) {
             const data = statement.connection._inlineBlobs.get(cacheKey);
-            infoValue.value = data ? data.toString(Const.DEFAULT_ENCODING) : '';
+            infoValue.value = data ? Xsql.decodeConnectionText(statement.connection.options, data) : '';
             return Promise.resolve(infoValue);
         }
 
@@ -3752,8 +3822,7 @@ function fetch_blob_async_transaction(statement: Statement, id: Quad, column: st
 
                             if (ret.buffer) {
                                 const blr = new BlrReader(ret.buffer);
-                                const data = blr.readSegment();
-                                infoValue.value += data.toString(Const.DEFAULT_ENCODING);
+                                chunks.push(blr.readSegment());
                             }
 
                             if (ret.handle !== 2) {
@@ -3761,6 +3830,8 @@ function fetch_blob_async_transaction(statement: Statement, id: Quad, column: st
                                 return;
                             }
 
+                            infoValue.value = Xsql.decodeConnectionText(
+                                statement.connection.options, Buffer.concat(chunks));
                             statement.connection.closeBlob(blob);
                             if (singleTransaction) {
                                 transaction.commit((err: any) => {

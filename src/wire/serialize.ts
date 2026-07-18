@@ -346,6 +346,17 @@ export class XdrWriter {
         this.pos += alen;
     }
 
+    /** addString for pre-encoded bytes (codepage connection charsets). */
+    addStringBuffer(b: Buffer): void {
+        var alen = align(b.length);
+        this.ensure(alen + 4);
+        this.buffer.writeInt32BE(b.length, this.pos);
+        this.pos += 4;
+        b.copy(this.buffer, this.pos);
+        this.buffer.fill(0, this.pos + b.length, this.pos + alen);
+        this.pos += alen;
+    }
+
     addText(s: string, encoding: BufferEncoding): void {
         var len = Buffer.byteLength(s, encoding);
         var alen = align(len);
