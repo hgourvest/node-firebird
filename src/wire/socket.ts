@@ -163,9 +163,15 @@ class Socket {
      * Compress and/or encrypt data before sending to socket.
      */
     write(data: Buffer | Uint8Array, defer = false): void {
+        // Callers pass views of the connection's shared _msg buffer, and both
+        // net.Socket (when it cannot flush immediately) and zlib keep a
+        // REFERENCE to the chunk — a later sender rebuilding _msg would then
+        // corrupt this queued packet (intermittent, load-dependent). Own the
+        // bytes at the send boundary, once.
+        data = Buffer.from(data);
         if (process.env.FIREBIRD_DEBUG) {
             console.log('[fb-debug] socket.write: length=%d bytes=%s encrypt=%s defer=%s',
-                data.length, Buffer.from(data).toString('hex'), this.encrypt, defer);
+                data.length, (data as Buffer).toString('hex'), this.encrypt, defer);
         }
         if (defer) {
             // Accumulate deferred packets instead of overwriting.  Multiple
@@ -174,8 +180,8 @@ class Socket {
             // overwriting the buffer silently drops packets and desynchronises
             // the request/response queue, causing the connection to hang.
             this.buffer = this.buffer
-                ? Buffer.concat([this.buffer, Buffer.from(data)])
-                : Buffer.from(data);
+                ? Buffer.concat([this.buffer, data])
+                : (data as Buffer);
             return;
         }
 

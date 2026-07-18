@@ -1,12 +1,13 @@
 import Events from 'events';
 import { doError, fromCallback, type Callback, type SimpleCallback } from '../callback';
-import { escape } from '../utils';
+import { batchResultToError, escape } from '../utils';
 import Const from './const';
 import { makeSqlTag, type SqlTag } from '../sql-template';
 import { computeColumnKeys, nestCell, resolveKeyTransform, resolveNestTables } from './xsqlvar';
 import EventConnection from './eventConnection';
 import FbEventManager from './fbEventManager';
 import makeQueryStream from './query-stream';
+import makeBatchStream from './batch-stream';
 import type Connection from './connection';
 import type Transaction from './transaction';
 import type Statement from './statement';
@@ -300,12 +301,7 @@ class Database extends Events.EventEmitter {
 
                 if (!result.success) {
                     transaction.rollback(function() {
-                        var first = result.errors.length ? result.errors[0] : null;
-                        var batchError: any = first
-                            ? first.error
-                            : new Error('Batch failed for record(s) ' + result.errorRecordNumbers.join(', '));
-                        batchError.batchCompletion = result;
-                        doError(batchError, callback);
+                        doError(batchResultToError(result), callback);
                     });
                     return;
                 }
@@ -413,6 +409,18 @@ class Database extends Events.EventEmitter {
      */
     queryStream(query: string, params?: QueryParams, options?: QueryStreamOptions) {
         return makeQueryStream(this, query, params, options);
+    }
+
+    /**
+     * Bulk-insert Writable (the COPY FROM analogue, Firebird 4.0+): write
+     * parameter-array rows, they are flushed in chunks through the batch
+     * API on one prepared statement. Runs its own transaction — committed
+     * on finish, rolled back on error/destroy (all-or-nothing for the
+     * whole stream). BLOB columns accept Buffers/strings. After 'finish',
+     * stream.recordCount / stream.affectedRows carry the totals.
+     */
+    batchStream(query: string, options?: any) {
+        return makeBatchStream(this, query, options, true);
     }
 
     query(query: string, params?: QueryParams | Callback, callback?: any, options: InternalQueryOptions = {}): this {

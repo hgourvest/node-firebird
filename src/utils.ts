@@ -108,6 +108,21 @@ export const parseDate = (str: string): Date => {
 /**
  * Get Error Message per gdscode
  */
+/**
+ * Turn a failed executeBatch completion into the all-or-nothing error
+ * shape shared by database.executeBatch and batchStream: the first
+ * record's own error (or a synthesized summary), with the full
+ * completion attached as err.batchCompletion.
+ */
+export const batchResultToError = (result: { errors: { error: any }[]; errorRecordNumbers: number[] }): any => {
+    const first = result.errors.length ? result.errors[0] : null;
+    const err: any = first
+        ? first.error
+        : new Error('Batch failed for record(s) ' + result.errorRecordNumbers.join(', '));
+    err.batchCompletion = result;
+    return err;
+};
+
 export const lookupMessages = (status: FbStatusItem[]): string => {
     const messages = status.map((item) => {
         let text = MessagesError[item.gdscode];

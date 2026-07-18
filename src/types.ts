@@ -5,7 +5,7 @@
 // They now live in the TypeScript source tree and are compiled into the
 // published declaration files.
 
-import type { Readable } from 'stream';
+import type { Readable, Writable } from 'stream';
 import type { SqlTag } from './sql-template';
 
 export type { SqlTag, SqlQuery, SqlIdentifier, CompiledQuery } from './sql-template';
@@ -211,6 +211,22 @@ export interface QueryResult<T = any> {
     warnings: ServerWarning[];
 }
 
+/** Options for batchStream: the executeBatch options plus stream tuning. */
+export type BatchStreamOptions = BatchOptions & {
+    /** Rows buffered per executeBatch flush (default 1000). */
+    flushRows?: number;
+    /** Writable highWaterMark in rows (default: flushRows). */
+    highWaterMark?: number;
+};
+
+/** The Writable returned by batchStream, with totals valid after 'finish'. */
+export interface BatchStream extends Writable {
+    /** Records the server processed so far. */
+    recordCount: number;
+    /** Sum of per-record update counts so far. */
+    affectedRows: number;
+}
+
 export type QueryStreamOptions = QueryOptions & {
     /**
      * Rows buffered internally before fetching pauses (object-mode
@@ -244,6 +260,13 @@ export interface Database {
      * fetch and releases the statement.
      */
     queryStream(query: string, params?: QueryParams, options?: QueryStreamOptions): Readable;
+    /**
+     * Bulk-insert Writable (COPY FROM analogue, Firebird 4.0+): write
+     * parameter-array rows; they are flushed in chunks through the batch
+     * API. Runs its own transaction — committed on finish, rolled back on
+     * error/destroy. BLOB columns accept Buffers/strings.
+     */
+    batchStream(query: string, options?: BatchStreamOptions): BatchStream;
     drop(callback: SimpleCallback): void;
     escape(value: any): string;
     attachEvent(callback: any): this;
@@ -301,6 +324,11 @@ export interface Transaction {
      * transaction is NOT committed when the stream ends.
      */
     queryStream(query: string, params?: QueryParams, options?: QueryStreamOptions): Readable;
+    /**
+     * Bulk-insert Writable inside this transaction (see
+     * Database.batchStream); commit/rollback stays with the caller.
+     */
+    batchStream(query: string, options?: BatchStreamOptions): BatchStream;
     commit(callback?: SimpleCallback): void;
     commitRetaining(callback?: SimpleCallback): void;
     rollback(callback?: SimpleCallback): void;

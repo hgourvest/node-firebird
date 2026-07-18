@@ -21,6 +21,7 @@ module.exports = defineConfig({
             'test/promises.js',
             'test/cancel.js',
             'test/batch.js',
+            'test/batch-stream.js',
             'test/uri.js',
             'test/named-params.js',
             'test/returning-failure.js',

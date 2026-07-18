@@ -14,7 +14,7 @@
 - [Connection types](#connection-types) — connection options, `firebird://` URIs and traditional connection strings, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
 - [Examples](#examples) — parametrized queries, tagged-template queries (sql), named placeholders, nested result tables (nestTables), row-key transforms (transformKeys), result metadata / affected rows (withMeta), custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
-- [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
+- [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts incl. BLOBs), bulk-insert stream (batchStream), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
 - [Using node-firebird with Express.js](#using-node-firebird-with-expressjs)
 - [FAQ](#faq)
 - [Contributing](#contributing) · [Contributors](#contributors)
@@ -1209,7 +1209,11 @@ Firebird.attach(options, function (err, db) {
   });
 
   db.on('error', function (err) {
-    // connection-level errors (socket errors, closed connection, etc.)
+    // connection-level errors (socket errors, closed connection, etc.).
+    // Delivered to listeners only: without one, background failures (e.g.
+    // a failed automatic reconnect) are NOT re-thrown as uncaught
+    // exceptions — the operations they affect still receive the error
+    // through their own callbacks/promises.
   });
 
   db.on('transaction', function (options) {
@@ -1770,10 +1774,42 @@ Notes:
 - Values are encoded from the statement's own parameter metadata, so
   NUMERIC/DECIMAL scale, `BIGINT`/`INT128` (pass `BigInt`), `BOOLEAN`,
   `TIMESTAMP`/`DATE`/`TIME`, `FLOAT`/`DOUBLE` and `DECFLOAT` all round-trip
-  exactly. BLOB and ARRAY parameters are not supported in batches yet.
+  exactly.
+- `BLOB` columns accept Buffers, strings, JSON-able objects, or
+  pre-created blob quad ids: values are uploaded as transaction blobs
+  first — all initiated back-to-back so the blob ops pipeline on the
+  wire — and the batch messages reference their ids. `ARRAY` parameters
+  are not supported.
 - Oversized `CHAR`/`VARCHAR` values fail the batch client-side before
   anything is sent; server-side record errors (constraint violations,
   truncation…) are reported per record.
+
+### Bulk-insert stream (batchStream, Firebird 4.0+)
+
+`db.batchStream(sql, options)` is the COPY FROM analogue: an object-mode
+`Writable` that flushes parameter-array rows in chunks through one
+prepared statement using the batch API. The Database form runs its own
+transaction — **committed on finish, rolled back on error or destroy**,
+all-or-nothing for the whole stream:
+
+```js
+const { pipeline } = require('stream/promises');
+
+const stream = db.batchStream('INSERT INTO EVENTS VALUES (?, ?, ?)', {
+  flushRows: 1000, // rows buffered per batch flush (default 1000)
+});
+
+await pipeline(mySourceOfRowArrays, stream); // e.g. a CSV parser
+console.log(stream.recordCount, stream.affectedRows); // totals after 'finish'
+```
+
+Backpressure is the `Writable` machinery itself: writes pause while a
+chunk is in flight, so an arbitrarily large source never accumulates in
+memory beyond `flushRows`. BLOB columns accept Buffers/strings per the
+batch rules above. `transaction.batchStream(sql, options)` runs inside an
+existing transaction and leaves commit/rollback to you. The remaining
+options (`chunkSize`, `bufferSize`, …) pass through to
+[executeBatch](#batch-execution-firebird-40).
 
 ### Statement Timeouts (Firebird 4.0+)
 Setting a statement timeout allows the client to automatically abort queries that take too long on the server.

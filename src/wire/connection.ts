@@ -263,6 +263,25 @@ class Connection {
     }
 
 
+    /**
+     * Deliver a connection-level error to 'error' listeners — and ONLY to
+     * listeners. Emitting an unlistened 'error' makes Node throw the error
+     * object as an uncaught exception; for errors that originate in
+     * background contexts (the reconnect timer, socket-level failures whose
+     * operations are separately rejected via _rejectPending) that crashes
+     * the process — or, under a test runner, fails whatever unrelated test
+     * happens to be running. The failing operations themselves always
+     * still receive their error through their own callbacks.
+     */
+    _emitError(err: any) {
+        if (this.db && typeof this.db.listenerCount === 'function' && this.db.listenerCount('error') > 0) {
+            this.db.emit('error', err);
+        } else if (process.env.FIREBIRD_DEBUG) {
+            console.warn('[fb-debug] connection error (no error listener):', err && err.message);
+        }
+    }
+
+
     _bind_events(host: string, port: number, callback: SimpleCallback | undefined) {
 
         var self = this;
@@ -287,6 +306,15 @@ class Connection {
 
             self._rejectPending(lostError);
 
+            // Pooled connections do not self-reconnect: the pool is the
+            // recovery authority (dead-connection check on checkout + the
+            // reaper), and a background reconnect here would produce a
+            // zombie attachment the pool no longer tracks — whose own
+            // failures then surface as uncatchable async errors.
+            if (self.options && self.options.isPool) {
+                return;
+            }
+
             self._retry_connection_id = setTimeout(function() {
                 self._socket.removeAllListeners();
                 // transiently null while the replacement Connection is built
@@ -297,14 +325,14 @@ class Connection {
                     ctx.connect(self.options, function(err: any) {
 
                         if (err) {
-                            self.db.emit('error', err);
+                            self._emitError(err);
                             return;
                         }
 
                         ctx.attach(self.options, function(err: any) {
 
                             if (err) {
-                                self.db.emit('error', err);
+                                self._emitError(err);
                                 return;
                             }
 
@@ -1348,10 +1376,13 @@ class Connection {
      * gets an in-order response (op_batch_cs for exec), so the regular
      * response queue keeps everything in sync.
      *
-     * rows: array of parameter arrays, one per record. BLOB/ARRAY columns
-     * are not supported yet. The callback receives a completion object:
-     * { recordCount, updateCounts, errors: [{recordNumber, error}],
-     *   errorRecordNumbers, success }.
+     * rows: array of parameter arrays, one per record. BLOB columns accept
+     * Buffers, strings, JSON-able objects or pre-created blob quad ids —
+     * values are uploaded as transaction blobs first (all initiated
+     * back-to-back so they pipeline) and the batch messages reference their
+     * ids. ARRAY columns are not supported. The callback receives a
+     * completion object: { recordCount, updateCounts, errors:
+     * [{recordNumber, error}], errorRecordNumbers, success }.
      */
     executeBatch(transaction: Transaction, statement: Statement, rows: QueryParams[], callback: BatchCb | undefined, options?: BatchOptions) {
         options = options || {};
@@ -1389,6 +1420,90 @@ class Connection {
             }
         }
 
+        var self = this;
+
+        // BLOB pre-pass: upload every Buffer/string blob value as a
+        // transaction blob and replace it (in a cloned row) with the quad
+        // id the batch message will carry. All uploads are initiated
+        // back-to-back, so the create/segment/close ops pipeline on the
+        // wire instead of paying a round trip per blob.
+        var blobCols: number[] = [];
+        for (var bj = 0; bj < input.length; bj++) {
+            var bt = input[bj].type;
+            if (bt === Const.SQL_BLOB || bt === Const.SQL_QUAD) {
+                blobCols.push(bj);
+            }
+        }
+
+        // all-NULL blob columns are common — a large row set must not pay
+        // for a full clone when there is nothing to upload or unwrap
+        var needsBlobPass = false;
+        if (blobCols.length) {
+            outer:
+            for (var ri = 0; ri < rows.length; ri++) {
+                for (var ci = 0; ci < blobCols.length; ci++) {
+                    var bv = (rows[ri] as any[])[blobCols[ci]];
+                    if (bv !== null && bv !== undefined) {
+                        needsBlobPass = true;
+                        break outer;
+                    }
+                }
+            }
+        }
+
+        if (needsBlobPass) {
+            var cloned: any[][] = rows.map(function(r) { return (r as any[]).slice(); });
+            var pendingBlobs = 1; // sentinel so zero uploads still settle
+            var blobFailure: any = null;
+            var settleBlobs = function(err?: any) {
+                if (err && !blobFailure) {
+                    blobFailure = err;
+                }
+                if (--pendingBlobs) {
+                    return;
+                }
+                if (blobFailure) {
+                    doError(blobFailure, callback);
+                    return;
+                }
+                self._executeBatchEncoded(transaction, statement, cloned, callback, options);
+            };
+
+            cloned.forEach(function(row) {
+                blobCols.forEach(function(j) {
+                    var v = row[j];
+                    if (v === null || v === undefined) {
+                        return;
+                    }
+                    // a pre-created blob id (SQLParamQuad wrapper) passes
+                    // through; plain {high, low} objects are deliberately NOT
+                    // treated as ids — they are legitimate JSON blob content
+                    // and would silently misroute to a bogus blob reference
+                    if (v instanceof Xsql.SQLParamQuad) {
+                        row[j] = v.value;
+                        return;
+                    }
+                    pendingBlobs++;
+                    self.uploadBlob(transaction, v, function(err: any, oid: any) {
+                        if (!err) {
+                            row[j] = oid;
+                        }
+                        settleBlobs(err);
+                    });
+                });
+            });
+            settleBlobs();
+            return;
+        }
+
+        this._executeBatchEncoded(transaction, statement, rows as any[][], callback, options);
+    }
+
+
+    /** Encode and send the batch packets (rows are fully materialized:
+     *  blob values already replaced by quad ids by executeBatch). */
+    _executeBatchEncoded(transaction: Transaction, statement: Statement, rows: any[][], callback: BatchCb | undefined, options: BatchOptions) {
+        var input = statement.input;
         var built;
         try {
             built = buildBatchEncoders(input, Object.assign({}, this.options, options));
@@ -2131,6 +2246,48 @@ class Connection {
         blr.addBuffer(buffer);
         msg.addBlr(blr);
         this._queueEvent(callback);
+    }
+
+
+    /**
+     * Create a transaction blob, upload `value` (Buffer, string, or a
+     * JSON-able object) and deliver its quad id. executeBatch's blob
+     * pre-pass uses this: batch messages reference pre-created transaction
+     * blobs (the batch parameter buffer's default BLOB_NONE policy), just
+     * like the classic execute path stores blob params.
+     */
+    uploadBlob(transaction: Transaction, value: any, callback: (err: any, oid?: any) => void) {
+        var self = this;
+        var b: Buffer;
+        if (Buffer.isBuffer(value)) {
+            b = value;
+        } else if (typeof value === 'string') {
+            b = Buffer.from(value, Const.DEFAULT_ENCODING);
+        } else {
+            b = Buffer.from(JSON.stringify(value), Const.DEFAULT_ENCODING);
+        }
+
+        self.createBlob2(transaction, function(err: any, blob: any) {
+            if (err) {
+                return callback(err);
+            }
+            var chunkSize = self.options.blobChunkSize || 1024;
+            // bufferReader's next() drops errors — capture the first segment
+            // failure so a truncated upload is never reported as success
+            var segmentError: any = null;
+            bufferReader(b, chunkSize, function(part, next) {
+                self.batchSegments(blob, part, function(segErr: any) {
+                    if (segErr && !segmentError) {
+                        segmentError = segErr;
+                    }
+                    next();
+                } as any);
+            }, function() {
+                self.closeBlob(blob, function(closeErr: any) {
+                    callback(segmentError || closeErr, blob.oid);
+                } as any, false);
+            });
+        });
     }
 
 
@@ -3449,6 +3606,24 @@ function buildBatchEncoders(input: any[], options: any) {
                     msg.addUInt(Xsql.encodeDateTimeParts(toDate(v)).time);
                 });
                 align(4); offset += 4;
+                break;
+
+            case Const.SQL_BLOB:
+            case Const.SQL_QUAD:
+                // the value is a transaction blob quad id — placed by
+                // executeBatch's uploadBlob pre-pass, or passed by the
+                // caller directly. ISC_QUAD: two longs, align 4.
+                encoders.push((function(col) {
+                    return function(msg: any, v: any) {
+                        if (!v || typeof v.high !== 'number' || typeof v.low !== 'number') {
+                            throw new Error('Batch value for BLOB column ' + col +
+                                ' must be a Buffer, string, object, or blob quad id');
+                        }
+                        msg.addInt(v.high);
+                        msg.addInt(v.low);
+                    };
+                })(column));
+                align(4); offset += 8;
                 break;
 
             default:

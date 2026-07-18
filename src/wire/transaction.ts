@@ -5,6 +5,7 @@ import Const from './const';
 import { makeSqlTag, type SqlTag } from '../sql-template';
 import { describeFields, parseRecordCounts } from './xsqlvar';
 import makeQueryStream from './query-stream';
+import makeBatchStream from './batch-stream';
 import type Connection from './connection';
 import type Database from './database';
 import type Statement from './statement';
@@ -384,6 +385,15 @@ class Transaction {
      */
     queryStream(query: string, params?: QueryParams, options?: QueryStreamOptions) {
         return makeQueryStream(this, query, params, options);
+    }
+
+    /**
+     * Bulk-insert Writable running inside this transaction (see
+     * Database.batchStream). The transaction is NOT committed or rolled
+     * back by the stream — settle it yourself after 'finish'/'error'.
+     */
+    batchStream(query: string, options?: any) {
+        return makeBatchStream(this, query, options, false);
     }
 
     query(query: string, params?: QueryParams | Callback, callback?: any, options: InternalQueryOptions = {}): void {
