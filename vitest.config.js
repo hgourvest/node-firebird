@@ -27,6 +27,7 @@ module.exports = defineConfig({
             'test/nest-tables.js',
             'test/query-meta.js',
             'test/sql-template.js',
+            'test/savepoints.js',
             'test/type-cast.js',
             'test/statement-cache.js',
             'test/query-stream.js',

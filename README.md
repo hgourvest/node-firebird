@@ -154,6 +154,14 @@ Notes:
 
 ### Connection options
 
+Settings you leave out fall back to environment variables first — using
+Firebird's own conventions (`ISC_USER` and `ISC_PASSWORD`, the same
+variables isql honours) plus `FIREBIRD_HOST`, `FIREBIRD_PORT`,
+`FIREBIRD_DATABASE` and `FIREBIRD_ROLE` — and to the built-in defaults
+below (SYSDBA / masterkey / 127.0.0.1) only after that. Explicitly
+provided options always win, so credentials can stay out of code the
+same way `PGUSER`/`PGPASSWORD` work with pg.
+
 ```js
 var options = {};
 
@@ -1115,6 +1123,41 @@ Firebird.attach(options, function (err, db) {
   );
 });
 ```
+
+#### Savepoints
+
+`transaction.savepoint(work)` runs `work` inside a savepoint (Firebird
+1.5+): on resolve the savepoint is **released**, on reject the transaction
+**rolls back to the savepoint** — undoing only `work`'s changes — and the
+error is rethrown while the transaction itself stays usable. Calls nest;
+names are generated automatically. This is the counterpart of
+Postgres.js's `sql.savepoint()` and mirrors `db.withTransaction`'s style:
+
+```js
+await db.withTransaction(async (tx) => {
+  await tx.sql`INSERT INTO ORDERS VALUES (${1}, ${'paid'})`;
+
+  try {
+    await tx.savepoint(async () => {
+      await tx.sql`INSERT INTO AUDIT VALUES (${1}, ${'optional enrichment'})`;
+      await maybeFailingStep(tx);
+    });
+  } catch (err) {
+    // the AUDIT insert is undone; the ORDERS insert survives and the
+    // transaction continues toward commit
+  }
+});
+```
+
+If the rollback-to itself fails (e.g. the connection died), the original
+error is still thrown, with the rollback failure attached as
+`err.savepointRollbackError`. A release failure does **not** roll the
+work back — only a `work` failure does.
+
+> **Note:** do not run sibling savepoints concurrently on one transaction
+> (`Promise.all`): Firebird's `RELEASE SAVEPOINT` also releases every
+> savepoint created after it, so interleaved siblings would release each
+> other. Nested (awaited) savepoints are fine.
 
 ### Driver Events
 

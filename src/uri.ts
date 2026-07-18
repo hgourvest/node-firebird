@@ -198,7 +198,59 @@ export function parseConnectionString(str: string): Options {
  */
 export function normalizeOptions<T>(options: T | string): T {
     if (typeof options === 'string') {
-        return parseConnectionString(options) as T;
+        options = parseConnectionString(options) as T;
     }
-    return options;
+    return applyEnvDefaults(options as any);
+}
+
+/**
+ * Fall back to environment variables for connection settings the caller
+ * did not provide — the pg-style convention using Firebird's own names:
+ * ISC_USER / ISC_PASSWORD (honoured by isql and every official tool) plus
+ * FIREBIRD_HOST / FIREBIRD_PORT / FIREBIRD_DATABASE / FIREBIRD_ROLE.
+ * Explicit options always win; the driver's built-in defaults (SYSDBA /
+ * masterkey / 127.0.0.1) still apply when neither is set. A fresh object
+ * is returned so caller-owned options objects are never mutated.
+ */
+const ENV_FALLBACKS: [string, string][] = [
+    ['user', 'ISC_USER'],
+    ['password', 'ISC_PASSWORD'],
+    ['host', 'FIREBIRD_HOST'],
+    ['port', 'FIREBIRD_PORT'],
+    ['database', 'FIREBIRD_DATABASE'],
+    ['role', 'FIREBIRD_ROLE'],
+];
+
+function applyEnvDefaults<T extends Record<string, any>>(options: T): T {
+    let out: any = options;
+    for (const [key, envName] of ENV_FALLBACKS) {
+        const value = process.env[envName];
+        // empty-string env vars (common in CI: `export ISC_PASSWORD=`)
+        // count as unset
+        if (value === undefined || value === '') {
+            continue;
+        }
+        // a service-manager connection's `database` selects the TARGET of
+        // backup/restore — never let a leftover env var pick that silently
+        if (key === 'database' && (options as any).manager) {
+            continue;
+        }
+        if (out[key] === undefined || out[key] === null || out[key] === '') {
+            if (out === options) {
+                out = { ...(options as any) };
+            }
+            if (key === 'port') {
+                const port = Number(value);
+                if (!Number.isFinite(port) || port <= 0) {
+                    // NaN is falsy: it would silently fall back to 3050
+                    // downstream instead of surfacing the typo
+                    throw new Error('Invalid FIREBIRD_PORT environment variable: ' + value);
+                }
+                out[key] = port;
+            } else {
+                out[key] = value;
+            }
+        }
+    }
+    return out;
 }

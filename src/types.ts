@@ -275,6 +275,12 @@ export interface Database {
 export interface Transaction {
     /** Tagged-template query API running inside this transaction (see Database.sql). */
     sql: SqlTag;
+    /**
+     * Run `work` inside a savepoint: released on resolve, rolled back TO
+     * (undoing only work's changes) on reject — the transaction stays
+     * usable either way. Nestable.
+     */
+    savepoint<T>(work: (transaction: Transaction) => Promise<T> | T): Promise<T>;
     newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): void;
     query(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): void;
     execute(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): void;

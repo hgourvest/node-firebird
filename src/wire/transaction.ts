@@ -75,6 +75,60 @@ class Transaction {
             this.queryAsync(text, params, { ...options, namedPlaceholders: false })));
     }
 
+    /** Current savepoint nesting depth (names savepoints, see savepoint()). */
+    private _savepointDepth = 0;
+
+    /**
+     * Run `work` inside a savepoint (Firebird 1.5+): on resolve the
+     * savepoint is released, on reject the transaction rolls back TO the
+     * savepoint — undoing only work's changes — and the error is rethrown,
+     * leaving the transaction itself usable. Nestable (each call generates
+     * a fresh NF_SP_n name), mirroring db.withTransaction's style and
+     * Postgres.js's sql.savepoint().
+     *
+     * Do NOT run sibling savepoints concurrently on one transaction
+     * (Promise.all): Firebird's RELEASE SAVEPOINT also releases every
+     * savepoint created after it, so interleaved siblings release each
+     * other. Nested (awaited) savepoints are fine.
+     */
+    async savepoint<T>(work: (transaction: this) => Promise<T> | T): Promise<T> {
+        if (typeof work !== 'function') {
+            throw new Error('savepoint(work) expects a function');
+        }
+        // named by nesting depth, not a global counter: sequential
+        // savepoints at the same depth reuse the same three SQL strings, so
+        // the statement cache serves them instead of accumulating
+        // single-use entries (redefining a released savepoint name is legal)
+        const name = 'NF_SP_' + (++this._savepointDepth);
+        try {
+            await this.queryAsync('SAVEPOINT ' + name);
+
+            let result: T;
+            try {
+                result = await work(this);
+            } catch (err: any) {
+                // only a work() failure rolls back to the savepoint — a
+                // RELEASE failure below must NOT undo work's successful
+                // changes
+                try {
+                    await this.queryAsync('ROLLBACK TO SAVEPOINT ' + name);
+                } catch (rollbackErr: any) {
+                    // the original failure matters more; keep the rollback
+                    // failure attached for diagnosis
+                    if (err && typeof err === 'object') {
+                        err.savepointRollbackError = rollbackErr;
+                    }
+                }
+                throw err;
+            }
+
+            await this.queryAsync('RELEASE SAVEPOINT ' + name);
+            return result;
+        } finally {
+            this._savepointDepth--;
+        }
+    }
+
     /** Per-call options.namedPlaceholders overrides the connection option. */
     private namedPlaceholdersEnabled(options?: InternalQueryOptions): boolean {
         if (options && options.namedPlaceholders !== undefined)
