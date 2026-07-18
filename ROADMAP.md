@@ -285,7 +285,7 @@ ESM/CJS dual exports (pg ships both since 8.15) and callback-API generics stay u
 | Shipped in 2.11.0 | `nestTables` (mysql2-style nested / table-qualified object rows); `relationAlias` describe metadata actually requested; `sequentially` blob/key alignment fix |
 | Shipped in 2.12.0 | Result metadata + affected rows (`withMeta`, #13); server `warning` events (#15); tagged-template query API (`db.sql`/`tx.sql`, #14); savepoint helpers (#16); env-var config defaults (#17); pool recycling (`maxUses`/`maxLifetimeMillis`, #18); row-key transforms (`transformKeys`, #19); SRP CI flake diagnosed (socket RST, not auth) |
 | Shipped in 2.13.0 | Bulk-insert stream + BLOB batch params (#20 — Round 2 complete); ESM/CJS dual exports (no major bump needed); callback-API generics (Phase C); single-byte codepage support (WIN125x/ISO8859_x/KOI8/DOS866 — closed #319/#301/#422); wire-buffer aliasing fix; guarded background 'error' events; issue-tracker triage fixes (#122 booleans, #156 escape, #305 EXECUTE PROCEDURE blobs) — **issue tracker emptied: 47 → 0** |
-| Next minor | Multi-host pooling (`poolCluster`, #12) ✅ done — **the roadmap is complete** |
+| Shipped in 2.14.0 | Multi-host pooling (`poolCluster`, #12) — **the roadmap is complete** |
 
 ---
 
