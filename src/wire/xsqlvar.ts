@@ -119,12 +119,16 @@ export interface ColumnKey {
 export function computeColumnKeys(
     output: SQLVarBase[],
     nestTables: boolean | string | undefined,
-    lowercaseKeys: boolean | undefined
+    lowercaseKeys: boolean | undefined,
+    transform?: (key: string) => string
 ): ColumnKey[] {
     return output.map((column) => {
         let key = column.alias || '';
         if (lowercaseKeys) {
             key = key.toLowerCase();
+        }
+        if (transform) {
+            key = transform(key);
         }
         if (nestTables !== true && typeof nestTables !== 'string') {
             return { key };
@@ -133,11 +137,75 @@ export function computeColumnKeys(
         if (lowercaseKeys) {
             table = table.toLowerCase();
         }
+        if (transform) {
+            table = transform(table);
+        }
         if (nestTables === true) {
             return { table, key };
         }
         return { key: table + nestTables + key };
     });
+}
+
+/** transformKeys option value: the built-in 'camel', or a custom mapper. */
+export type KeyTransform = 'camel' | ((key: string) => string);
+
+/** FIRST_NAME → firstName (the transformKeys: 'camel' built-in). */
+export function camelizeKey(key: string): string {
+    const parts = String(key).toLowerCase().split('_');
+    let out = parts[0] || '';
+    for (let i = 1; i < parts.length; i++) {
+        const part = parts[i];
+        if (part) {
+            out += part.charAt(0).toUpperCase() + part.slice(1);
+        }
+    }
+    return out;
+}
+
+/**
+ * Resolve the effective transformKeys value (per-query wins over the
+ * connection option) into a callable mapper, or undefined when off.
+ * A custom mapper is guarded like the typeCast hook: a throw inside the
+ * row-decode loop would be mistaken for an incomplete packet and desync
+ * the response queue, so failures fall back to the untransformed key.
+ */
+export function resolveKeyTransform(
+    queryOptions: { transformKeys?: KeyTransform } | undefined,
+    connectionOptions: { transformKeys?: KeyTransform } | undefined
+): ((key: string) => string) | undefined {
+    const value = resolveQueryOption<KeyTransform>('transformKeys', queryOptions, connectionOptions);
+    if (value === 'camel') {
+        return camelizeKey;
+    }
+    if (typeof value !== 'function') {
+        return undefined;
+    }
+    return (key: string) => {
+        try {
+            return String(value(key));
+        } catch (err: any) {
+            console.warn('[node-firebird] transformKeys mapper threw for key "%s": %s — using the untransformed key',
+                key, err && err.message);
+            return key;
+        }
+    };
+}
+
+/**
+ * Shared precedence rule for per-query-overridable connection options:
+ * the per-query value wins whenever it is present (even if falsy), the
+ * connection option applies otherwise.
+ */
+function resolveQueryOption<T>(
+    name: string,
+    queryOptions: Record<string, any> | undefined,
+    connectionOptions: Record<string, any> | undefined
+): T | undefined {
+    if (queryOptions && queryOptions[name] !== undefined) {
+        return queryOptions[name];
+    }
+    return connectionOptions ? connectionOptions[name] : undefined;
 }
 
 /**
@@ -150,10 +218,7 @@ export function resolveNestTables(
     queryOptions: { nestTables?: boolean | string } | undefined,
     connectionOptions: { nestTables?: boolean | string } | undefined
 ): boolean | string | undefined {
-    if (queryOptions && queryOptions.nestTables !== undefined) {
-        return queryOptions.nestTables;
-    }
-    return connectionOptions && connectionOptions.nestTables;
+    return resolveQueryOption('nestTables', queryOptions, connectionOptions);
 }
 
 /**

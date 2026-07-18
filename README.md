@@ -13,7 +13,7 @@
 - [Promises and async/await](#promises-and-asyncawait) — the `*Async` API plus `withConnection` / `withTransaction` helpers
 - [Connection types](#connection-types) — connection options, `firebird://` URIs and traditional connection strings, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
-- [Examples](#examples) — parametrized queries, tagged-template queries (sql), named placeholders, nested result tables (nestTables), result metadata / affected rows (withMeta), custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
+- [Examples](#examples) — parametrized queries, tagged-template queries (sql), named placeholders, nested result tables (nestTables), row-key transforms (transformKeys), result metadata / affected rows (withMeta), custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
 - [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
 - [Using node-firebird with Express.js](#using-node-firebird-with-expressjs)
 - [FAQ](#faq)
@@ -194,6 +194,7 @@ options.owner = undefined; // optional; owner of a newly created database — le
 options.jsonAsObject = false; // optional; automatically stringify parameters and parse query results that contain JSON (FB >= 6.0)
 options.namedPlaceholders = false; // set to true to allow :name placeholders in SQL with a { name: value } params object (see Named placeholders)
 options.nestTables = false; // true nests object rows by source table (row[table][column]); a string separator flattens to 'table<sep>column' keys — see Nested result tables (nestTables). Overridable per query
+options.transformKeys = undefined; // 'camel' (FIRST_NAME → firstName) or a (key) => key mapper for object-row keys — see Transforming row keys (transformKeys). Overridable per query
 options.typeCast = undefined; // optional; custom type parser called for every result column value (see Custom type parsers)
 options.statementCacheSize = 0; // optional; per-connection LRU cache of prepared statements, 0 = disabled (see Prepared-statement cache)
 ```
@@ -301,9 +302,11 @@ The pool is an `EventEmitter` and exposes live counters, following the
 ```js
 const pool = Firebird.pool(10, {
     ...options,
-    idleTimeoutMillis: 30000, // close connections idle for 30s…
-    min: 2,                   // …but always keep 2 alive
+    idleTimeoutMillis: 30000,   // close connections idle for 30s…
+    min: 2,                     // …but always keep 2 alive
     connectTimeout: 5000,
+    maxUses: 7500,              // retire a connection after 7500 checkouts (pg's maxUses)
+    maxLifetimeMillis: 3600000, // …or 1h after creation (Postgres.js's max_lifetime)
 });
 
 pool.on('connect', (db) => console.log('new server connection'));
@@ -326,6 +329,12 @@ console.log({
   connection they ever created (issue [#329](https://github.com/hgourvest/node-firebird/issues/329)).
   The sweep also evicts idle connections whose socket has died, so callers
   don't receive them after a server restart (issue [#343](https://github.com/hgourvest/node-firebird/issues/343)).
+- `maxUses` and `maxLifetimeMillis` **recycle** physical connections: a
+  worn-out or over-age connection is closed for good when returned to the
+  pool (lifetime is also enforced on idle connections by the sweep, even
+  below `min`) and a replacement is created on demand. Recycling bounds
+  server-side resource drift on long-lived connections. Both default to 0
+  (off).
 - `error` is a background-error channel (idle eviction failures and the
   like); unlike a plain `EventEmitter`, it is only emitted when a listener
   is attached, so existing applications keep working unchanged.
@@ -601,6 +610,26 @@ otherwise collide with a real `table<sep>column` key). Keys honour
 array rows are positional and need no qualification. Works on every
 supported Firebird version (the source-table metadata comes from the
 statement describe, available since Firebird 2.0).
+
+### Transforming row keys (transformKeys)
+
+`transformKeys` rewrites object-row keys — the counterpart of
+Postgres.js's `transform`. The built-in `'camel'` maps `FIRST_NAME` →
+`firstName`; a custom `(key) => key` mapper gives full control. Accepted
+at connection level and per query (per-query wins):
+
+```js
+const rows = await db.queryAsync('SELECT EMP_ID, FIRST_NAME FROM EMP_INFO', [],
+  { transformKeys: 'camel' });
+// rows[0] = { empId: 1, firstName: 'Ada' }
+```
+
+The transform runs after `lowercase_keys` and applies to both parts of
+[`nestTables`](#nested-result-tables-nesttables) keys (`row.e.empId`).
+Column *metadata* — `withMeta` `fields` and the `typeCast` hook — keeps
+the raw server aliases. A custom mapper that throws falls back to the
+untransformed key (with a console warning) rather than corrupting the
+row decode.
 
 ### Result metadata and affected rows (withMeta)
 

@@ -143,6 +143,14 @@ export type QueryOptions = {
      */
     nestTables?: boolean | string;
     /**
+     * Per-query override of the `transformKeys` connection option: rewrite
+     * object-row keys — `'camel'` turns `FIRST_NAME` into `firstName`, or
+     * pass a custom `(key) => key` mapper. Applied after `lowercase_keys`
+     * and to both parts of `nestTables` keys. Column metadata (`fields`,
+     * typeCast) keeps the raw server aliases.
+     */
+    transformKeys?: 'camel' | ((key: string) => string);
+    /**
      * Deliver a full result object `{ rows, fields, affectedRows,
      * recordCounts, warnings }` instead of the bare rows (callback and
      * promise APIs). For DML, `affectedRows` is what the server actually
@@ -419,6 +427,14 @@ export interface Options {
      */
     nestTables?: boolean | string;
     /**
+     * Rewrite object-row keys (Postgres.js `transform` counterpart):
+     * `'camel'` turns `FIRST_NAME` into `firstName`, or pass a custom
+     * `(key) => key` mapper. Applied after `lowercase_keys` and to both
+     * parts of `nestTables` keys; column metadata keeps raw aliases.
+     * Overridable per query.
+     */
+    transformKeys?: 'camel' | ((key: string) => string);
+    /**
      * TCP keepalive probing to detect dead/stale connections (same option
      * names as mysql2). On by default; set false to disable.
      */
@@ -456,6 +472,20 @@ export interface Options {
      * Default 0 (idle connections are kept forever).
      */
     idleTimeoutMillis?: number;
+    /**
+     * Pool only: retire a physical connection after this many checkouts
+     * (pg's `maxUses`) — it is closed for good when returned to the pool
+     * and replaced on demand. Bounds server-side resource drift on
+     * long-lived connections. Default 0 (unlimited uses).
+     */
+    maxUses?: number;
+    /**
+     * Pool only: retire a physical connection this many milliseconds after
+     * it was created (Postgres.js's `max_lifetime`), on return to the pool
+     * or by the idle sweep — even below `min`; replacements are created on
+     * demand. Default 0 (unlimited lifetime).
+     */
+    maxLifetimeMillis?: number;
     /**
      * **Firebird 6.0+ only (Protocol 20+)**
      *

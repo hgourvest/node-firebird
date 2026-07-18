@@ -2515,7 +2515,8 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
 
                 if (custom.asObject && !data.fcols) {
                     const nest = Xsql.resolveNestTables(custom, cnx.options);
-                    const columnKeys = Xsql.computeColumnKeys(output, nest, lowercase_keys);
+                    const transform = Xsql.resolveKeyTransform(custom, cnx.options);
+                    const columnKeys = Xsql.computeColumnKeys(output, nest, lowercase_keys, transform);
                     data.fcols = columnKeys.map((k) => k.key);
                     if (nest === true) {
                         // computeColumnKeys always sets table when nesting

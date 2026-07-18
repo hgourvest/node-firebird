@@ -26,7 +26,12 @@ type AttachFn = (options: any, callback: Callback) => void;
  *
  * Options: max (factory argument), options.min (floor the reaper never
  * shrinks below), options.idleTimeoutMillis (close idle connections after
- * this many ms; 0/absent = never), options.connectTimeout.
+ * this many ms; 0/absent = never), options.connectTimeout,
+ * options.maxUses (retire a connection after this many checkouts — pg's
+ * maxUses), options.maxLifetimeMillis (retire a connection this many ms
+ * after it was created — Postgres.js's max_lifetime). Retirement happens
+ * when the connection is returned to the pool, and the sweep also closes
+ * over-lifetime idle connections; a replacement is created on demand.
  */
 class Pool extends Events.EventEmitter {
     attach: AttachFn;
@@ -37,6 +42,8 @@ class Pool extends Events.EventEmitter {
     max: number;
     min: number;
     idleTimeoutMillis: number;
+    maxUses: number;
+    maxLifetimeMillis: number;
     pending: Callback[];
     options: any;
     _destroyed: boolean;
@@ -52,19 +59,47 @@ class Pool extends Events.EventEmitter {
         this.max       = max || 4;
         this.min       = (options && options.min > 0) ? Math.min(options.min, this.max) : 0;
         this.idleTimeoutMillis = (options && options.idleTimeoutMillis > 0) ? options.idleTimeoutMillis : 0;
+        this.maxUses = (options && options.maxUses > 0) ? options.maxUses : 0;
+        this.maxLifetimeMillis = (options && options.maxLifetimeMillis > 0) ? options.maxLifetimeMillis : 0;
         this.pending   = []; // callbacks waiting for a free slot
         this.options   = options;
         this._destroyed = false; // true after destroy() — prevents further use
         this._reaper   = null;
 
-        if (this.idleTimeoutMillis) {
+        // the sweep serves both idle eviction and lifetime retirement of
+        // idle connections; base its cadence on the tightest configured limit
+        var sweepBasis = Math.min(this.idleTimeoutMillis || Infinity, this.maxLifetimeMillis || Infinity);
+        if (sweepBasis !== Infinity) {
             var self = this;
-            // Sweep at half the idle timeout (bounded to 100ms..30s) so a
-            // connection lives at most ~1.5x idleTimeoutMillis. unref() keeps
+            // Sweep at half the basis (bounded to 100ms..30s) so a
+            // connection lives at most ~1.5x its limit. unref() keeps
             // the timer from holding the process open.
-            var interval = Math.min(Math.max(this.idleTimeoutMillis / 2, 100), 30000);
+            var interval = Math.min(Math.max(sweepBasis / 2, 100), 30000);
             this._reaper = setInterval(function() { self._reap(); }, interval);
             if (this._reaper.unref) this._reaper.unref();
+        }
+    }
+
+    /** True when the connection exceeded maxUses / maxLifetimeMillis.
+     *  Both stamps are set unconditionally when the pool creates the
+     *  connection, so they can be read bare here. */
+    _isExpired(db: any): boolean {
+        if (this.maxUses > 0 && db.__poolUseCount >= this.maxUses) return true;
+        if (this.maxLifetimeMillis > 0 && Date.now() - db.__poolCreatedAt >= this.maxLifetimeMillis) return true;
+        return false;
+    }
+
+    /** Close a healthy pooled connection for good (reaper/retirement path). */
+    _retire(db: any): void {
+        var self = this;
+        this._forget(db);
+        db.connection._pooled = false;
+        try {
+            db.detach(function(err?: any) {
+                if (err) self._emitError(err, db);
+            });
+        } catch (e) {
+            self._emitError(e, db);
         }
     }
 
@@ -124,19 +159,18 @@ class Pool extends Events.EventEmitter {
                 self._forget(db);
                 return;
             }
+            // lifetime retirement applies even below min — recycling is the
+            // point; replacements are created on demand
+            if (self._isExpired(db)) {
+                self._retire(db);
+                return;
+            }
+            if (!self.idleTimeoutMillis) return;
             if (self.internaldb.length <= self.min) return;
             var idleSince = typeof db.__poolIdleSince === 'number' ? db.__poolIdleSince : now;
             if (now - idleSince < self.idleTimeoutMillis) return;
 
-            self._forget(db);
-            db.connection._pooled = false;
-            try {
-                db.detach(function(err?: any) {
-                    if (err) self._emitError(err, db);
-                });
-            } catch (e) {
-                self._emitError(e, db);
-            }
+            self._retire(db);
         });
     }
 
@@ -175,6 +209,7 @@ class Pool extends Events.EventEmitter {
             }
             // Idle connection available — hand it out immediately.
             self.dbinuse++;
+            db.__poolUseCount = (db.__poolUseCount || 0) + 1;
             self.emit('acquire', db);
             cb(null, db);
         } else {
@@ -235,6 +270,8 @@ class Pool extends Events.EventEmitter {
 
                 if (!err) {
                     self.dbinuse++;
+                    db.__poolCreatedAt = Date.now();
+                    db.__poolUseCount = 1;
                     self.internaldb.push(db);
                     db.on('detach', function () {
                         // also in pool (could be a twice call to detach)
@@ -244,6 +281,12 @@ class Pool extends Events.EventEmitter {
                         if (db.connection._isClosed || db.connection._isDetach || db.connection._pooled === false) {
                             self.internaldb.splice(self.internaldb.indexOf(db), 1);
                             self.emit('remove', db);
+                        } else if (self._isExpired(db)) {
+                            // worn out (maxUses / maxLifetimeMillis): close it
+                            // for good instead of returning it to the idle
+                            // pool. The re-fired detach event exits early via
+                            // the internaldb guard above.
+                            self._retire(db);
                         } else {
                             db.__poolIdleSince = Date.now();
                             self.pooldb.push(db);

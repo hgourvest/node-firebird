@@ -3,7 +3,7 @@ import { doError, fromCallback, type Callback, type SimpleCallback } from '../ca
 import { escape } from '../utils';
 import Const from './const';
 import { makeSqlTag, type SqlTag } from '../sql-template';
-import { computeColumnKeys, nestCell, resolveNestTables } from './xsqlvar';
+import { computeColumnKeys, nestCell, resolveKeyTransform, resolveNestTables } from './xsqlvar';
 import EventConnection from './eventConnection';
 import FbEventManager from './fbEventManager';
 import makeQueryStream from './query-stream';
@@ -96,7 +96,7 @@ function readblob(blob: any, callback: Callback): void {
     });
 }
 
-function fetchBlobSyncRow(row: any, meta: any[], nestTables: boolean | string | undefined, lowercaseKeys: boolean | undefined, callback: Callback): void {
+function fetchBlobSyncRow(row: any, meta: any[], nestTables: boolean | string | undefined, lowercaseKeys: boolean | undefined, transform: ((key: string) => string) | undefined, callback: Callback): void {
     if (!row || !meta || !meta.length || !meta.some((m) => m && m.type === Const.SQL_BLOB)) {
         callback(null, row);
         return;
@@ -107,7 +107,7 @@ function fetchBlobSyncRow(row: any, meta: any[], nestTables: boolean | string | 
     // duplicate JOIN column names (and nested rows) break that alignment.
     // Array rows (sequentially's legacy boolean form) are keyed by index.
     const isArrayRow = Array.isArray(row);
-    const keys = isArrayRow ? null : computeColumnKeys(meta, nestTables, lowercaseKeys);
+    const keys = isArrayRow ? null : computeColumnKeys(meta, nestTables, lowercaseKeys, transform);
     const blobCells: { target: any; key: string | number }[] = [];
 
     for (let i = 0; i < meta.length; i++) {
@@ -338,6 +338,9 @@ class Database extends Events.EventEmitter {
         }
 
         var self = this;
+        var keyResolutionDone = false;
+        var resolvedNest: boolean | string | undefined;
+        var resolvedTransform: ((key: string) => string) | undefined;
         var _on = function(row: any, i: number, meta: any[], next: (err?: any) => void) {
             var done = false;
             var finish = function(err?: any) {
@@ -348,9 +351,15 @@ class Database extends Events.EventEmitter {
                 next(err);
             };
 
-            // options is read at call time, after the normalization below
-            const nest = resolveNestTables(options as any, self.connection.options);
-            fetchBlobSyncRow(row, meta, nest, self.connection._lowercase_keys, function(blobErr: any) {
+            // options is read at call time, after the normalization below;
+            // both values are query-invariant, so resolve them once on the
+            // first row instead of allocating per row
+            if (!keyResolutionDone) {
+                resolvedNest = resolveNestTables(options as any, self.connection.options);
+                resolvedTransform = resolveKeyTransform(options as any, self.connection.options);
+                keyResolutionDone = true;
+            }
+            fetchBlobSyncRow(row, meta, resolvedNest, self.connection._lowercase_keys, resolvedTransform, function(blobErr: any) {
                 if (blobErr) {
                     finish(blobErr);
                     return;

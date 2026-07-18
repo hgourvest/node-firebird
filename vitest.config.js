@@ -28,6 +28,8 @@ module.exports = defineConfig({
             'test/query-meta.js',
             'test/sql-template.js',
             'test/savepoints.js',
+            'test/pool-recycling.js',
+            'test/transform-keys.js',
             'test/type-cast.js',
             'test/statement-cache.js',
             'test/query-stream.js',
