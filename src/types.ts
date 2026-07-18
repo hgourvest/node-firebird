@@ -248,8 +248,8 @@ export interface Database {
     detach(callback?: SimpleCallback): Database;
     transaction(options: TransactionOptions|Isolation|TransactionCallback, callback?: TransactionCallback): Database;
     newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): Database;
-    query(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): Database;
-    execute(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): Database;
+    query<T = any>(query: string, params: QueryParams, callback: (err: any, result: T[], meta?: any[], isSelect?: boolean) => void, options?: QueryOptions): Database;
+    execute<T = any>(query: string, params: QueryParams, callback: (err: any, result: T[], meta?: any[], isSelect?: boolean) => void, options?: QueryOptions): Database;
     /** Bulk-execute in its own transaction, all-or-nothing (Firebird 4.0+). */
     executeBatch(query: string, rows: QueryParams[], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): Database;
     sequentially(query: string, params: QueryParams, rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;
@@ -313,8 +313,8 @@ export interface Transaction {
      */
     savepoint<T>(work: (transaction: Transaction) => Promise<T> | T): Promise<T>;
     newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): void;
-    query(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): void;
-    execute(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): void;
+    query<T = any>(query: string, params: QueryParams, callback: (err: any, result: T[], meta?: any[], isSelect?: boolean) => void, options?: QueryOptions): void;
+    execute<T = any>(query: string, params: QueryParams, callback: (err: any, result: T[], meta?: any[], isSelect?: boolean) => void, options?: QueryOptions): void;
     /** Bulk-execute within this transaction; per-record failures do not roll back (Firebird 4.0+). */
     executeBatch(query: string, rows: QueryParams[], callback?: (err: any, result: BatchResult) => void, options?: BatchOptions): void;
     sequentially(query: string, params: QueryParams, rowCallback: SequentialCallback, callback: SimpleCallback, options?: QueryOptions | boolean): Database;

@@ -39,16 +39,31 @@ and 26 against Firebird 3, 4, 5 and 6).
 
 ## Usage
 
+CommonJS and ESM are both first-class (conditional `exports`):
+
 ```js
-var Firebird = require('node-firebird');
+// CommonJS
+const Firebird = require('node-firebird');
+
+// ESM — default and named imports both work
+import Firebird from 'node-firebird';
+import { attach, pool, GDSCode, SQL_TYPES } from 'node-firebird';
 ```
 
+The documented subpaths keep working in both module systems
+(`require('node-firebird/lib/gdscodes')`, …).
+
 TypeScript is fully supported — the driver itself is written in TypeScript and
-ships its own type declarations:
+ships its own type declarations, with generics on the query APIs:
 
 ```ts
 import * as Firebird from 'node-firebird';
 import type { Options, Database } from 'node-firebird';
+
+interface Emp { ID: number; NAME: string }
+const rows = await db.queryAsync<Emp>('SELECT ID, NAME FROM EMP');  // Emp[]
+db.query<Emp>('SELECT ID, NAME FROM EMP', [], (err, rows) => { /* rows: Emp[] */ });
+const r = await db.queryAsync<Emp>('SELECT ...', [], { withMeta: true }); // QueryResult<Emp>
 ```
 
 ### Developing the driver

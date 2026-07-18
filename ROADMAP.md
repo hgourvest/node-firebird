@@ -143,16 +143,12 @@ Shipped: every callback API has a promise-returning `*Async` counterpart (`Fireb
 
 **Follow-up:** ✅ Done — the ServiceManager API (backup/restore/user management/trace/properties) now has `*Async` wrappers for every function, documented in [README.md § Service Manager functions](README.md#service-manager-functions).
 
-### Phase C — Modern TypeScript ergonomics (optional / future)
+### Phase C — Modern TypeScript ergonomics ✅ Done
 
-- Consider publishing dual CJS + ESM package exports, or documenting CJS-only stance clearly.
-- Add opt-in generic helpers:
-  - `db.query<T = Record<string, unknown>>(sql, params)` for user-supplied row shapes.
-  - `db.queryAsync<T>(...): Promise<T[]>`
+- **Dual CJS + ESM exports** ✅ — package.json `exports` map with `types`/`import`/`require` conditions. The compiled CJS stays the single source of truth; Node's cjs-module-lexer makes every named export ESM-importable (`import { attach } from 'node-firebird'`), pinned by `test/unit/esm-exports.test.ts` and verified through a packed install. The documented `node-firebird/lib/*` subpaths keep working in both module systems (with and without `.js`). No major bump needed — nothing breaking, no full ESM-source migration required.
+- **Generic query helpers** ✅ — `db.query<T>` / `db.execute<T>` (callback API, on databases and transactions), `queryAsync<T>` / `executeAsync<T>` (already shipped, incl. the `withMeta` → `QueryResult<T>` overloads), and the tagged-template `sql<T>`.
 
-**Constraints:**
-- Full ESM migration can be a **breaking change** depending on consumer build tooling; it may require a major version bump and a migration guide.
-- Generic row typing is only as good as the types the user supplies; it does not validate SQL at compile time.
+**Remaining caveat (inherent):** generic row typing is only as good as the types the user supplies; it does not validate SQL at compile time.
 
 ### Modern JavaScript Classes ✅ Done
 
@@ -288,8 +284,8 @@ ESM/CJS dual exports (pg ships both since 8.15) and callback-API generics stay u
 | Shipped in 2.10.0 | `typeCast` hook; statement cache (`statementCacheSize` LRU); `queryStream` Readable adapter; configurable keepalive; ServiceManager promise wrappers; failing `RETURNING` fix (#341); Firebird 2.5 prepare-hang fix (#312); full TS strict mode + wire-core types (Phase A.1/A.2); Protocol 20 (prepare hang fixed — `p_sqlst_flags`; v19 cap lifted); database creation with different owner (#7718, `options.owner`); FB5/FB6 DPB-tag fixes (`parallelWorkers` no longer switches the database into replica mode) + `isc_arg_warning` parsing |
 | Shipped in 2.11.0 | `nestTables` (mysql2-style nested / table-qualified object rows); `relationAlias` describe metadata actually requested; `sequentially` blob/key alignment fix |
 | Shipped in 2.12.0 | Result metadata + affected rows (`withMeta`, #13); server `warning` events (#15); tagged-template query API (`db.sql`/`tx.sql`, #14); savepoint helpers (#16); env-var config defaults (#17); pool recycling (`maxUses`/`maxLifetimeMillis`, #18); row-key transforms (`transformKeys`, #19); SRP CI flake diagnosed (socket RST, not auth) |
-| Next minor | Bulk-insert Writable stream + BLOB batch params (#20) ✅ done — Round 2 complete |
-| Future major | ESM/CJS dual exports (pg ships both since 8.15); TS Phase C generics; multi-host pooling (#12, if demand materializes) |
+| Next minor | Bulk-insert Writable stream + BLOB batch params (#20) ✅ done — Round 2 complete; ESM/CJS dual exports ✅ done (no major bump needed); callback-API generics (Phase C) ✅ done; wire-buffer aliasing fix; guarded background 'error' events (the real CI-flake root cause) |
+| Future major | multi-host pooling (#12, if demand materializes) |
 
 ---
 

@@ -23,6 +23,24 @@
     ],
     "main": "./lib/index.js",
     "types": "./lib/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./lib/index.d.ts",
+            "import": "./lib/index.js",
+            "require": "./lib/index.js"
+        },
+        "./lib/firebird.msg": "./lib/firebird.msg",
+        "./lib/firebird.msg.json": "./lib/firebird.msg.json",
+        "./lib/*.js": {
+            "types": "./lib/*.d.ts",
+            "default": "./lib/*.js"
+        },
+        "./lib/*": {
+            "types": "./lib/*.d.ts",
+            "default": "./lib/*.js"
+        },
+        "./package.json": "./package.json"
+    },
     "files": [
         "lib",
         "src"
