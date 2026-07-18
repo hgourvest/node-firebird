@@ -2,6 +2,7 @@ import Events from 'events';
 import { doError, fromCallback, type Callback, type SimpleCallback } from '../callback';
 import { escape } from '../utils';
 import Const from './const';
+import { computeColumnKeys, nestCell, resolveNestTables } from './xsqlvar';
 import EventConnection from './eventConnection';
 import FbEventManager from './fbEventManager';
 import makeQueryStream from './query-stream';
@@ -94,35 +95,47 @@ function readblob(blob: any, callback: Callback): void {
     });
 }
 
-function fetchBlobSyncRow(row: any, meta: any[], callback: Callback): void {
-    if (!row || !meta || !meta.length) {
+function fetchBlobSyncRow(row: any, meta: any[], nestTables: boolean | string | undefined, lowercaseKeys: boolean | undefined, callback: Callback): void {
+    if (!row || !meta || !meta.length || !meta.some((m) => m && m.type === Const.SQL_BLOB)) {
         callback(null, row);
         return;
     }
 
-    const rowKeys = Object.keys(row);
-    const blobColumns: string[] = [];
+    // locate blob cells by the same key computation the fetch decoder used,
+    // rather than assuming Object.keys(row) is index-aligned with meta —
+    // duplicate JOIN column names (and nested rows) break that alignment.
+    // Array rows (sequentially's legacy boolean form) are keyed by index.
+    const isArrayRow = Array.isArray(row);
+    const keys = isArrayRow ? null : computeColumnKeys(meta, nestTables, lowercaseKeys);
+    const blobCells: { target: any; key: string | number }[] = [];
 
     for (let i = 0; i < meta.length; i++) {
-        if (meta[i] && meta[i].type === Const.SQL_BLOB && rowKeys[i] !== undefined) {
-            blobColumns.push(rowKeys[i]);
+        if (!meta[i] || meta[i].type !== Const.SQL_BLOB) {
+            continue;
+        }
+        const target = keys ? nestCell(row, keys[i].table) : row;
+        const key = keys ? keys[i].key : i;
+        // duplicate aliases collapse onto one cell — read it only once
+        if (typeof target[key] === 'function' &&
+            !blobCells.some((cell) => cell.target === target && cell.key === key)) {
+            blobCells.push({ target, key });
         }
     }
 
-    if (!blobColumns.length) {
+    if (!blobCells.length) {
         callback(null, row);
         return;
     }
 
-    let pending = blobColumns.length;
+    let pending = blobCells.length;
     let blobErr: any;
 
-    blobColumns.forEach(function(columnName) {
-        readblob(row[columnName], function(err: any, data: any) {
+    blobCells.forEach(function(cell) {
+        readblob(cell.target[cell.key], function(err: any, data: any) {
             if (err && !blobErr) {
                 blobErr = err;
             }
-            row[columnName] = data;
+            cell.target[cell.key] = data;
             pending--;
             if (pending === 0) {
                 callback(blobErr, row);
@@ -322,7 +335,9 @@ class Database extends Events.EventEmitter {
                 next(err);
             };
 
-            fetchBlobSyncRow(row, meta, function(blobErr: any) {
+            // options is read at call time, after the normalization below
+            const nest = resolveNestTables(options as any, self.connection.options);
+            fetchBlobSyncRow(row, meta, nest, self.connection._lowercase_keys, function(blobErr: any) {
                 if (blobErr) {
                     finish(blobErr);
                     return;

@@ -626,6 +626,7 @@ const DESCRIBE = [
     sqlInfo.isc_info_sql_length,
     sqlInfo.isc_info_sql_field,
     sqlInfo.isc_info_sql_relation,
+    sqlInfo.isc_info_sql_relation_alias, // FB 2.0+: query alias of the source relation (nestTables)
     //isc_info_sql_owner,
     sqlInfo.isc_info_sql_alias,
     sqlInfo.isc_info_sql_describe_end,
@@ -654,6 +655,7 @@ const DESCRIBE_WITH_SCHEMA = [
     sqlInfo.isc_info_sql_field,
     sqlInfo.isc_info_sql_relation,
     sqlInfo.isc_info_sql_relation_schema, // FB 6.0: schema of source relation
+    sqlInfo.isc_info_sql_relation_alias, // query alias of the source relation (nestTables)
     //isc_info_sql_owner,
     sqlInfo.isc_info_sql_alias,
     sqlInfo.isc_info_sql_describe_end,

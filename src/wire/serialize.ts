@@ -440,8 +440,10 @@ export class XdrReader {
     frow?: any;
     /** rows decoded so far in this call */
     frows?: any[];
-    /** cached object-row keys (column aliases) */
+    /** cached object-row keys (column aliases, qualified when nestTables is set) */
     fcols?: string[];
+    /** cached per-column table keys when nestTables === true */
+    ftables?: string[];
 
     constructor(buffer: Buffer) {
         this.buffer = buffer;

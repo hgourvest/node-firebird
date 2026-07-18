@@ -93,6 +93,82 @@ export abstract class SQLVarBase {
 
 //------------------------------------------------------
 
+/** Effective object-row key(s) of one output column (see computeColumnKeys). */
+export interface ColumnKey {
+    /** Top-level table key when nestTables === true; undefined otherwise. */
+    table?: string;
+    /** Property key: the column alias, or 'table<sep>alias' in separator mode. */
+    key: string;
+}
+
+/**
+ * Compute the object-row property keys for a statement's output columns,
+ * honouring the nestTables and lowercase_keys options. The table qualifier
+ * is the query's relation alias when one is used (relationAlias, requested
+ * via isc_info_sql_relation_alias), the relation name otherwise, so
+ * self-joins nest under their query aliases. Expression columns (no source
+ * relation) qualify as '' exactly like mysql2: they nest under the '' key,
+ * and in separator mode become '<sep>alias' — always prefixing keeps
+ * qualified keys collision-free (a bare expression alias could otherwise
+ * collide with a real column's 'table<sep>column' key). Used by the fetch
+ * decoder and by fetchBlobSyncRow, which must agree on where each column
+ * landed in the row.
+ */
+export function computeColumnKeys(
+    output: SQLVarBase[],
+    nestTables: boolean | string | undefined,
+    lowercaseKeys: boolean | undefined
+): ColumnKey[] {
+    return output.map((column) => {
+        let key = column.alias || '';
+        if (lowercaseKeys) {
+            key = key.toLowerCase();
+        }
+        if (nestTables !== true && typeof nestTables !== 'string') {
+            return { key };
+        }
+        let table = column.relationAlias || column.relation || '';
+        if (lowercaseKeys) {
+            table = table.toLowerCase();
+        }
+        if (nestTables === true) {
+            return { table, key };
+        }
+        return { key: table + nestTables + key };
+    });
+}
+
+/**
+ * Resolve the effective nestTables value: the per-query option wins over
+ * the connection option. The decoder and fetchBlobSyncRow both use this —
+ * they must agree on whether nesting is active or blob cells are looked
+ * up in the wrong place.
+ */
+export function resolveNestTables(
+    queryOptions: { nestTables?: boolean | string } | undefined,
+    connectionOptions: { nestTables?: boolean | string } | undefined
+): boolean | string | undefined {
+    if (queryOptions && queryOptions.nestTables !== undefined) {
+        return queryOptions.nestTables;
+    }
+    return connectionOptions && connectionOptions.nestTables;
+}
+
+/**
+ * The object a column's value lives in: the row itself, or — when the
+ * column carries a nestTables table qualifier — the row's per-table
+ * sub-object, created on first use. Every site that reads or writes a
+ * cell by ColumnKey must resolve it through here.
+ */
+export function nestCell(row: any, table: string | undefined) {
+    if (table === undefined) {
+        return row;
+    }
+    return row[table] || (row[table] = {});
+}
+
+//------------------------------------------------------
+
 export class SQLVarText extends SQLVarBase {
     decode(data: XdrReader, lowerV13: boolean, options?: any) {
         let ret;

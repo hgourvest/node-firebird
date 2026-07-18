@@ -24,6 +24,7 @@ module.exports = defineConfig({
             'test/uri.js',
             'test/named-params.js',
             'test/returning-failure.js',
+            'test/nest-tables.js',
             'test/type-cast.js',
             'test/statement-cache.js',
             'test/query-stream.js',

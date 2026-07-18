@@ -127,6 +127,18 @@ export type QueryOptions = {
      * it cancels whatever is currently executing on the connection.
      */
     signal?: AbortSignal;
+    /**
+     * Per-query override of the `nestTables` connection option (mysql2
+     * semantics). `true` nests each object row by source table:
+     * `row[table][column]` — the table key is the query's relation alias
+     * when one is used (`FROM emp e` → `row.E`), the table name otherwise,
+     * and `''` for expression columns. A string separator flattens keys
+     * instead: `nestTables: '_'` → `row.EMP_NAME`; expression columns get
+     * the bare separator prefix (`row._ANSWER`, as in mysql2). Keys honour
+     * `lowercase_keys`. Object rows only — `db.execute` array rows are
+     * unaffected.
+     */
+    nestTables?: boolean | string;
 }
 
 export type QueryStreamOptions = QueryOptions & {
@@ -314,6 +326,16 @@ export interface Options {
      * per-query `namedPlaceholders: false` override.
      */
     namedPlaceholders?: boolean;
+    /**
+     * Qualify object-row keys by source table (same option as mysql2), so
+     * JOINed columns with the same name stop overwriting each other:
+     * `true` nests each row as `row[table][column]`; a string separator
+     * flattens to `row['table' + sep + 'column']`. See
+     * `QueryOptions.nestTables` for the exact key rules. Applies wherever
+     * object rows are produced (query / sequentially / queryStream);
+     * array rows (execute) are unaffected. Overridable per query.
+     */
+    nestTables?: boolean | string;
     /**
      * TCP keepalive probing to detect dead/stale connections (same option
      * names as mysql2). On by default; set false to disable.

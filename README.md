@@ -13,7 +13,7 @@
 - [Promises and async/await](#promises-and-asyncawait) — the `*Async` API plus `withConnection` / `withTransaction` helpers
 - [Connection types](#connection-types) — connection options, `firebird://` URIs and traditional connection strings, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
-- [Examples](#examples) — parametrized queries, named placeholders, custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
+- [Examples](#examples) — parametrized queries, named placeholders, nested result tables (nestTables), custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
 - [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
 - [Using node-firebird with Express.js](#using-node-firebird-with-expressjs)
 - [FAQ](#faq)
@@ -185,6 +185,7 @@ options.searchPath = undefined; // optional; ordered list/array of schemas to re
 options.owner = undefined; // optional; owner of a newly created database — lets a superuser create a database for another user (create only, FB >= 6.0)
 options.jsonAsObject = false; // optional; automatically stringify parameters and parse query results that contain JSON (FB >= 6.0)
 options.namedPlaceholders = false; // set to true to allow :name placeholders in SQL with a { name: value } params object (see Named placeholders)
+options.nestTables = false; // true nests object rows by source table (row[table][column]); a string separator flattens to 'table<sep>column' keys — see Nested result tables (nestTables). Overridable per query
 options.typeCast = undefined; // optional; custom type parser called for every result column value (see Custom type parsers)
 options.statementCacheSize = 0; // optional; per-connection LRU cache of prepared statements, 0 = disabled (see Prepared-statement cache)
 ```
@@ -491,6 +492,50 @@ the per-query option:
 ```js
 await db.queryAsync(execBlockSql, [], { namedPlaceholders: false });
 ```
+
+### Nested result tables (nestTables)
+
+In a `JOIN`, columns sharing a name overwrite each other in object rows —
+`SELECT EMP.ID, DEPT.ID ...` leaves only one `ID` key. The `nestTables`
+option (same as mysql2's) qualifies row keys by source table instead. It is
+accepted at connection level and per query; the per-query value wins.
+
+With `nestTables: true` each row nests one sub-object per table:
+
+```js
+const rows = await db.queryAsync(
+  'SELECT EMP.ID, EMP.NAME, DEPT.ID, DEPT.NAME FROM EMP JOIN DEPT ON DEPT.ID = EMP.DEPT_ID',
+  [], { nestTables: true });
+// rows[0] = { EMP: { ID: 10, NAME: 'Ada' }, DEPT: { ID: 1, NAME: 'Engineering' } }
+```
+
+With a string separator the keys stay flat but qualified:
+
+```js
+const rows = await db.queryAsync(sql, [], { nestTables: '_' });
+// rows[0] = { EMP_ID: 10, EMP_NAME: 'Ada', DEPT_ID: 1, DEPT_NAME: 'Engineering' }
+```
+
+The table qualifier is the query's relation alias when one is used, the
+table name otherwise — so self-joins nest cleanly:
+
+```js
+const rows = await db.queryAsync(
+  'SELECT E.NAME, B.NAME FROM EMP E LEFT JOIN EMP B ON B.ID = E.BOSS_ID',
+  [], { nestTables: true });
+// rows[0] = { E: { NAME: 'Grace' }, B: { NAME: 'Ada' } }
+```
+
+Expression columns (no source table) qualify as `''`, exactly like mysql2:
+they land under the `''` key when nesting (`row[''].ANSWER`) and get the
+bare separator prefix in separator mode (`row._ANSWER`) — always prefixing
+keeps qualified keys collision-free (a bare expression alias could
+otherwise collide with a real `table<sep>column` key). Keys honour
+`lowercase_keys`, and the option composes with
+`typeCast`, `blobAsText` and `queryStream`. Object rows only: `db.execute`
+array rows are positional and need no qualification. Works on every
+supported Firebird version (the source-table metadata comes from the
+statement describe, available since Firebird 2.0).
 
 ### Custom type parsers (typeCast)
 

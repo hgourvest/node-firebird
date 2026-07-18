@@ -2015,7 +2015,9 @@ class Connection {
                 readBlobsSequentially(0, []).then((arrBlob: any) => {
                     for (let i = 0; i < arrBlob.length; i++) {
                         const blob = arrBlob[i];
-                        ret.data[blob.row][blob.column] = applyTypeCast(
+                        // nestTables === true rows: the value lives in the
+                        // per-table sub-object, not on the row itself
+                        Xsql.nestCell(ret.data[blob.row], blob.table)[blob.column] = applyTypeCast(
                             statement.connection.options, blob.meta || {},
                             parseValueIfJson(blob.value, statement.connection.options));
                     }
@@ -2469,6 +2471,7 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                 delete data.frow;
                 delete data.frows;
                 delete data.fcols;
+                delete data.ftables;
 
                 if (isOpFetch && data.fop) { // could be set when a packet is not complete
                     data.readBuffer(68); // ??
@@ -2490,10 +2493,12 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                 data.frows = data.frows || [];
 
                 if (custom.asObject && !data.fcols) {
-                    if (lowercase_keys) {
-                        data.fcols = output.map((column: any) => column.alias.toLowerCase());
-                    } else {
-                        data.fcols = output.map((column: any) => column.alias);
+                    const nest = Xsql.resolveNestTables(custom, cnx.options);
+                    const columnKeys = Xsql.computeColumnKeys(output, nest, lowercase_keys);
+                    data.fcols = columnKeys.map((k) => k.key);
+                    if (nest === true) {
+                        // computeColumnKeys always sets table when nesting
+                        data.ftables = columnKeys.map((k) => k.table!);
                     }
                 }
 
@@ -2521,7 +2526,10 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
 
                         if (!lowerV13 && nullBitSet!.get(data.fcolumn)) {
                             const nullKey = custom.asObject ? data.fcols![data.fcolumn!] : data.fcolumn;
-                            data.frow[nullKey] = applyTypeCast(cnx.options, item, null);
+                            // ftables is only set when nestTables === true, so
+                            // the default path writes straight into the row
+                            (data.ftables ? Xsql.nestCell(data.frow, data.ftables[data.fcolumn!]) : data.frow)[nullKey] =
+                                applyTypeCast(cnx.options, item, null);
 
                             continue;
                         }
@@ -2538,7 +2546,8 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
 
                             if (item.type === Const.SQL_BLOB && value !== null) {
                                 if (item.subType === Const.isc_blob_text && cnx.options.blobAsText) {
-                                    value = fetch_blob_async_transaction(statement, value, key, row, item);
+                                    value = fetch_blob_async_transaction(statement, value, key, row, item,
+                                        data.ftables && data.ftables[data.fcolumn!]);
                                     arrBlob.push(value);
                                     pendingTextBlob = true;
                                 } else {
@@ -2546,7 +2555,7 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                                 }
                             }
 
-                            data.frow[key] = pendingTextBlob
+                            (data.ftables ? Xsql.nestCell(data.frow, data.ftables[data.fcolumn!]) : data.frow)[key] = pendingTextBlob
                                 ? value
                                 : applyTypeCast(cnx.options, item, parseValueIfJson(value, cnx.options));
                         } catch (e) {
@@ -3475,8 +3484,8 @@ function CalcBlr(blr: BlrWriter, xsqlda: any[]) {
     blr.addByte(Const.blr_eoc);
 }
 
-function fetch_blob_async_transaction(statement: Statement, id: Quad, column: string | number, row: number, meta?: Xsql.SQLVarBase) {
-    const infoValue = { row, column, value: '', meta };
+function fetch_blob_async_transaction(statement: Statement, id: Quad, column: string | number, row: number, meta?: Xsql.SQLVarBase, table?: string) {
+    const infoValue = { row, column, value: '', meta, table };
 
     return (transactionArg: any) => {
         const cacheKey = `${id.high}:${id.low}`;
