@@ -6,6 +6,9 @@
 // published declaration files.
 
 import type { Readable } from 'stream';
+import type { SqlTag } from './sql-template';
+
+export type { SqlTag, SqlQuery, SqlIdentifier, CompiledQuery } from './sql-template';
 
 export type DatabaseCallback = (err: any, db: Database) => void;
 export type TransactionCallback = (err: any, transaction: Transaction) => void;
@@ -211,6 +214,13 @@ export type QueryStreamOptions = QueryOptions & {
 }
 
 export interface Database {
+    /**
+     * Tagged-template query API (Postgres.js-style): interpolated values
+     * become positional parameters, `sql('NAME')` quotes an identifier,
+     * embedded `sql` fragments compose, arrays expand to `?, ?, ?` lists.
+     * The returned query is a lazy thenable — it executes once, on await.
+     */
+    sql: SqlTag;
     detach(callback?: SimpleCallback): Database;
     transaction(options: TransactionOptions|Isolation|TransactionCallback, callback?: TransactionCallback): Database;
     newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): Database;
@@ -263,6 +273,8 @@ export interface Database {
 }
 
 export interface Transaction {
+    /** Tagged-template query API running inside this transaction (see Database.sql). */
+    sql: SqlTag;
     newStatement(query: string, callback: (err: Error | null, statement: Statement) => void): void;
     query(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): void;
     execute(query: string, params: QueryParams, callback: QueryCallback, options?: QueryOptions): void;

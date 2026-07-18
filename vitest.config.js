@@ -26,6 +26,7 @@ module.exports = defineConfig({
             'test/returning-failure.js',
             'test/nest-tables.js',
             'test/query-meta.js',
+            'test/sql-template.js',
             'test/type-cast.js',
             'test/statement-cache.js',
             'test/query-stream.js',

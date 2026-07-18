@@ -13,7 +13,7 @@
 - [Promises and async/await](#promises-and-asyncawait) — the `*Async` API plus `withConnection` / `withTransaction` helpers
 - [Connection types](#connection-types) — connection options, `firebird://` URIs and traditional connection strings, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
-- [Examples](#examples) — parametrized queries, named placeholders, nested result tables (nestTables), result metadata / affected rows (withMeta), custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
+- [Examples](#examples) — parametrized queries, tagged-template queries (sql), named placeholders, nested result tables (nestTables), result metadata / affected rows (withMeta), custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
 - [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
 - [Using node-firebird with Express.js](#using-node-firebird-with-expressjs)
 - [FAQ](#faq)
@@ -452,6 +452,63 @@ Firebird.attach(options, function (err, db) {
   );
 });
 ```
+
+### Tagged-template queries (sql)
+
+`db.sql` / `transaction.sql` offer a Postgres.js-style tagged-template API
+on top of the regular parameter machinery. Interpolated values are bound
+as positional parameters — never concatenated into the SQL — so the API is
+injection-safe by construction:
+
+```js
+const id = 2;
+const rows = await db.sql`SELECT NAME FROM EMP WHERE ID = ${id}`;
+// → executes  SELECT NAME FROM EMP WHERE ID = ?  with params [2]
+```
+
+The returned query is a **lazy thenable**: it runs when awaited (or via
+`.then`/`.catch`/`.finally`), exactly once. Until then it can be embedded
+in another tag as a **fragment**, splicing its text and parameters in
+place:
+
+```js
+const filter = db.sql`DEPT_ID = ${1} AND ACTIVE = ${true}`;
+const rows = await db.sql`SELECT * FROM EMP WHERE ${filter} ORDER BY ID`;
+```
+
+Arrays expand to placeholder lists (for `IN`), and calling the tag with a
+string produces a safely quoted, dot-qualified **identifier** for dynamic
+table/column names:
+
+```js
+await db.sql`SELECT * FROM EMP WHERE ID IN (${[1, 2, 3]})`;
+
+const col = 'NAME';
+await db.sql`SELECT ${db.sql(col)} FROM ${db.sql('S1.EMP')}`;
+// → SELECT "NAME" FROM "S1"."EMP"
+```
+
+`.options({...})` attaches per-query options (`timeout`, `signal`,
+`nestTables`, …), `.withMeta()` executes resolving the
+[full result object](#result-metadata-and-affected-rows-withmeta), and
+`.toQuery()` returns the compiled `{ text, params }` without executing —
+handy for logging and tests:
+
+```js
+const r = await db.sql`UPDATE EMP SET ACTIVE = false WHERE ID = ${9}`.withMeta();
+// r.affectedRows === 1
+```
+
+Sharp edges, made loud instead of silent: a query executes once, in the
+shape of its first consumer — consuming it again in the *other* shape
+(plain `await` after `.withMeta()`, or vice versa) throws, as does
+`.options()` after execution. Interpolating an **empty array** throws
+(it would compile to invalid SQL like `IN ()`), and circular fragments
+are rejected instead of overflowing the stack. The compiled text is
+positional-only, so the [named placeholders](#named-placeholders)
+rewriter is disabled for tagged queries — PSQL `:variable` references
+in an `EXECUTE BLOCK` template are safe even with `namedPlaceholders:
+true` on the connection.
 
 ### Named placeholders
 

@@ -2,6 +2,7 @@ import Events from 'events';
 import { doError, fromCallback, type Callback, type SimpleCallback } from '../callback';
 import { escape } from '../utils';
 import Const from './const';
+import { makeSqlTag, type SqlTag } from '../sql-template';
 import { computeColumnKeys, nestCell, resolveNestTables } from './xsqlvar';
 import EventConnection from './eventConnection';
 import FbEventManager from './fbEventManager';
@@ -147,12 +148,24 @@ function fetchBlobSyncRow(row: any, meta: any[], nestTables: boolean | string | 
 class Database extends Events.EventEmitter {
     connection: Connection;
     eventid: number;
+    private _sql?: SqlTag;
 
     constructor(connection: Connection) {
         super();
         this.connection = connection;
         connection.db = this;
         this.eventid = 1;
+    }
+
+    /**
+     * Tagged-template query API: db.sql`SELECT ... ${value}` (see README).
+     * Built lazily on first access; the compiled text is positional-only,
+     * so the namedPlaceholders rewriter is disabled — any `:token` in the
+     * template is PSQL (EXECUTE BLOCK), not a placeholder.
+     */
+    get sql(): SqlTag {
+        return this._sql || (this._sql = makeSqlTag((text, params, options) =>
+            this.queryAsync(text, params, { ...options, namedPlaceholders: false })));
     }
 
     escape(value: any): string {

@@ -2,6 +2,7 @@ import { doCallback, doError, fromCallback, type Callback, type SimpleCallback }
 import { parseNamedPlaceholders } from '../named-params';
 import { noop } from '../utils';
 import Const from './const';
+import { makeSqlTag, type SqlTag } from '../sql-template';
 import { describeFields, parseRecordCounts } from './xsqlvar';
 import makeQueryStream from './query-stream';
 import type Connection from './connection';
@@ -54,9 +55,24 @@ class Transaction {
     // populated externally from the op_transaction response
     handle!: number;
 
+    private _sql?: SqlTag;
+
     constructor(connection: Connection) {
         this.connection = connection;
         this.db = connection.db;
+    }
+
+    /**
+     * Tagged-template query API: tx.sql`SELECT ... ${value}` (see README).
+     * Built lazily — transactions are created per-query internally, and
+     * those throwaway instances must not pay for the tag. The compiled text
+     * is positional-only, so the namedPlaceholders rewriter is disabled:
+     * any `:token` in the template is PSQL (EXECUTE BLOCK), not a
+     * placeholder.
+     */
+    get sql(): SqlTag {
+        return this._sql || (this._sql = makeSqlTag((text, params, options) =>
+            this.queryAsync(text, params, { ...options, namedPlaceholders: false })));
     }
 
     /** Per-call options.namedPlaceholders overrides the connection option. */
