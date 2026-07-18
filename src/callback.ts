@@ -45,6 +45,21 @@ export function toError(err: any): Error {
  * Run a callback-style operation and return a Promise for its result.
  * Usage: fromCallback<Database>(cb => attach(options, cb))
  */
+/**
+ * Run `work` with a pooled connection and always return it to its pool
+ * (detach) when the promise settles — a detach hiccup never masks the
+ * outcome of `work`. Shared by Pool.withConnection and
+ * PoolCluster.withConnection so the release semantics cannot drift.
+ */
+export async function withPooledConnection<T>(getAsync: () => Promise<any>, work: (db: any) => Promise<T> | T): Promise<T> {
+    const db = await getAsync();
+    try {
+        return await work(db);
+    } finally {
+        await new Promise<void>(function(resolve) { db.detach(function() { resolve(); }); });
+    }
+}
+
 export function fromCallback<T = any>(executor: (cb: Callback<T>) => void): Promise<T> {
     return new Promise<T>(function(resolve, reject) {
         executor(function(err?: any, result?: T) {

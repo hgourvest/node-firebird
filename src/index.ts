@@ -2,6 +2,8 @@ import Const from './wire/const';
 import { doError, doCallback, fromCallback, type Callback } from './callback';
 import Connection from './wire/connection';
 import Pool from './pool';
+import PoolCluster from './pool-cluster';
+import type { PoolClusterOptions } from './pool-cluster';
 import { escape as escapeValue } from './utils';
 import { parseConnectionUri, parseConnectionString, normalizeOptions } from './uri';
 import type {
@@ -193,6 +195,19 @@ export function attachOrCreate(options: Options | string, callback: DatabaseCall
 export function pool(max: number, options: Options | string): ConnectionPool {
 	return new Pool(attach, max, Object.assign({}, normalizeOptions(options), { isPool: true }));
 }
+
+/**
+ * Multi-host pooling (primaries/replicas, failover): named nodes, each
+ * backed by a regular pool, selected by glob pattern + 'rr'/'random'/
+ * 'order' selector, with connection-failure failover and error-based
+ * node offlining. See README § Multi-host pooling.
+ */
+export function poolCluster(options?: PoolClusterOptions): PoolCluster {
+	const normalized: PoolClusterOptions = { ...(options || {}) };
+	normalized.defaults = normalizeOptions(normalized.defaults || {});
+	return new PoolCluster(attach, normalized);
+}
+export type { PoolClusterOptions, ClusterSelector } from './pool-cluster';
 
 export { parseConnectionUri, parseConnectionString };
 export { parseNamedPlaceholders } from './named-params';

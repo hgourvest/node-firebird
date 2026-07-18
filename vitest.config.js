@@ -30,6 +30,7 @@ module.exports = defineConfig({
             'test/sql-template.js',
             'test/savepoints.js',
             'test/pool-recycling.js',
+            'test/pool-cluster.js',
             'test/transform-keys.js',
             'test/type-cast.js',
             'test/statement-cache.js',

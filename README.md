@@ -355,6 +355,48 @@ console.log({
   is attached, so existing applications keep working unchanged.
 - Metrics are plain getters — reading them has no side effects.
 
+#### Multi-host pooling (PoolCluster)
+
+For primary/replica topologies (Firebird 4+ logical replication) or plain
+redundancy, `Firebird.poolCluster` manages one pool per named node with
+pattern-based selection and automatic failover — the mysql2 `PoolCluster`
+model:
+
+```js
+const cluster = Firebird.poolCluster({
+  defaults: { user: 'SYSDBA', password: 'masterkey', database: '/data/app.fdb', connectTimeout: 5000 },
+  nodes: {
+    primary:  { host: 'db-primary' },
+    replica1: { host: 'db-replica-1' },
+    replica2: { host: 'db-replica-2' },
+  },
+  max: 4,                    // per-node pool size
+  selector: 'rr',            // 'rr' | 'random' | 'order' (first online match)
+  removeNodeErrorCount: 5,   // offline a node after N consecutive connection failures
+  restoreNodeTimeout: 30000, // put it back into rotation after 30s (0 = manual restore())
+});
+
+// writes go to the primary, reads round-robin across replicas
+await cluster.withConnection('primary', db => db.queryAsync('UPDATE ...'));
+const rows = await cluster.withConnection('replica*', db => db.queryAsync('SELECT ...'));
+
+// or bind a pattern once (mysql2's cluster.of)
+const replicas = cluster.of('replica*', 'rr');
+const db = await replicas.getAsync();  // release with db.detach(), as with a plain pool
+```
+
+A failed connection attempt marks the node and **fails over** to the next
+matching online node; only when every candidate has failed does the call
+error (set `connectTimeout` in `defaults` so dead-but-routable hosts fail
+fast). Nodes taken offline emit `'offline'`, restorations emit
+`'online'`, and `cluster.status()` returns per-node
+`{ online, errorCount, totalCount, idleCount, activeCount, waitingCount }`
+for monitoring. Each node's pool is a regular
+[connection pool](#pool-events-and-metrics) — health checks, idle
+reaping, `maxUses`/`maxLifetimeMillis` recycling and keepalive all apply
+per node. `add(name, overrides)` / `remove(name)` manage nodes at
+runtime; `destroy()` closes everything.
+
 #### Advanced Pooling Features
 
 The pool implementation includes several safeguards for reliability:

@@ -5,7 +5,7 @@
  ***************************************/
 
 import Events from 'events';
-import { fromCallback } from './callback';
+import { fromCallback, withPooledConnection } from './callback';
 import type { Callback } from './callback';
 
 type AttachFn = (options: any, callback: Callback) => void;
@@ -385,15 +385,8 @@ class Pool extends Events.EventEmitter {
      * Run `work` with a connection from the pool, returning it to the pool
      * (detach) when the returned promise settles — success or failure.
      */
-    async withConnection<T>(work: (db: any) => Promise<T> | T): Promise<T> {
-        const db = await this.getAsync();
-        try {
-            return await work(db);
-        } finally {
-            // A pooled detach only returns the connection to the pool; do not
-            // let a detach hiccup mask the outcome of `work`.
-            await new Promise<void>(function(resolve) { db.detach(function() { resolve(); }); });
-        }
+    withConnection<T>(work: (db: any) => Promise<T> | T): Promise<T> {
+        return withPooledConnection(() => this.getAsync(), work);
     }
 }
 
