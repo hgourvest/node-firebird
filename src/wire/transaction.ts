@@ -288,7 +288,17 @@ class Transaction {
 
                     case Const.isc_info_sql_stmt_exec_procedure:
                         if (ret && ret.data && ret.data.length > 0) {
-                            deliver(ret.data[0], true);
+                            // singleton op_execute2 rows never pass through
+                            // fetchAll, so their blobAsText fetches must be
+                            // resolved here (issue #305: EXECUTE PROCEDURE
+                            // returned text blobs as unresolved functions)
+                            self.connection.resolveTextBlobs(self, ret, function(blobErr?: any) {
+                                if (blobErr) {
+                                    dropError(blobErr);
+                                    return;
+                                }
+                                deliver(ret.data[0], true);
+                            });
                             break;
                         } else if (statement.output.length) {
                             statement.fetch(self, 1, function(err: any, fret: any) {
@@ -297,7 +307,13 @@ class Transaction {
                                     return;
                                 }
 
-                                deliver(fret.data[0], false);
+                                self.connection.resolveTextBlobs(self, fret, function(blobErr?: any) {
+                                    if (blobErr) {
+                                        dropError(blobErr);
+                                        return;
+                                    }
+                                    deliver(fret.data[0], false);
+                                });
                             });
 
                             break;

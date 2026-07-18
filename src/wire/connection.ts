@@ -2124,6 +2124,37 @@ class Connection {
     }
 
 
+    /**
+     * Resolve the pending blobAsText fetches of a decoded row batch
+     * (ret.arrBlob) and write the text back into ret.data. Reads run
+     * sequentially to respect Firebird's per-connection open-blob-handle
+     * limit (issue #387). Used by fetchAll for cursors and by
+     * transaction.execute for op_execute2 singletons (EXECUTE PROCEDURE /
+     * RETURNING — issue #305, whose blobs never resolved before).
+     */
+    resolveTextBlobs(transaction: Transaction, ret: any, callback: (err?: any) => void) {
+        const self = this;
+        const fns = (ret && ret.arrBlob) || [];
+        if (!fns.length) {
+            return callback();
+        }
+        const read = (index: number) => {
+            if (index >= fns.length) {
+                return callback();
+            }
+            fns[index](transaction).then((blob: any) => {
+                // nestTables === true rows: the value lives in the
+                // per-table sub-object, not on the row itself
+                Xsql.nestCell(ret.data[blob.row], blob.table)[blob.column] = applyTypeCast(
+                    self.options, blob.meta || {},
+                    parseValueIfJson(blob.value, self.options));
+                read(index + 1);
+            }, callback);
+        };
+        read(0);
+    }
+
+
     fetchAll(statement: Statement, transaction: Transaction, callback: Callback<any[]>) {
         const self = this;
         const custom = statement.options || {};
@@ -2137,29 +2168,10 @@ class Connection {
             }
 
             if (ret && ret.data && ret.data.length) {
-                // Read blobs sequentially instead of in parallel to avoid
-                // exceeding Firebird's per-connection open-blob-handle limit,
-                // which causes a server-side deadlock when many rows contain
-                // BLOBs and blobAsText is true. See issue #387.
-                const arrBlobFns = ret.arrBlob || [];
-                const readBlobsSequentially = (index: any, results: any) => {
-                    if (index >= arrBlobFns.length) {
-                        return Promise.resolve(results);
-                    }
-                    return arrBlobFns[index](transaction).then((v: any) => {
-                        results.push(v);
-                        return readBlobsSequentially(index + 1, results);
-                    });
-                };
-
-                readBlobsSequentially(0, []).then((arrBlob: any) => {
-                    for (let i = 0; i < arrBlob.length; i++) {
-                        const blob = arrBlob[i];
-                        // nestTables === true rows: the value lives in the
-                        // per-table sub-object, not on the row itself
-                        Xsql.nestCell(ret.data[blob.row], blob.table)[blob.column] = applyTypeCast(
-                            statement.connection.options, blob.meta || {},
-                            parseValueIfJson(blob.value, statement.connection.options));
+                self.resolveTextBlobs(transaction, ret, (blobErr?: any) => {
+                    if (blobErr) {
+                        callback(blobErr);
+                        return;
                     }
 
                     doSynchronousLoop(ret.data, (row, _i, next) => {
@@ -2181,7 +2193,7 @@ class Connection {
                             self.fetch(statement, transaction, Const.DEFAULT_FETCHSIZE, loop);
                         }
                     });
-                }).catch(callback);
+                });
                 return;
             }
 

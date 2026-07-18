@@ -492,6 +492,26 @@ describe('Database', function() {
         }
     });
 
+    describe('EXECUTE PROCEDURE blobs (issue #305)', function () {
+        it('resolves blobAsText blobs from EXECUTE PROCEDURE like SELECT does', async function () {
+            // singleton op_execute2 rows never pass through fetchAll, so
+            // their blobAsText fetches were never resolved: EXECUTE
+            // PROCEDURE handed back an unresolved reader function where
+            // SELECT FROM the same procedure returned text
+            const db2 = await fromCallback(cb => Firebird.attach(Config.extends(config, { blobAsText: true }), cb));
+            try {
+                await db2.queryAsync("CREATE PROCEDURE P305 RETURNS (B BLOB SUB_TYPE TEXT) AS BEGIN B = 'blob from proc'; SUSPEND; END");
+                const sel = await db2.queryAsync('SELECT * FROM P305');
+                const exec = await db2.queryAsync('EXECUTE PROCEDURE P305');
+                assert.strictEqual(sel[0].b, 'blob from proc');
+                assert.strictEqual(exec.b, 'blob from proc'); // was `[Function]` before the fix
+            } finally {
+                await db2.queryAsync('DROP PROCEDURE P305').catch(() => {});
+                await fromCallback(cb => db2.detach(cb));
+            }
+        });
+    });
+
     describe('Select', function() {
         it('should simple select', async function () {
             const row = await fromCallback(cb => db.query('SELECT * FROM RDB$DATABASE', cb));

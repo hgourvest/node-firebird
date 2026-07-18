@@ -2161,6 +2161,37 @@ app.get('/users/:id/picture', withConnection(pool, function (db, req, res, done)
 
 Answers to recurring questions from the [issue tracker](https://github.com/hgourvest/node-firebird/issues).
 
+#### Text comes back as `������` with a WIN1250/1251/1253/1257 database (issue [#319](https://github.com/hgourvest/node-firebird/issues/319))
+
+Node's `Buffer` has no built-in decoders for most Windows codepages, so
+the driver can only map charsets Node knows natively (UTF-8, WIN1252 →
+`latin1`, …); anything else currently falls back to UTF-8 and mojibakes.
+Until codepage tables ship in the driver, the working pattern is to move
+the transcoding to your side with [iconv-lite](https://www.npmjs.com/package/iconv-lite):
+connect with `encoding: 'NONE'` (bytes pass through untranscoded, see
+[§ Character Set & Encoding Support](#character-set--encoding-support)),
+read the raw bytes via `latin1` (a lossless byte↔char mapping), and
+decode with the real codepage — a [`typeCast` hook](#custom-type-parsers-typecast)
+does it transparently for every text column:
+
+```js
+const iconv = require('iconv-lite');
+const options = {
+  // ...
+  encoding: 'NONE',
+  typeCast: (column, next) => {
+    const v = next();
+    return (column.typeName === 'VARYING' || column.typeName === 'TEXT') && typeof v === 'string'
+      ? iconv.decode(Buffer.from(v, 'latin1'), 'win1253')
+      : v;
+  },
+};
+```
+
+For writes, pass already-encoded bytes as Buffers
+(`iconv.encode(str, 'win1253')`) — raw Buffer parameters are written
+without transliteration.
+
 #### Can I use aggregate functions like `LIST()`? I get "no database to handle" when I call the result.
 
 Yes — `LIST()` is plain SQL and needs no special driver support. The error happens because `LIST()` returns a text blob (subtype 1), and blob columns come back from `db.query`/`transaction.query` as **async reader functions** bound to the transaction the query ran in (see [Reading Blobs](#reading-blobs-asynchronous)). Calling that function without a transaction — or with a different one — is what throws "no database to handle".
