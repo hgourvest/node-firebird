@@ -359,11 +359,31 @@ describe('Auth plugin connection', function () {
     });
 
     describe('FB3 - Srp', function () {
+        // On CI, a fresh connection is occasionally RST mid-handshake by the
+        // dockerized server's proxy, right after the abortive-close tests
+        // above (socket.destroy() churn) — server log stays clean and the
+        // error is "Connection to Firebird server was lost", NOT an auth
+        // failure. Retry ONLY that exact case, so a real Srp proof bug
+        // (gdscode 335544472, issue #421) still fails the test loudly.
+        async function attachRetryingConnectionLoss(cfg) {
+            for (let attempt = 0; ; attempt++) {
+                try {
+                    return await fromCallback(cb => Firebird.attachOrCreate(cfg, cb));
+                } catch (err) {
+                    if (attempt < 3 && /Connection to Firebird server was lost/.test(err.message)) {
+                        await new Promise(r => setTimeout(r, 250));
+                        continue;
+                    }
+                    throw err;
+                }
+            }
+        }
+
         // Must be test with firebird 3.0 or higher with Srp enable on server
         it('should attach with srp plugin', { timeout: 120000 }, async function () {
             let db;
             try {
-                db = await fromCallback(cb => Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP }), cb));
+                db = await attachRetryingConnectionLoss(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP }));
             } catch (err) {
                 if (err.message.indexOf("Server don't accept plugin") !== -1 || err.message.indexOf("Srp") !== -1) {
                     console.log("Skipping Srp plugin test: unsupported by server");
@@ -377,7 +397,7 @@ describe('Auth plugin connection', function () {
         // FB 3.0 : Should be tested with Srp256 enabled on server configuration
         it('should attach with srp 256 plugin', { timeout: 20000 }, async function () {
             try {
-                const db = await fromCallback(cb => Firebird.attachOrCreate(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP256 }), cb));
+                const db = await attachRetryingConnectionLoss(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP256 }));
                 await fromCallback(cb => db.detach(cb));
             } catch (e) {
                 if (e.message.indexOf('Server don\'t accept plugin : Srp256') !== -1) {
