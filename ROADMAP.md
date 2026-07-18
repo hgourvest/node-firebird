@@ -216,9 +216,9 @@ These are open pull requests that are close to being merged and represent near-t
 
 ---
 
-## 6. Feature Parity with Other Node.js SQL Drivers (pg, mysql2)
+## 6. Feature Parity with Other Node.js SQL Drivers (pg, mysql2, Postgres.js)
 
-A review of what [node-postgres (`pg`)](https://node-postgres.com/) and [`mysql2`](https://github.com/sidorares/node-mysql2) offer, compared against what this driver already ships. The goal is not to copy every feature, but to adopt the idioms Node.js developers now expect from a database driver.
+A review of what [node-postgres (`pg`)](https://node-postgres.com/), [`mysql2`](https://github.com/sidorares/node-mysql2) and [Postgres.js](https://github.com/porsager/postgres) offer, compared against what this driver already ships. The goal is not to copy every feature, but to adopt the idioms Node.js developers now expect from a database driver.
 
 ### Already at parity (no work needed)
 
@@ -251,7 +251,28 @@ Ordered roughly by expected user impact:
 9. **`Readable` stream adapter** ✅ Implemented — `db.queryStream(sql, params, options)` / `transaction.queryStream(...)` returning an object-mode `Readable` built on `sequentially`'s `next()`-based backpressure (fetching pauses while the buffer is full). Early destroy — including a `pipeline()` teardown — aborts the fetch and releases the statement. Composes with `typeCast`/`blobAsText`/`jsonAsObject`. Documented in [README.md § Streaming rows with queryStream](README.md#streaming-rows-with-querystream).
 10. **Configurable socket keepalive** ✅ Implemented — `enableKeepAlive` (default true) and `keepAliveInitialDelay` (default 60000 ms) connection options, same names as mysql2, also accepted as URI query parameters. Documented in [README.md § Connection options](README.md#connection-options).
 11. **`nestTables` / duplicate-column handling** ✅ Implemented — mysql2's `nestTables` as a connection and per-query option: `true` nests each object row by source table (`row[table][column]`, self-joins nest under their query aliases via `isc_info_sql_relation_alias`, expression columns under `''`), a string separator flattens to `'table<sep>column'` keys. Composes with `typeCast`/`blobAsText`/`queryStream`/`lowercase_keys`; array rows unaffected. The shared key computation also fixed a latent `sequentially` bug: blob materialization aligned `Object.keys(row)` with the column metadata by index, which desyncs on duplicate JOIN column names. Documented in [README.md § Nested result tables](README.md#nested-result-tables-nesttables); tests in `test/nest-tables.js`.
-12. **Multi-host pooling (`PoolCluster`)** — mysql2 routes across primaries/replicas with failover strategies. With Firebird 4+ logical replication this becomes relevant, but it is niche today — evaluate after pool observability lands.
+12. **Multi-host pooling (`PoolCluster`)** — mysql2 routes across primaries/replicas with failover strategies. With Firebird 4+ logical replication this becomes relevant, but it is niche today — evaluate after pool observability lands. (Postgres.js's `target_session_attrs` multi-host support is the same idea; still deferred for lack of demand.)
+
+### Round 2 (July 2026): review vs node-postgres (`pg` 8.16) and [Postgres.js](https://github.com/porsager/postgres)
+
+With items 1–11 above shipped, a second comparison pass against the current PostgreSQL drivers (`pg` 8.12–8.16 added per-query timeouts, ESM exports, SCRAM-SHA-256-PLUS, pool `min`/`maxUses`; Postgres.js is the ergonomics benchmark: tagged templates, savepoints, cursors, COPY streams, env-var config).
+
+**Confirmed at parity** (no work needed): promise API + `withConnection`/`withTransaction` (pg `pool.query`, Postgres.js `sql.begin`); per-query timeouts (`timeout`, FB 4+ server-side — pg 8.13's per-query timeout is client-side only); query cancellation (`AbortSignal` / out-of-band `op_cancel`; Postgres.js cancels mid-execution the same way); cursors with backpressure (`sequentially` / `queryStream` ≈ Postgres.js `.cursor()`/`.forEach()`); connection reservation (`pool.get` ≈ `sql.reserve()`); pool `min` + idle reaping (pg 8.16 `min`, Postgres.js `idle_timeout`); pipelining (the protocol queue pipelines by design; deliberate per-query batching like Postgres.js's is possible today by issuing queries without awaiting); array-row mode (`execute` ≈ `.values()`); automatic prepared-statement reuse (`statementCacheSize` ≈ Postgres.js auto-prepare); LISTEN/NOTIFY counterpart (POST_EVENT); BigInt numerics; generic row typing on the promise API (`queryAsync<T>`).
+
+**Not applicable to Firebird**: SSL/TLS + SCRAM channel binding (Firebird uses SRP + Arc4/ChaCha wire crypt); `queryMode` simple-vs-extended protocol switch (no such split in the Firebird protocol); logical-replication client subscription (Postgres.js `.subscribe()` — Firebird replication is server-to-server, not exposed to wire clients); multiple statements per query string (unchanged from Round 1).
+
+**Gaps worth implementing** (continuing the numbering, ordered by expected impact):
+
+13. **Affected-rows count + result metadata in the promise API** — pg returns `{ rows, rowCount, fields }`, mysql2 `[rows, fields]` / `affectedRows`; our promise API returns bare row arrays and DML row counts are not exposed at all (the `isc_info_sql_records` constant exists in `const.ts` but is never requested after execute). Surface `affectedRows` (INSERT/UPDATE/DELETE counts via `op_info_sql`) and add an opt-in full-result shape (e.g. `queryAsync(sql, params, { withMeta: true })` → `{ rows, fields, affectedRows }`) without breaking the bare-array default.
+14. **Tagged-template query API** — Postgres.js's signature ergonomics: ``sql`SELECT * FROM t WHERE id = ${id}` `` compiles to positional params client-side (no injection risk), plus identifier helpers and insert-from-object/fragment builders. Purely client-side sugar over the existing param machinery; ships as an opt-in `db.sql` / `tx.sql` without touching the callback API.
+15. **Surface server warnings** — `isc_arg_warning` status-vector entries have been parsed into `response.warnings` since 2.10.0 but are dropped before reaching users. pg emits `notice` events. Emit a `warning` driver event and attach warnings to result metadata (pairs naturally with item 13).
+16. **Savepoint helpers** — Postgres.js has `sql.savepoint()`. Firebird supports `SAVEPOINT` / `ROLLBACK TO SAVEPOINT` in DSQL, so `transaction.savepoint(work)` (auto rollback-to on error, nestable) is a thin SQL wrapper matching the existing `withTransaction` style.
+17. **Environment-variable configuration defaults** — pg reads `PGHOST`/`PGUSER`/`PGPASSWORD`…; Firebird has its own long-standing conventions (`ISC_USER`, `ISC_PASSWORD`) honoured by isql and other drivers. Fall back to them (plus `FIREBIRD_DATABASE`/`FIREBIRD_HOST`/`FIREBIRD_PORT`) when options omit credentials.
+18. **Pool connection recycling** — pg's `maxUses`, Postgres.js's `max_lifetime` (randomized 45–90 min): retire pooled connections after N uses / T ms to bound server-side resource drift. The idle-reaper infrastructure from item 4 already owns the eviction path; this adds two counters.
+19. **Row-key transforms** — Postgres.js `transform` (snake_case ↔ camelCase). We already own the key-computation choke point (`computeColumnKeys`), so a `transformKeys` option slots in beside `lowercase_keys`/`nestTables`. Low effort, decent DX.
+20. **Bulk-insert Writable stream** — the COPY FROM analogue: a `db.batchStream(sql)` object-mode Writable that chunks rows through the Firebird 4 batch API (item 3). Useful for piping ETL sources; BLOB/ARRAY batch params remain the prerequisite follow-up.
+
+ESM/CJS dual exports (pg ships both since 8.15) and callback-API generics stay under [TypeScript Phase C](#phase-c--modern-typescript-ergonomics-optional--future) — the ESM half is the next-major headline item.
 
 ---
 
@@ -266,7 +287,8 @@ Ordered roughly by expected user impact:
 | Shipped in 2.9.0 | named placeholders; traditional `host[/port]:database` connection strings; deferred-op response queue fix |
 | Shipped in 2.10.0 | `typeCast` hook; statement cache (`statementCacheSize` LRU); `queryStream` Readable adapter; configurable keepalive; ServiceManager promise wrappers; failing `RETURNING` fix (#341); Firebird 2.5 prepare-hang fix (#312); full TS strict mode + wire-core types (Phase A.1/A.2); Protocol 20 (prepare hang fixed — `p_sqlst_flags`; v19 cap lifted); database creation with different owner (#7718, `options.owner`); FB5/FB6 DPB-tag fixes (`parallelWorkers` no longer switches the database into replica mode) + `isc_arg_warning` parsing |
 | Shipped in 2.11.0 | `nestTables` (mysql2-style nested / table-qualified object rows); `relationAlias` describe metadata actually requested; `sequentially` blob/key alignment fix |
-| Future major | ESM/CJS dual exports; TS Phase C generics; multi-host pooling (if demand materializes) |
+| Next minor(s) | Round 2 gaps, by impact: affected-rows + result metadata in the promise API (#13) with server warnings (#15); tagged-template query API (#14); savepoint helpers (#16); env-var config defaults (#17); pool `maxUses`/`maxLifetime` recycling (#18); row-key transforms (#19); bulk-insert Writable stream (#20) |
+| Future major | ESM/CJS dual exports (pg ships both since 8.15); TS Phase C generics; multi-host pooling (#12, if demand materializes) |
 
 ---
 
