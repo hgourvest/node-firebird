@@ -366,12 +366,15 @@ describe('Auth plugin connection', function () {
         // failure. Retry ONLY that exact case, so a real Srp proof bug
         // (gdscode 335544472, issue #421) still fails the test loudly.
         async function attachRetryingConnectionLoss(cfg) {
+            // the CI proxy's reset windows are SUSTAINED (~1s+, observed as
+            // ~4 fast failures in 820ms), so back off exponentially:
+            // 250+500+1000+2000+4000 ≈ 7.75s of coverage
             for (let attempt = 0; ; attempt++) {
                 try {
                     return await fromCallback(cb => Firebird.attachOrCreate(cfg, cb));
                 } catch (err) {
-                    if (attempt < 3 && /Connection to Firebird server was lost/.test(err.message)) {
-                        await new Promise(r => setTimeout(r, 250));
+                    if (attempt < 5 && /Connection to Firebird server was lost/.test(err.message)) {
+                        await new Promise(r => setTimeout(r, 250 * Math.pow(2, attempt)));
                         continue;
                     }
                     throw err;

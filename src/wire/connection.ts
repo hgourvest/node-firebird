@@ -349,11 +349,13 @@ class Connection {
         });
     
         self._socket.on('error', function(e: any) {
-    
+
             self.error = e;
-    
-            if (self.db)
-                self.db.emit('error', e)
+
+            // listeners only (_emitError): the affected operations get their
+            // errors via the close handler's _rejectPending — an unlistened
+            // socket error must not become an uncaught exception
+            self._emitError(e);
     
             if (callback)
                 callback(e);
@@ -1032,7 +1034,9 @@ class Connection {
 
     throwClosed(callback: ((err: Error, ...args: any[]) => void) | undefined) {
         var err = new Error('Connection is closed.');
-        this.db.emit('error', err);
+        // listeners only: the caller receives the error through its own
+        // callback below either way
+        this._emitError(err);
         if (callback)
             callback(err);
         return this;
