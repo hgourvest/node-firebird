@@ -379,6 +379,19 @@ describe('Auth plugin connection', function () {
             }
         }
 
+        // The RST can also land on the detach right after a successful
+        // attach — the connection is gone either way, which is what detach
+        // wanted; anything else still fails the test.
+        async function detachIgnoringConnectionLoss(db) {
+            try {
+                await fromCallback(cb => db.detach(cb));
+            } catch (err) {
+                if (!/Connection to Firebird server was lost/.test(err.message)) {
+                    throw err;
+                }
+            }
+        }
+
         // Must be test with firebird 3.0 or higher with Srp enable on server
         it('should attach with srp plugin', { timeout: 120000 }, async function () {
             let db;
@@ -391,14 +404,14 @@ describe('Auth plugin connection', function () {
                 }
                 throw err;
             }
-            await fromCallback(cb => db.detach(cb));
+            await detachIgnoringConnectionLoss(db);
         });
 
         // FB 3.0 : Should be tested with Srp256 enabled on server configuration
         it('should attach with srp 256 plugin', { timeout: 20000 }, async function () {
             try {
                 const db = await attachRetryingConnectionLoss(Config.extends(config, { pluginName: Firebird.AUTH_PLUGIN_SRP256 }));
-                await fromCallback(cb => db.detach(cb));
+                await detachIgnoringConnectionLoss(db);
             } catch (e) {
                 if (e.message.indexOf('Server don\'t accept plugin : Srp256') !== -1) {
                     console.log('Skipping test: Server does not support Srp256');
