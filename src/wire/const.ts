@@ -587,6 +587,12 @@ const sqlInfo = {
     isc_info_sql_stmt_type : 21,
     isc_info_sql_get_plan : 22,
     isc_info_sql_records : 23,
+    // per-verb row counts nested inside an isc_info_sql_records cluster
+    // (inf_pub.h isc_info_req_*)
+    isc_info_req_select_count : 13,
+    isc_info_req_insert_count : 14,
+    isc_info_req_update_count : 15,
+    isc_info_req_delete_count : 16,
     isc_info_sql_batch_fetch : 24,
     isc_info_sql_relation_alias : 25, // >: 2.0
     isc_info_sql_explain_plan : 26, // >= 3.0
@@ -667,6 +673,12 @@ const DESCRIBE_WITH_SCHEMA = [
     sqlInfo.isc_info_sql_scale,
     sqlInfo.isc_info_sql_length,
     sqlInfo.isc_info_sql_describe_end
+];
+
+// op_info_sql request for the per-verb DML row counts of an executed
+// statement (withMeta / affectedRows).
+const RECORDS_INFO = [
+    sqlInfo.isc_info_sql_records,
 ];
 
 /***********************/
@@ -910,6 +922,7 @@ const Const = Object.freeze({
     ...defaultOptions,
     DESCRIBE,
     DESCRIBE_WITH_SCHEMA,
+    RECORDS_INFO,
     ...dpb,
     ...dsql,
     ...fetchOp,

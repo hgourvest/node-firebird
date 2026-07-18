@@ -139,6 +139,65 @@ export type QueryOptions = {
      * unaffected.
      */
     nestTables?: boolean | string;
+    /**
+     * Deliver a full result object `{ rows, fields, affectedRows,
+     * recordCounts, warnings }` instead of the bare rows (callback and
+     * promise APIs). For DML, `affectedRows` is what the server actually
+     * changed (`isc_info_sql_records`, one extra lightweight info request
+     * per statement — hence opt-in) and `recordCounts` breaks it down per
+     * verb; for SELECT it is the number of rows returned (pg's `rowCount`
+     * convention) with no extra round-trip. `warnings` carries any
+     * `isc_arg_warning` entries from the execute response. Honoured by
+     * query/execute and their *Async wrappers only — ignored by the
+     * streaming APIs (sequentially/queryStream, where rows bypass the
+     * result) and executeBatch (which has its own completion shape).
+     */
+    withMeta?: boolean;
+}
+
+/** Column metadata delivered in withMeta results (`fields`) — the same
+ *  vocabulary the typeCast hook receives, plus nullable and the relation
+ *  alias/schema. */
+export interface FieldMetadata {
+    type: number;
+    typeName: string;
+    subType?: number;
+    scale?: number;
+    length?: number;
+    nullable?: boolean;
+    field?: string;
+    relation?: string;
+    relationAlias?: string;
+    relationSchema?: string;
+    alias?: string;
+}
+
+/** Per-verb server row counts of an executed DML statement. */
+export interface RecordCounts {
+    selectCount: number;
+    insertCount: number;
+    updateCount: number;
+    deleteCount: number;
+}
+
+/** An isc_arg_warning entry from a server response ('warning' driver event
+ *  and withMeta `warnings`). */
+export interface ServerWarning {
+    gdscode: number;
+    params?: (string | number)[];
+    message: string;
+}
+
+/** Full result shape delivered when `withMeta: true` is set. */
+export interface QueryResult<T = any> {
+    /** Rows array (SELECT), single row object (RETURNING / procedures), or undefined (plain DML). */
+    rows: T[] | T | undefined;
+    fields: FieldMetadata[];
+    /** DML: rows the server changed; SELECT: rows returned. */
+    affectedRows: number;
+    /** Set for DML statements only. */
+    recordCounts?: RecordCounts;
+    warnings: ServerWarning[];
 }
 
 export type QueryStreamOptions = QueryOptions & {
@@ -176,8 +235,11 @@ export interface Database {
     createSchema(schemaName: string, tablespaceName?: string | QueryCallback, callback?: QueryCallback): Database;
 
     // Promise / async-await API (see README § Promises / async–await).
-    // Result metadata is only available through the callback API.
+    // Pass { withMeta: true } to resolve with the full QueryResult
+    // (rows + fields + affectedRows + warnings) instead of bare rows.
+    queryAsync<T = any>(query: string, params: QueryParams | undefined, options: QueryOptions & { withMeta: true }): Promise<QueryResult<T>>;
     queryAsync<T = any>(query: string, params?: QueryParams, options?: QueryOptions): Promise<T[]>;
+    executeAsync<T = any>(query: string, params: QueryParams | undefined, options: QueryOptions & { withMeta: true }): Promise<QueryResult<T>>;
     executeAsync<T = any>(query: string, params?: QueryParams, options?: QueryOptions): Promise<T[]>;
     executeBatchAsync(query: string, rows: QueryParams[], options?: BatchOptions): Promise<BatchResult>;
     sequentiallyAsync(query: string, params: QueryParams | undefined, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;
@@ -219,7 +281,9 @@ export interface Transaction {
     rollbackRetaining(callback?: SimpleCallback): void;
 
     // Promise / async-await API
+    queryAsync<T = any>(query: string, params: QueryParams | undefined, options: QueryOptions & { withMeta: true }): Promise<QueryResult<T>>;
     queryAsync<T = any>(query: string, params?: QueryParams, options?: QueryOptions): Promise<T[]>;
+    executeAsync<T = any>(query: string, params: QueryParams | undefined, options: QueryOptions & { withMeta: true }): Promise<QueryResult<T>>;
     executeAsync<T = any>(query: string, params?: QueryParams, options?: QueryOptions): Promise<T[]>;
     executeBatchAsync(query: string, rows: QueryParams[], options?: BatchOptions): Promise<BatchResult>;
     sequentiallyAsync(query: string, params: QueryParams | undefined, rowCallback: SequentialCallback, options?: QueryOptions | boolean): Promise<void>;

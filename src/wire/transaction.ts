@@ -2,12 +2,13 @@ import { doCallback, doError, fromCallback, type Callback, type SimpleCallback }
 import { parseNamedPlaceholders } from '../named-params';
 import { noop } from '../utils';
 import Const from './const';
+import { describeFields, parseRecordCounts } from './xsqlvar';
 import makeQueryStream from './query-stream';
 import type Connection from './connection';
 import type Database from './database';
 import type Statement from './statement';
 import type { BatchCb, StatementCb, InternalQueryOptions } from './wire-types';
-import type { BatchOptions, BatchResult, QueryOptions, QueryParams, QueryStreamOptions, SequentialCallback } from '../types';
+import type { BatchOptions, BatchResult, QueryOptions, QueryParams, QueryStreamOptions, RecordCounts, SequentialCallback } from '../types';
 
 /***************************************
  *
@@ -138,6 +139,69 @@ class Transaction {
                     return;
                 }
 
+                // withMeta applies to query/execute only: in streaming mode
+                // (sequentially/queryStream, which spread user options) rows
+                // bypass fetchAll's array, so a result object here would
+                // carry rows: [] and a meaningless affectedRows
+                var withMeta = Boolean(options && typeof options === 'object' &&
+                    (options as any).withMeta && !(options as any).asStream);
+
+                // Deliver the historic result shape, or — when options.withMeta
+                // is set — request the per-verb DML row counts while the
+                // statement handle is still open and wrap everything in a
+                // { rows, fields, affectedRows, recordCounts, warnings } object.
+                function deliver(rows: any, isSelect: boolean, plainDml?: boolean) {
+                    if (!withMeta) {
+                        statement!.release();
+                        if (callback) {
+                            if (plainDml) {
+                                // plain DML historically calls back with no args
+                                callback();
+                            } else {
+                                callback(undefined, rows, statement!.output, isSelect);
+                            }
+                        }
+                        return;
+                    }
+
+                    var execWarnings = (ret && ret.warnings) || [];
+                    var finalize = function(counts?: RecordCounts) {
+                        statement!.release();
+                        if (!callback) {
+                            return;
+                        }
+                        // DML: what the server actually changed; SELECT: rows
+                        // returned (pg's rowCount convention)
+                        var affectedRows = counts
+                            ? counts.insertCount + counts.updateCount + counts.deleteCount
+                            : (Array.isArray(rows) ? rows.length : (rows !== undefined ? 1 : 0));
+                        callback(undefined, {
+                            rows: rows,
+                            fields: describeFields(statement!.output),
+                            affectedRows: affectedRows,
+                            recordCounts: counts,
+                            warnings: execWarnings,
+                        }, statement!.output, isSelect);
+                    };
+
+                    var t = statement!.type;
+                    var isDml = t === Const.isc_info_sql_stmt_insert ||
+                        t === Const.isc_info_sql_stmt_update ||
+                        t === Const.isc_info_sql_stmt_delete ||
+                        t === Const.isc_info_sql_stmt_exec_procedure;
+                    if (!isDml) {
+                        finalize();
+                        return;
+                    }
+                    self.connection.statementInfo(statement!, Const.RECORDS_INFO, function(err: any, info: any) {
+                        if (err) {
+                            dropError(err);
+                            return;
+                        }
+                        finalize(parseRecordCounts(info && info.buffer));
+                    });
+                }
+
                 switch (statement.type) {
                     case Const.isc_info_sql_stmt_select:
                         statement.fetchAll(self, function(err: any, r: any) {
@@ -146,34 +210,23 @@ class Transaction {
                                 return;
                             }
 
-                            statement.release();
-
-                            if (callback)
-                                callback(undefined, r, statement.output, true);
-
+                            deliver(r, true);
                         });
 
                         break;
 
                     case Const.isc_info_sql_stmt_exec_procedure:
                         if (ret && ret.data && ret.data.length > 0) {
-                            statement.release();
-
-                            if (callback)
-                                callback(undefined, ret.data[0], statement.output, true);
-
+                            deliver(ret.data[0], true);
                             break;
                         } else if (statement.output.length) {
-                            statement.fetch(self, 1, function(err: any, ret: any) {
+                            statement.fetch(self, 1, function(err: any, fret: any) {
                                 if (err) {
                                     dropError(err);
                                     return;
                                 }
 
-                                statement.release();
-
-                                if (callback)
-                                    callback(undefined, ret.data[0], statement.output, false);
+                                deliver(fret.data[0], false);
                             });
 
                             break;
@@ -181,9 +234,7 @@ class Transaction {
 
                     // Fall through is normal
                     default:
-                        statement.release();
-                        if (callback)
-                            callback()
+                        deliver(undefined, false, true);
                         break;
                 }
 

@@ -75,31 +75,8 @@ function statementCacheLimit(options: InternalOptions): number {
     return 0;
 }
 
-const SQL_TYPE_NAMES: Record<number, string> = {
-    [Const.SQL_TEXT]: 'TEXT',
-    [Const.SQL_VARYING]: 'VARYING',
-    [Const.SQL_SHORT]: 'SHORT',
-    [Const.SQL_LONG]: 'LONG',
-    [Const.SQL_FLOAT]: 'FLOAT',
-    [Const.SQL_DOUBLE]: 'DOUBLE',
-    [Const.SQL_D_FLOAT]: 'D_FLOAT',
-    [Const.SQL_TIMESTAMP]: 'TIMESTAMP',
-    [Const.SQL_BLOB]: 'BLOB',
-    [Const.SQL_ARRAY]: 'ARRAY',
-    [Const.SQL_QUAD]: 'QUAD',
-    [Const.SQL_TYPE_TIME]: 'TIME',
-    [Const.SQL_TYPE_DATE]: 'DATE',
-    [Const.SQL_INT64]: 'INT64',
-    [Const.SQL_INT128]: 'INT128',
-    [Const.SQL_TIMESTAMP_TZ]: 'TIMESTAMP_TZ',
-    [Const.SQL_TIMESTAMP_TZ_EX]: 'TIMESTAMP_TZ_EX',
-    [Const.SQL_TIME_TZ]: 'TIME_TZ',
-    [Const.SQL_TIME_TZ_EX]: 'TIME_TZ_EX',
-    [Const.SQL_DEC16]: 'DEC16',
-    [Const.SQL_DEC34]: 'DEC34',
-    [Const.SQL_BOOLEAN]: 'BOOLEAN',
-    [Const.SQL_NULL]: 'NULL',
-};
+// SQL type-code names live in xsqlvar.ts alongside the descriptors
+const SQL_TYPE_NAMES = Xsql.SQL_TYPE_NAMES;
 
 /**
  * Run the user's typeCast hook (options.typeCast) for one column value.
@@ -114,16 +91,7 @@ function applyTypeCast(options: InternalOptions, meta: Partial<Xsql.SQLVarBase>,
     if (typeof typeCast !== 'function') {
         return defaultValue;
     }
-    const column = {
-        type: meta.type!,
-        typeName: SQL_TYPE_NAMES[meta.type!] || 'UNKNOWN',
-        subType: meta.subType,
-        scale: meta.scale,
-        length: meta.length,
-        field: meta.field,
-        relation: meta.relation,
-        alias: meta.alias,
-    };
+    const column = Xsql.describeField(meta);
     // A hook exception must never escape into the row-decode loop: there it
     // would be mistaken for an incomplete packet and desync the response
     // queue (the same failure mode as issue #341). Fall back to the default
@@ -456,13 +424,38 @@ class Connection {
                             self._queue.length, self._pending.length, xdr.pos);
                     }
 
+                    // Surface isc_arg_warning entries (parsed since 2.10.0 but
+                    // dropped here): resolve their message text and emit them on
+                    // the Database on the next tick, so a listener registered
+                    // inside this very response's callback (e.g. right after
+                    // attach) still receives them.
+                    if (obj && obj.warnings && obj.warnings.length && self.db && typeof self.db.emit === 'function') {
+                        const warnings = obj.warnings;
+                        for (const w of warnings) {
+                            if (w.message === undefined) {
+                                w.message = lookupMessages([w]);
+                                if (!w.message || w.message === 'Unknow error') {
+                                    // codes newer than the bundled firebird.msg:
+                                    // still say something actionable
+                                    w.message = 'Firebird warning ' + w.gdscode +
+                                        (w.params && w.params.length ? ': ' + w.params.join(', ') : '');
+                                }
+                            }
+                        }
+                        process.nextTick(function () {
+                            for (const w of warnings) {
+                                self.db.emit('warning', w);
+                            }
+                        });
+                    }
+
                     if (obj && obj.status) {
                         obj.message = lookupMessages(obj.status);
                         doCallback(obj, cb);
                     } else {
                         doCallback(obj, cb);
                     }
-    
+
                 });
     
                 if (xdr.pos === 0) {
@@ -1980,6 +1973,34 @@ class Connection {
         msg.addInt(offsetVal); // fetch position (offset)
     
         callback!.statement = statement;
+        this._queueEvent(callback);
+    }
+
+
+    /**
+     * Query runtime information about a prepared statement via op_info_sql
+     * (e.g. Const.RECORDS_INFO for the per-verb DML row counts). The
+     * response is a plain op_response whose buffer holds the info clusters.
+     */
+    statementInfo(statement: Statement, items: number[], callback?: QueueCallback) {
+        if (this._isClosed)
+            return this.throwClosed(callback);
+
+        this._pending.push('statementInfo');
+
+        var msg = this._msg;
+        var blr = this._blr;
+        msg.pos = 0;
+        blr.pos = 0;
+
+        blr.addBytes(items);
+
+        msg.addInt(Const.op_info_sql);
+        msg.addInt(statement.handle);
+        msg.addInt(0); // incarnation
+        msg.addBlr(blr);
+        msg.addInt(65535); // buffer_length
+
         this._queueEvent(callback);
     }
 

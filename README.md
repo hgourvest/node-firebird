@@ -13,7 +13,7 @@
 - [Promises and async/await](#promises-and-asyncawait) — the `*Async` API plus `withConnection` / `withTransaction` helpers
 - [Connection types](#connection-types) — connection options, `firebird://` URIs and traditional connection strings, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
-- [Examples](#examples) — parametrized queries, named placeholders, nested result tables (nestTables), custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
+- [Examples](#examples) — parametrized queries, named placeholders, nested result tables (nestTables), result metadata / affected rows (withMeta), custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
 - [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
 - [Using node-firebird with Express.js](#using-node-firebird-with-expressjs)
 - [FAQ](#faq)
@@ -537,6 +537,56 @@ array rows are positional and need no qualification. Works on every
 supported Firebird version (the source-table metadata comes from the
 statement describe, available since Firebird 2.0).
 
+### Result metadata and affected rows (withMeta)
+
+By default, queries deliver bare rows and DML row counts are not reported.
+The per-query `withMeta: true` option switches the result (callback and
+promise APIs alike) to a full result object, the counterpart of pg's
+`{ rows, rowCount, fields }` and mysql2's `affectedRows`:
+
+```js
+const r = await db.queryAsync('UPDATE EMP SET ACTIVE = false WHERE DEPT_ID = ?', [1],
+  { withMeta: true });
+// r = {
+//   rows: undefined,            // rows array (SELECT), row object (RETURNING), or undefined
+//   fields: [...],              // per-column metadata (see below)
+//   affectedRows: 2,            // what the server actually changed
+//   recordCounts: { selectCount: 0, insertCount: 0, updateCount: 2, deleteCount: 0 },
+//   warnings: [],               // isc_arg_warning entries from the execute response
+// }
+```
+
+For DML (`INSERT`/`UPDATE`/`DELETE`, including `... RETURNING` and
+`EXECUTE PROCEDURE`), `affectedRows` is the server-reported count
+(`isc_info_sql_records`) and `recordCounts` breaks it down per verb — this
+costs one extra lightweight info request per statement, which is why the
+option is opt-in. For `SELECT`, `affectedRows` is simply the number of rows
+returned (pg's `rowCount` convention) with no extra round-trip, and
+`recordCounts` is absent.
+
+Each entry in `fields` describes one output column — the same vocabulary
+the [typeCast hook](#custom-type-parsers-typecast) receives, plus
+nullability and the relation alias/schema:
+
+```js
+{ type: 448, typeName: 'VARYING', subType: 4, scale: 0, length: 80,
+  nullable: true, field: 'NAME', relation: 'EMP', relationAlias: '',
+  relationSchema: 'PUBLIC', alias: 'NAME' }
+```
+
+(`relationSchema` is filled on Firebird 6.0+; `subType` of a text column is
+its character-set id.) In TypeScript, `queryAsync<T>(sql, params,
+{ withMeta: true })` resolves to `QueryResult<T>` automatically. Server
+warnings attached to any response — not just queries — are also emitted as
+[`'warning'` driver events](#driver-events).
+
+The option is honoured by `query`/`execute` (and their `*Async` wrappers),
+on databases and transactions alike. It is ignored by the streaming APIs
+(`sequentially`, `queryStream` — rows bypass the result there) and by
+`executeBatch` (which has its own completion shape). For `EXECUTE
+PROCEDURE`, `affectedRows` reflects DML the procedure performed — a
+procedure that only returns values reports 0 alongside its row.
+
 ### Custom type parsers (typeCast)
 
 The `typeCast` connection option lets you override how column values are
@@ -1058,6 +1108,15 @@ Firebird.attach(options, function (err, db) {
   db.on('result', function (rows) {
     // fired with the full rows array once all rows are fetched
     // rows === Array
+  });
+
+  db.on('warning', function (warning) {
+    // fired (next tick) for every isc_arg_warning the server attaches to a
+    // successful response — e.g. "parallel workers value capped" when
+    // parallelWorkers exceeds the server maximum. The listener above is
+    // registered inside the attach callback and still catches attach-time
+    // warnings, because emission is deferred by one tick.
+    // warning === { gdscode: Number, params?: Array, message: String }
   });
 
   db.detach();

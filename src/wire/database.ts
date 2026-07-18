@@ -552,8 +552,9 @@ class Database extends Events.EventEmitter {
     /*
      * Promise / async-await API.
      * Each *Async method wraps its callback counterpart; the callback API
-     * stays untouched. Result metadata is only available through the
-     * callback API — the promises resolve with the rows alone.
+     * stays untouched. The promises resolve with the rows alone unless
+     * { withMeta: true } is passed, which resolves the full
+     * { rows, fields, affectedRows, recordCounts, warnings } result.
      */
 
     queryAsync(query: string, params?: QueryParams, options?: InternalQueryOptions): Promise<any[]> {

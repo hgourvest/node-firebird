@@ -197,7 +197,11 @@ export class BlrReader {
                 value = this.buffer.readInt16LE(this.pos);
                 break;
             case 4:
-                value = this.buffer.readInt32LE(this.pos)
+                value = this.buffer.readInt32LE(this.pos);
+                break;
+            case 8:
+                // e.g. record counts above 2^31 (isc_info_sql_records)
+                value = Number(this.buffer.readBigInt64LE(this.pos));
         }
         this.pos += len;
         return value;

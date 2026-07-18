@@ -1,5 +1,7 @@
 import Const from './const';
+import { BlrReader } from './serialize';
 import type { XdrReader, XdrWriter, BlrWriter } from './serialize';
+import type { RecordCounts } from '../types';
 
 /***************************************
  *
@@ -165,6 +167,104 @@ export function nestCell(row: any, table: string | undefined) {
         return row;
     }
     return row[table] || (row[table] = {});
+}
+
+//------------------------------------------------------
+
+/** Human-readable names for the SQL_* wire type codes. */
+export const SQL_TYPE_NAMES: Record<number, string> = {
+    [Const.SQL_TEXT]: 'TEXT',
+    [Const.SQL_VARYING]: 'VARYING',
+    [Const.SQL_SHORT]: 'SHORT',
+    [Const.SQL_LONG]: 'LONG',
+    [Const.SQL_FLOAT]: 'FLOAT',
+    [Const.SQL_DOUBLE]: 'DOUBLE',
+    [Const.SQL_D_FLOAT]: 'D_FLOAT',
+    [Const.SQL_TIMESTAMP]: 'TIMESTAMP',
+    [Const.SQL_BLOB]: 'BLOB',
+    [Const.SQL_ARRAY]: 'ARRAY',
+    [Const.SQL_QUAD]: 'QUAD',
+    [Const.SQL_TYPE_TIME]: 'TIME',
+    [Const.SQL_TYPE_DATE]: 'DATE',
+    [Const.SQL_INT64]: 'INT64',
+    [Const.SQL_INT128]: 'INT128',
+    [Const.SQL_TIMESTAMP_TZ]: 'TIMESTAMP_TZ',
+    [Const.SQL_TIMESTAMP_TZ_EX]: 'TIMESTAMP_TZ_EX',
+    [Const.SQL_TIME_TZ]: 'TIME_TZ',
+    [Const.SQL_TIME_TZ_EX]: 'TIME_TZ_EX',
+    [Const.SQL_DEC16]: 'DEC16',
+    [Const.SQL_DEC34]: 'DEC34',
+    [Const.SQL_BOOLEAN]: 'BOOLEAN',
+    [Const.SQL_NULL]: 'NULL',
+};
+
+/**
+ * Public column-metadata shape for one output descriptor: the vocabulary
+ * both the typeCast hook and withMeta `fields` deliver. Keep the two in
+ * lockstep by building both through here.
+ */
+export function describeField(meta: Partial<SQLVarBase>) {
+    return {
+        type: meta.type!,
+        typeName: SQL_TYPE_NAMES[meta.type!] || 'UNKNOWN',
+        subType: meta.subType,
+        scale: meta.scale,
+        length: meta.length,
+        nullable: meta.nullable,
+        field: meta.field,
+        relation: meta.relation,
+        relationAlias: meta.relationAlias,
+        relationSchema: meta.relationSchema,
+        alias: meta.alias,
+    };
+}
+
+/**
+ * Map a statement's output descriptors to the column-metadata array
+ * delivered in withMeta results ({ rows, fields, ... }).
+ */
+export function describeFields(output: SQLVarBase[]) {
+    return (output || []).map(describeField);
+}
+
+/**
+ * Parse the op_info_sql response buffer of a Const.RECORDS_INFO request
+ * into per-verb row counts. The buffer holds an isc_info_sql_records
+ * cluster (2-byte total length, then nested isc_info_req_*_count items,
+ * each 2-byte length + little-endian integer) terminated by isc_info_end.
+ */
+export function parseRecordCounts(buffer: Buffer | undefined): RecordCounts {
+    const counts = { selectCount: 0, insertCount: 0, updateCount: 0, deleteCount: 0 };
+    if (!buffer || !buffer.length) {
+        return counts;
+    }
+    // this runs inside a response callback — a malformed/truncated buffer
+    // must yield partial counts, never a throw
+    try {
+        const br = new BlrReader(buffer);
+        while (br.pos < br.buffer.length) {
+            const item = br.readByteCode();
+            if (item === Const.isc_info_end || item === Const.isc_info_truncated) {
+                break;
+            }
+            if (item === Const.isc_info_sql_records) {
+                br.pos += 2; // skip the cluster's total length; nested items follow
+                continue;
+            }
+            switch (item) {
+                case Const.isc_info_req_select_count: counts.selectCount = br.readInt() || 0; break;
+                case Const.isc_info_req_insert_count: counts.insertCount = br.readInt() || 0; break;
+                case Const.isc_info_req_update_count: counts.updateCount = br.readInt() || 0; break;
+                case Const.isc_info_req_delete_count: counts.deleteCount = br.readInt() || 0; break;
+                default:
+                    // unknown item: its 2-byte length prefix tells us how far to skip
+                    br.pos += 2 + br.buffer.readUInt16LE(br.pos);
+            }
+        }
+    } catch (e) {
+        // fall through with whatever was parsed so far
+    }
+    return counts;
 }
 
 //------------------------------------------------------
