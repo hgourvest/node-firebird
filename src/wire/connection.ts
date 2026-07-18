@@ -1859,7 +1859,11 @@ class Connection {
                                         ret[i] = new Xsql.SQLParamString(value);
                                         break;
                                     case 'boolean':
-                                        ret[i] = new Xsql.SQLParamBool(value);
+                                        // metadata-directed: BOOLEAN targets get a
+                                        // real blr_bool (issue #122); smallint
+                                        // targets keep the legacy 0/1 (BOOLEAN
+                                        // does not convert to numbers)
+                                        ret[i] = new Xsql.SQLParamBool(value, meta.type === Const.SQL_BOOLEAN);
                                         break;
                                     default:
                                         //throw new Error('Unexpected parametter: ' + JSON.stringify(params) + ' - ' + JSON.stringify(input));

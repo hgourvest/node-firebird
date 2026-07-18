@@ -158,7 +158,10 @@ export const escape = function(value: any, protocolVersion?: number): string {
         case 'number':
             return value.toString();
         case 'string':
-            return "'" + value.replace(/'/g, "''").replace(/\\/g, '\\\\') + "'";
+            // Firebird string literals have NO backslash escapes — only the
+            // quote is doubled. Doubling backslashes corrupted the data
+            // (issue #156: '\' arrived as '\\').
+            return "'" + value.replace(/'/g, "''") + "'";
     }
 
     if (value instanceof Date)

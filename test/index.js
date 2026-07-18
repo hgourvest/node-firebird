@@ -492,6 +492,29 @@ describe('Database', function() {
         }
     });
 
+    describe('BOOLEAN parameters (issue #122)', function () {
+        it('binds JS booleans to BOOLEAN columns and procedure params; smallint targets keep legacy 0/1', async function () {
+            // BOOLEAN targets need blr_bool (blr_short 0/1 is refused with
+            // "conversion error"); smallint targets must KEEP 0/1 because
+            // BOOLEAN does not convert to numbers — routing is by described
+            // parameter metadata
+            await db.queryAsync('CREATE TABLE T122 (B BOOLEAN, S SMALLINT)');
+            try {
+                await db.queryAsync('CREATE PROCEDURE P122 (INB BOOLEAN) AS BEGIN INSERT INTO T122 (B) VALUES (:INB); END');
+                await db.queryAsync('EXECUTE PROCEDURE P122(?)', [true]);
+                await db.queryAsync('INSERT INTO T122 (B) VALUES (?)', [false]);
+                await db.queryAsync('INSERT INTO T122 (S) VALUES (?)', [true]); // legacy: boolean → smallint 1
+
+                const rows = await db.queryAsync('SELECT B, S FROM T122 ORDER BY B NULLS FIRST');
+                assert.deepStrictEqual(rows.map(r => r.b), [null, false, true]);
+                assert.strictEqual(Number(rows[0].s), 1);
+            } finally {
+                await db.queryAsync('DROP PROCEDURE P122').catch(() => {});
+                await db.queryAsync('DROP TABLE T122').catch(() => {});
+            }
+        });
+    });
+
     describe('EXECUTE PROCEDURE blobs (issue #305)', function () {
         it('resolves blobAsText blobs from EXECUTE PROCEDURE like SELECT does', async function () {
             // singleton op_execute2 rows never pass through fetchAll, so

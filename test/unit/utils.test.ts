@@ -31,8 +31,10 @@ describe('utils.escape', () => {
         expect(escape("''")).toBe("''''''");
     });
 
-    it('escapes backslashes in strings', () => {
-        expect(escape('a\\b')).toBe("'a\\\\b'");
+    it('passes backslashes through unchanged (#156 — Firebird literals have no backslash escapes)', () => {
+        // the old expectation doubled the backslash, which the server then
+        // stored literally: escape('a\b') round-tripped as 'a\\b'
+        expect(escape('a\\b')).toBe("'a\\b'");
     });
 
     it('formats Date values with zero padding and milliseconds', () => {

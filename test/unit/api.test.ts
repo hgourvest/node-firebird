@@ -43,6 +43,11 @@ describe('public API surface', () => {
         expect(Firebird.escape("it's")).toBe("'it''s'");
     });
 
+    it('escape does not double backslashes (Firebird literals have no backslash escapes, #156)', () => {
+        expect(Firebird.escape('a\\b')).toBe("'a\\b'");
+        expect(Firebird.escape("path\\to's")).toBe("'path\\to''s'");
+    });
+
     it('re-exports GDSCode', () => {
         expect(Firebird.GDSCode.ARITH_EXCEPT).toBe(335544321);
     });

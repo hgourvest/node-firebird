@@ -1037,12 +1037,30 @@ export class SQLParamDate {
 
 export class SQLParamBool {
     value: any;
+    /**
+     * Encode as a real BOOLEAN (blr_bool + xdr opaque byte) instead of the
+     * legacy blr_short 0/1. Set when the DESCRIBED parameter type is
+     * SQL_BOOLEAN: Firebird refuses smallint→BOOLEAN conversion
+     * ("conversion error from string", issue #122), and conversely BOOLEAN
+     * does not convert to numbers — so smallint targets keep the legacy
+     * form for compatibility.
+     */
+    asBoolean: boolean;
 
-    constructor(value: any) {
+    constructor(value: any, asBoolean = false) {
         this.value = value;
+        this.asBoolean = asBoolean;
     }
 
     encode(data: XdrWriter): void {
+        if (this.asBoolean) {
+            // xdr_datum sends booleans as 1 opaque value byte + 3 pad bytes
+            // (NOT a big-endian int: the value byte comes FIRST — addInt(1)
+            // would decode server-side as false). Matches the batch encoder.
+            data.addBuffer(Buffer.from([this.value ? 1 : 0]));
+            data.addAlignment(1);
+            return;
+        }
         if (this.value != null) {
             data.addInt(this.value ? 1 : 0);
         } else {
@@ -1052,6 +1070,10 @@ export class SQLParamBool {
     }
 
     calcBlr(blr: BlrWriter): void {
+        if (this.asBoolean) {
+            blr.addByte(Const.blr_bool);
+            return;
+        }
         blr.addByte(Const.blr_short);
         blr.addShort(0);
     }
