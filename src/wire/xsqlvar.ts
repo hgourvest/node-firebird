@@ -750,8 +750,9 @@ export class SQLVarTimeTz extends SQLVarBase {
         data.readInt(); // skip timezone info
 
         if (!lowerV13 || !data.readInt()) {
+            // the wire value is already UTC; no local-offset adjustment
             var d = new Date(0);
-            d.setMilliseconds(Math.floor(time / 10) + d.getTimezoneOffset() * MsPerMinute);
+            d.setMilliseconds(Math.floor(time / 10));
             return d;
         }
         return null;
@@ -771,8 +772,9 @@ export class SQLVarTimeTzEx extends SQLVarTimeTz {
         data.readInt(); // skip ext_offset
 
         if (!lowerV13 || !data.readInt()) {
+            // the wire value is already UTC; no local-offset adjustment
             var d = new Date(0);
-            d.setMilliseconds(Math.floor(time / 10) + d.getTimezoneOffset() * MsPerMinute);
+            d.setMilliseconds(Math.floor(time / 10));
             return d;
         }
         return null;
@@ -792,8 +794,9 @@ export class SQLVarTimeStampTz extends SQLVarBase {
         data.readInt(); // skip timezone info
 
         if (!lowerV13 || !data.readInt()) {
+            // the wire value is already UTC; no local-offset adjustment
             var d = new Date(0);
-            d.setMilliseconds((date - DateOffset) * TimeCoeff + Math.floor(time / 10) + d.getTimezoneOffset() * MsPerMinute);
+            d.setMilliseconds((date - DateOffset) * TimeCoeff + Math.floor(time / 10));
             return d;
         }
 
@@ -815,8 +818,9 @@ export class SQLVarTimeStampTzEx extends SQLVarTimeStampTz {
         data.readInt(); // skip ext_offset
 
         if (!lowerV13 || !data.readInt()) {
+            // the wire value is already UTC; no local-offset adjustment
             var d = new Date(0);
-            d.setMilliseconds((date - DateOffset) * TimeCoeff + Math.floor(time / 10) + d.getTimezoneOffset() * MsPerMinute);
+            d.setMilliseconds((date - DateOffset) * TimeCoeff + Math.floor(time / 10));
             return d;
         }
 
