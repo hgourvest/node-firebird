@@ -750,10 +750,11 @@ export class SQLVarTimeTz extends SQLVarBase {
         data.readInt(); // skip timezone info
 
         if (!lowerV13 || !data.readInt()) {
-            // the wire value is already UTC; no local-offset adjustment
-            var d = new Date(0);
-            d.setMilliseconds(Math.floor(time / 10));
-            return d;
+            // The wire value is already a UTC instant. Construct from epoch milliseconds:
+            // Date's constructor is UTC-based, whereas setMilliseconds() is a *local-time*
+            // setter, so rolling forward from new Date(0) across a DST boundary shifts the
+            // result by the DST delta (see the regression tests in test/timezone.js).
+            return new Date(Math.floor(time / 10));
         }
         return null;
     }
@@ -772,10 +773,11 @@ export class SQLVarTimeTzEx extends SQLVarTimeTz {
         data.readInt(); // skip ext_offset
 
         if (!lowerV13 || !data.readInt()) {
-            // the wire value is already UTC; no local-offset adjustment
-            var d = new Date(0);
-            d.setMilliseconds(Math.floor(time / 10));
-            return d;
+            // The wire value is already a UTC instant. Construct from epoch milliseconds:
+            // Date's constructor is UTC-based, whereas setMilliseconds() is a *local-time*
+            // setter, so rolling forward from new Date(0) across a DST boundary shifts the
+            // result by the DST delta (see the regression tests in test/timezone.js).
+            return new Date(Math.floor(time / 10));
         }
         return null;
     }
@@ -794,10 +796,11 @@ export class SQLVarTimeStampTz extends SQLVarBase {
         data.readInt(); // skip timezone info
 
         if (!lowerV13 || !data.readInt()) {
-            // the wire value is already UTC; no local-offset adjustment
-            var d = new Date(0);
-            d.setMilliseconds((date - DateOffset) * TimeCoeff + Math.floor(time / 10));
-            return d;
+            // The wire value is already a UTC instant. Construct from epoch milliseconds:
+            // Date's constructor is UTC-based, whereas setMilliseconds() is a *local-time*
+            // setter, so rolling forward from new Date(0) across a DST boundary shifts the
+            // result by the DST delta (see the regression tests in test/timezone.js).
+            return new Date((date - DateOffset) * TimeCoeff + Math.floor(time / 10));
         }
 
         return null;
@@ -818,10 +821,11 @@ export class SQLVarTimeStampTzEx extends SQLVarTimeStampTz {
         data.readInt(); // skip ext_offset
 
         if (!lowerV13 || !data.readInt()) {
-            // the wire value is already UTC; no local-offset adjustment
-            var d = new Date(0);
-            d.setMilliseconds((date - DateOffset) * TimeCoeff + Math.floor(time / 10));
-            return d;
+            // The wire value is already a UTC instant. Construct from epoch milliseconds:
+            // Date's constructor is UTC-based, whereas setMilliseconds() is a *local-time*
+            // setter, so rolling forward from new Date(0) across a DST boundary shifts the
+            // result by the DST delta (see the regression tests in test/timezone.js).
+            return new Date((date - DateOffset) * TimeCoeff + Math.floor(time / 10));
         }
 
         return null;

@@ -160,4 +160,59 @@ describe('Timezone Support (Firebird 4.0)', () => {
             expect(result).toBeNull();
         });
     });
+    // #423 follow-up: every test above decodes a value on 1970-01-01, which is the epoch the
+    // decoder built its Date from — so a local-time rounding error cancels out and cannot be
+    // observed. These decode a mid-year instant instead, in a timezone that observes DST, which
+    // is where `new Date(0)` + `setMilliseconds()` (a *local-time* setter) drifts by the DST
+    // delta. TZ is set per-test so the result does not depend on the machine running the suite.
+    describe('DST correctness (regression for the #423 follow-up)', () => {
+        const originalTZ = process.env.TZ;
+        afterEach(() => { process.env.TZ = originalTZ; });
+
+        // 2026-07-31T12:00:00Z — inside DST for a northern-hemisphere zone.
+        const SUMMER_DAYS = Math.floor(Date.UTC(2026, 6, 31) / TimeCoeff) + DateOffset;
+        const NOON_MS = 12 * 60 * 60 * 1000;
+
+        function decodeTimestampTz(tz) {
+            process.env.TZ = tz;
+            const sqlVar = new Xsql.SQLVarTimeStampTz();
+            const buffer = Buffer.alloc(16);
+            buffer.writeInt32BE(SUMMER_DAYS, 0);
+            buffer.writeUInt32BE(NOON_MS * 10, 4); // deci-milliseconds
+            buffer.writeInt32BE(1, 8);
+            buffer.writeInt32BE(0, 12);
+            return sqlVar.decode(new XdrReader(buffer), true);
+        }
+
+        it('decodes a summer TIMESTAMP WITH TIME ZONE as the same instant in a DST zone', () => {
+            // Fails without the fix: the epoch reference is in winter (UTC+2) while the value is
+            // in summer (UTC+3), so the result lands an hour early at 11:00Z.
+            expect(decodeTimestampTz('Europe/Bucharest').toISOString()).toBe('2026-07-31T12:00:00.000Z');
+        });
+
+        it('decodes the same value identically in a southern-hemisphere DST zone', () => {
+            // Same instant, opposite DST phase — the decoded value must not depend on the client.
+            expect(decodeTimestampTz('Australia/Sydney').toISOString()).toBe('2026-07-31T12:00:00.000Z');
+        });
+
+        it('decodes the same value identically with no DST at all', () => {
+            expect(decodeTimestampTz('UTC').toISOString()).toBe('2026-07-31T12:00:00.000Z');
+            expect(decodeTimestampTz('America/Sao_Paulo').toISOString()).toBe('2026-07-31T12:00:00.000Z');
+        });
+
+        it('decodes TIME WITH TIME ZONE independently of the client timezone', () => {
+            const decodeTimeTz = tz => {
+                process.env.TZ = tz;
+                const sqlVar = new Xsql.SQLVarTimeTz();
+                const buffer = Buffer.alloc(12);
+                buffer.writeUInt32BE(NOON_MS * 10, 0);
+                buffer.writeInt32BE(1, 4);
+                buffer.writeInt32BE(0, 8);
+                return sqlVar.decode(new XdrReader(buffer), true);
+            };
+            for (const tz of ['UTC', 'Europe/Bucharest', 'Australia/Sydney', 'America/Sao_Paulo']) {
+                expect(decodeTimeTz(tz).getUTCHours(), `TIME WITH TIME ZONE in ${tz}`).toBe(12);
+            }
+        });
+    });
 });
