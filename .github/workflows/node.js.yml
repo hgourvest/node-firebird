@@ -23,6 +23,21 @@ jobs:
         sudo mkdir -p /firebird/data
         sudo chmod 755 /firebird/data
         
+        # Pull Firebird image with retries for transient Docker Hub timeouts
+        IMAGE=firebirdsql/firebird:${{ matrix.firebird }}
+        PULL_RETRIES=3
+        for i in $(seq 1 $PULL_RETRIES); do
+          if docker pull $IMAGE; then
+            break
+          fi
+          if [ "$i" -eq "$PULL_RETRIES" ]; then
+            echo "ERROR: Failed to pull $IMAGE after $PULL_RETRIES attempts"
+            exit 1
+          fi
+          echo "docker pull failed (attempt $i/$PULL_RETRIES), retrying in 10 seconds..."
+          sleep 10
+        done
+
         # Start Firebird container
         docker run -d \
           --name firebird \
@@ -31,7 +46,7 @@ jobs:
           -e FIREBIRD_CONF_AuthServer="Legacy_Auth;Srp;Win_Sspi" \
           -p 3050:3050 \
           -v /firebird/data:/firebird/data \
-          firebirdsql/firebird:${{ matrix.firebird }}
+          $IMAGE
         
         # Wait for Firebird to be ready
         MAX_RETRIES=30
