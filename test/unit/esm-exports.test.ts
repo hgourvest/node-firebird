@@ -32,5 +32,6 @@ describe('ESM named-export interop', () => {
         expect(typeof mod.SQL_TYPES).toBe('object');
         expect(Array.isArray(mod.ISOLATION_READ_COMMITTED)).toBe(true);
         expect(typeof mod.AUTH_PLUGIN_SRP).toBe('string');
+        expect(mod.isc_dpb_search_path).toBe(105);
     });
 });

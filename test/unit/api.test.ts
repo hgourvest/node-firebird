@@ -52,6 +52,16 @@ describe('public API surface', () => {
         expect(Firebird.GDSCode.ARITH_EXCEPT).toBe(335544321);
     });
 
+    it('exports DPB constants including isc_dpb_search_path', () => {
+        expect(Firebird.isc_dpb_search_path).toBe(105);
+        expect(Firebird.isc_dpb_owner).toBe(102);
+        expect(Firebird.isc_dpb_parallel_workers).toBe(100);
+        expect(Firebird.isc_dpb_max_inline_blob_size).toBe(104);
+        expect(Firebird.isc_dpb_user_name).toBe(28);
+        expect(Firebird.isc_dpb_password).toBe(29);
+        expect(Firebird.isc_dpb_page_size).toBe(4);
+    });
+
     it('pool() returns a Pool marked as pooled', () => {
         const p = Firebird.pool(3, {} as any) as any;
         expect(p).toBeInstanceOf(Pool);
