@@ -1710,10 +1710,14 @@ class Connection {
     
         var op = Const.op_execute;
         if (
-            this.accept.protocolVersion >= Const.PROTOCOL_VERSION13 &&
             statement.type === Const.isc_info_sql_stmt_exec_procedure &&
             statement.output.length
         ) {
+            // op_execute2 returns output parameters via op_sql_response for all
+            // supported protocol versions (including V10/V11/V12 / Firebird 1.5–2.5).
+            // Using op_execute for procedures with outputs on legacy protocols caused
+            // the fallback fetch path to return 0 rows and deliver undefined to the
+            // caller (issue #424).
             op = Const.op_execute2;
         }
     
