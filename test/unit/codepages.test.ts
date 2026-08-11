@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { charsetWidthById, getCodec } from '../../src/wire/codepages';
 
 describe('codepage codecs', () => {
+    it('encodes and decodes the complete printable WIN1252 extension range', () => {
+        const c = getCodec('WIN1252')!;
+        const text = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
+        const bytes = Buffer.from('8082838485868788898a8b8c8e9192939495969798999a9b9c9e9f', 'hex');
+
+        expect(c).toBeTruthy();
+        expect(c.encode(text)).toEqual(bytes);
+        expect(c.decode(bytes)).toBe(text);
+        expect(getCodec('win1252')).toBe(c);
+    });
+
     it('round-trips greek through WIN1253', () => {
         const c = getCodec('WIN1253')!;
         expect(c).toBeTruthy();
@@ -22,6 +33,7 @@ describe('codepage codecs', () => {
     it('replaces unmappable characters with ? on encode', () => {
         const c = getCodec('WIN1253')!;
         expect(c.encode('a日b').toString('latin1')).toBe('a?b');
+        expect(getCodec('WIN1252')!.encode('a日b').toString('latin1')).toBe('a?b');
     });
 
     it('returns null for unknown charsets and caches results', () => {

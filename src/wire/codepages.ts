@@ -21,6 +21,7 @@ export interface TextCodec {
 const ICU_LABELS: Readonly<Record<string, string>> = Object.freeze({
     WIN1250: 'windows-1250',
     WIN1251: 'windows-1251',
+    WIN1252: 'windows-1252',
     WIN1253: 'windows-1253',
     WIN1254: 'windows-1254',
     WIN1255: 'windows-1255',

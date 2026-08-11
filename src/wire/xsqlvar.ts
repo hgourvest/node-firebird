@@ -35,7 +35,6 @@ const EMPTY_BUFFER = Buffer.alloc(0);
 const FirebirdToNodeEncoding: Readonly<Record<string, string>> = Object.freeze({
     UTF8:        'utf8',
     UNICODE_FSS: 'utf8',
-    WIN1252:     'latin1',
     ISO8859_1:   'latin1',
     LATIN1:      'latin1',
     ASCII:       'ascii',

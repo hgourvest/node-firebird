@@ -1563,7 +1563,8 @@ Commonly used Firebird character sets are automatically mapped to their correspo
 | Firebird Character Set | Node.js Buffer Encoding | Description / Notes |
 | ---------------------- | ----------------------- | ------------------- |
 | `UTF8`, `UNICODE_FSS`  | `utf8`                  | Unicode. Handles character-level truncation automatically based on charset width. |
-| `WIN1252`, `ISO8859_1`, `LATIN1` | `latin1`      | 8-bit European encodings. Safely decodes special accented characters. |
+| `WIN1252`             | ICU `windows-1252` codec | Windows Western European encoding, including the printable characters in bytes `0x80`–`0x9F`. |
+| `ISO8859_1`, `LATIN1` | `latin1`                  | ISO-8859-1-compatible byte mapping; intentionally distinct from Windows-1252. |
 | `ASCII`                | `ascii`                 | 7-bit ASCII. |
 | `NONE`                 | `latin1`                | Raw/unspecified character set. Treated as binary-safe 8-bit characters. |
 
@@ -1597,7 +1598,7 @@ var options = {
     database: 'win1252_db.fdb',
     user: 'SYSDBA',
     password: 'masterkey',
-    encoding: 'WIN1252' // Automatically maps to 'latin1' under the hood
+    encoding: 'WIN1252' // Uses the WHATWG/ICU Windows-1252 codec
 };
 
 Firebird.attach(options, function (err, db) {
@@ -2296,7 +2297,7 @@ options.blobReadChunkSize = 65535;
 
 If your server and client are on the same host, this won't matter much — the slowdown is latency-bound, not throughput-bound.
 
-#### How do I use an encoding other than UTF-8 (e.g. WIN1252/Latin1)?
+#### How do I use an encoding other than UTF-8 (e.g. WIN1252 or Latin1)?
 
 Set `options.encoding` — no source changes required (see [Character Set & Encoding Support](#character-set--encoding-support) for the full mapping table):
 
