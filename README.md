@@ -1558,15 +1558,15 @@ fb.attach(_connection, function (err, svc) {
 
 Node-Firebird defaults to `UTF-8` for database connections, but fully supports custom client character sets. You can set the connection encoding by specifying `options.encoding` (e.g. `'UTF8'`, `'WIN1252'`, `'ISO8859_1'`, `'LATIN1'`, `'ASCII'`, or `'NONE'`).
 
-Commonly used Firebird character sets are automatically mapped to their corresponding Node.js Buffer encodings:
+Commonly used Firebird character sets are handled through the corresponding Node.js encoding or ICU codec:
 
-| Firebird Character Set | Node.js Buffer Encoding | Description / Notes |
-| ---------------------- | ----------------------- | ------------------- |
-| `UTF8`, `UNICODE_FSS`  | `utf8`                  | Unicode. Handles character-level truncation automatically based on charset width. |
-| `WIN1252`             | ICU `windows-1252` codec | Windows Western European encoding, including the printable characters in bytes `0x80`–`0x9F`. |
-| `ISO8859_1`, `LATIN1` | `latin1`                  | ISO-8859-1-compatible byte mapping; intentionally distinct from Windows-1252. |
-| `ASCII`                | `ascii`                 | 7-bit ASCII. |
-| `NONE`                 | `latin1`                | Raw/unspecified character set. Treated as binary-safe 8-bit characters. |
+| Firebird Character Set | Node.js encoding / ICU codec | Description / Notes |
+| ---------------------- | ---------------------------- | ------------------- |
+| `UTF8`, `UNICODE_FSS`  | `utf8`                       | Unicode. Handles character-level truncation automatically based on charset width. |
+| `WIN1252`              | ICU `windows-1252` codec     | Windows Western European encoding, including the printable characters in bytes `0x80`–`0x9F`. |
+| `ISO8859_1`, `LATIN1`  | `latin1`                     | ISO-8859-1-compatible byte mapping; intentionally distinct from Windows-1252. |
+| `ASCII`                | `ascii`                      | 7-bit ASCII. |
+| `NONE`                 | `latin1`                     | Raw/unspecified character set. Treated as binary-safe 8-bit characters. |
 
 Beyond Node's native encodings, the driver ships **codepage codecs** for the
 single-byte charsets (decode *and* encode — columns, parameters, SQL

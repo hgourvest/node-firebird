@@ -29,8 +29,9 @@ const EMPTY_BUFFER = Buffer.alloc(0);
  * We must decode raw bytes with the matching Node.js encoding so that
  * characters outside ASCII are reproduced correctly.
  *
- * Commonly used Firebird charsets not listed here fall back to the
- * connection-level DEFAULT_ENCODING (typically 'utf8').
+ * Other recognized single-byte character sets are handled by the ICU-backed
+ * codec path. Only unknown character-set names fall back to the
+ * connection-level DEFAULT_ENCODING, typically UTF-8.
  */
 const FirebirdToNodeEncoding: Readonly<Record<string, string>> = Object.freeze({
     UTF8:        'utf8',
