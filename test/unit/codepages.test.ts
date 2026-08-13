@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { charsetWidthById, getCodec } from '../../src/wire/codepages';
+import { resolveTextState } from '../../src/wire/xsqlvar';
 
 describe('codepage codecs', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
     it('encodes and decodes the complete printable WIN1252 extension range', () => {
         const c = getCodec('WIN1252')!;
         const text = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
@@ -39,6 +44,22 @@ describe('codepage codecs', () => {
     it('returns null for unknown charsets and caches results', () => {
         expect(getCodec('NO_SUCH_CHARSET')).toBeNull();
         expect(getCodec('WIN1253')).toBe(getCodec('win1253')); // case-insensitive, cached
+    });
+
+    it('fails explicitly when a requested codepage codec is unavailable and does not cache the failure', () => {
+        const NativeTextDecoder = TextDecoder;
+        vi.stubGlobal('TextDecoder', class {
+            constructor(label: string) {
+                throw new RangeError(`Unsupported encoding: ${label}`);
+            }
+        });
+
+        expect(() => resolveTextState({ encoding: 'WIN1258' })).toThrow(
+            /Firebird encoding WIN1258 requires the windows-1258 ICU codec/
+        );
+
+        vi.stubGlobal('TextDecoder', NativeTextDecoder);
+        expect(resolveTextState({ encoding: 'WIN1258' }).codec).toBeTruthy();
     });
 
     it('knows multi-byte charset widths by id', () => {

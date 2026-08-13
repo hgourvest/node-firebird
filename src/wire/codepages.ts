@@ -78,8 +78,15 @@ function buildCodec(name: string): TextCodec | null {
     try {
         decoder = new TextDecoder(label);
     } catch {
-        // Node built with small-icu: legacy encodings unavailable
-        return null;
+        // Falling through to DEFAULT_ENCODING (UTF-8) would silently write
+        // different bytes from the explicitly requested Firebird codepage.
+        // Official Node builds include these ICU tables; constrained builds
+        // must fail clearly instead of corrupting text.
+        throw new Error(
+            `The requested Firebird encoding ${name} requires the ${label} ICU codec, ` +
+            'but this Node.js runtime does not provide it. Use an official full-ICU ' +
+            'Node.js build, or connect with encoding NONE and pass explicitly encoded Buffer values.'
+        );
     }
 
     // Build both directions from the decoder, one byte at a time — every
@@ -131,8 +138,10 @@ function buildCodec(name: string): TextCodec | null {
 }
 
 /**
- * Codec for a Firebird charset name, or null when the charset is unknown,
- * natively handled by Buffer, or the ICU tables are unavailable. Cached.
+ * Codec for a Firebird charset name, or null when the charset is unknown or
+ * natively handled by Buffer. A known codepage whose ICU table is unavailable
+ * throws instead of silently falling back to UTF-8. Successful and unknown
+ * lookups are cached; failures are not.
  */
 export function getCodec(charsetName: string | undefined): TextCodec | null {
     if (!charsetName) {

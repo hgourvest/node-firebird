@@ -1582,7 +1582,9 @@ await db.queryAsync('INSERT INTO T VALUES (?)', ['Привет']); // encoded as
 ```
 
 The codecs are built from Node's ICU tables at first use (present in every
-official Node build). `attachOrCreate`/`create` honour `options.encoding`
+official Node build). If a constrained runtime does not provide a requested
+codec, the driver throws a descriptive error instead of silently falling back
+to UTF-8 and corrupting text. `attachOrCreate`/`create` honour `options.encoding`
 for the new database's default charset too. Accented characters and
 fixed-length `CHAR(N)` whitespace/truncation are handled automatically per
 the charset width — and single-byte columns (including charset `NONE`) are
