@@ -62,6 +62,29 @@ describe('codepage codecs', () => {
         expect(resolveTextState({ encoding: 'WIN1258' }).codec).toBeTruthy();
     });
 
+    it('builds WIN1252 without TextDecoder (Node 20 latin1 fast path regression)', async () => {
+        // Node ≤20 routes the 'windows-1252' TextDecoder label through a
+        // latin1 fast path (0x80–0x9F decode as C1 controls), and small-icu
+        // builds have no legacy decoders at all. WIN1252 must come out right
+        // in both worlds, so its table cannot depend on TextDecoder.
+        vi.stubGlobal('TextDecoder', class {
+            constructor() {
+                throw new RangeError('no legacy encodings in this build');
+            }
+        });
+        vi.resetModules();
+        const fresh = await import('../../src/wire/codepages.js');
+
+        const c = fresh.getCodec('WIN1252')!;
+        expect(c).toBeTruthy();
+        expect(c.encode('€“”—Œ™ŠŽŸ')).toEqual(
+            Buffer.from([0x80, 0x93, 0x94, 0x97, 0x8c, 0x99, 0x8a, 0x8e, 0x9f])
+        );
+        expect(c.decode(Buffer.from([0x80, 0x9f, 0xe9]))).toBe('€Ÿé');
+        // ...while codepages that genuinely need ICU still fail explicitly
+        expect(() => fresh.getCodec('WIN1253')).toThrow(/windows-1253 ICU codec/);
+    });
+
     it('knows multi-byte charset widths by id', () => {
         expect(charsetWidthById(4)).toBe(4);  // UTF8
         expect(charsetWidthById(3)).toBe(3);  // UNICODE_FSS

@@ -69,10 +69,30 @@ export function charsetWidthById(id: number | undefined): number {
 
 const cache = new Map<string, TextCodec | null>();
 
-function buildCodec(name: string): TextCodec | null {
-    const label = ICU_LABELS[name];
-    if (!label) {
-        return null;
+/**
+ * WHATWG windows-1252 code points for bytes 0x80–0x9F (the only range
+ * where it differs from Latin-1). Node's TextDecoder cannot be trusted
+ * here: through at least Node 20 the 'windows-1252' label is routed
+ * through a latin1 fast path, decoding this range as C1 controls, so
+ * the WIN1252 table is built from this fixed spec table instead of the
+ * runtime decoder. Later Node majors agree with this table exactly.
+ */
+const WIN1252_C1 = Object.freeze([
+    0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
+    0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008D, 0x017D, 0x008F,
+    0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+    0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178,
+]);
+
+function buildByteToCodeTable(name: string, label: string): Uint16Array {
+    const toCode = new Uint16Array(256);
+    if (name === 'WIN1252') {
+        // Latin-1 identity outside 0x80–0x9F; spec table inside. Needs no
+        // ICU support at all, so WIN1252 works even on small-icu builds.
+        for (let i = 0; i < 256; i++) {
+            toCode[i] = (i & 0xE0) === 0x80 ? WIN1252_C1[i - 0x80] : i;
+        }
+        return toCode;
     }
     let decoder: TextDecoder;
     try {
@@ -88,18 +108,28 @@ function buildCodec(name: string): TextCodec | null {
             'Node.js build, or connect with encoding NONE and pass explicitly encoded Buffer values.'
         );
     }
-
-    // Build both directions from the decoder, one byte at a time — every
-    // byte of a single-byte codepage maps to exactly one BMP character
-    // (undefined bytes decode to U+FFFD, which is kept for decoding but
-    // never used for the reverse map).
-    const toCode = new Uint16Array(256);
-    const toByte = new Map<string, number>();
     const one = Buffer.alloc(1);
     for (let i = 0; i < 256; i++) {
         one[0] = i;
-        const ch = decoder.decode(one);
-        toCode[i] = ch.charCodeAt(0);
+        toCode[i] = decoder.decode(one).charCodeAt(0);
+    }
+    return toCode;
+}
+
+function buildCodec(name: string): TextCodec | null {
+    const label = ICU_LABELS[name];
+    if (!label) {
+        return null;
+    }
+
+    // Build both directions from one byte→code table — every byte of a
+    // single-byte codepage maps to exactly one BMP character (undefined
+    // bytes decode to U+FFFD, which is kept for decoding but never used
+    // for the reverse map).
+    const toCode = buildByteToCodeTable(name, label);
+    const toByte = new Map<string, number>();
+    for (let i = 0; i < 256; i++) {
+        const ch = String.fromCharCode(toCode[i]);
         if (ch !== '�' && !toByte.has(ch)) {
             toByte.set(ch, i);
         }
