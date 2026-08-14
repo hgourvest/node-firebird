@@ -15,6 +15,7 @@
 const assert = require('assert');
 const { SQLVarText, SQLVarString } = require('../lib/wire/xsqlvar');
 const { XdrReader, XdrWriter } = require('../lib/wire/serialize');
+const { getCodec } = require('../lib/wire/codepages');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,6 +39,14 @@ function makeStringReader(text, nodeEncoding) {
     const w = new XdrWriter(256);
     w.addString(text, nodeEncoding);
     w.addInt(0); // null-indicator: 0 = not null
+    return new XdrReader(w.getData());
+}
+
+function makeTextReaderFromBytes(bytes) {
+    const w = new XdrWriter(256);
+    w.addBuffer(bytes);
+    w.addAlignment(bytes.length);
+    w.addInt(0);
     return new XdrReader(w.getData());
 }
 
@@ -70,16 +79,28 @@ describe('resolveTextEncoding (via SQLVarText.decode)', function () {
         assert.strictEqual(result, text);
     });
 
-    it('maps WIN1252 → latin1 and decodes special characters correctly', function () {
-        // These chars exist in WIN1252 / ISO-8859-1 but need latin1 decoding.
-        const text = 'Ç Ã É Ú';
+    it('maps WIN1252 through the real Windows-1252 codec', function () {
+        const text = '€ “Windows” — Œuvre ™';
+        const bytes = getCodec('WIN1252').encode(text);
         const sqlVar = new SQLVarText();
         sqlVar.subType = 0;
-        sqlVar.length = Buffer.byteLength(text, 'latin1');
+        sqlVar.length = bytes.length;
 
-        const reader = makeTextReader(text, 'latin1');
+        const reader = makeTextReaderFromBytes(bytes);
         const result = sqlVar.decode(reader, false, { encoding: 'WIN1252' });
         assert.strictEqual(result, text);
+    });
+
+    it('does not interpret WIN1252 extension bytes as ISO-8859-1', function () {
+        const bytes = Buffer.from([0x80, 0x91, 0x92, 0x96, 0x97]);
+        const sqlVar = new SQLVarText();
+        sqlVar.subType = 0;
+        sqlVar.length = bytes.length;
+
+        const cp1252 = sqlVar.decode(makeTextReaderFromBytes(bytes), false, { encoding: 'WIN1252' });
+        const latin1 = sqlVar.decode(makeTextReaderFromBytes(bytes), false, { encoding: 'ISO8859_1' });
+        assert.strictEqual(cp1252, '€‘’–—');
+        assert.notStrictEqual(cp1252, latin1);
     });
 
     it('maps ISO8859_1 → latin1', function () {

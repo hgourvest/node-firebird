@@ -1,7 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { charsetWidthById, getCodec } from '../../src/wire/codepages';
+import { resolveTextState } from '../../src/wire/xsqlvar';
 
 describe('codepage codecs', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('encodes and decodes the complete printable WIN1252 extension range', () => {
+        const c = getCodec('WIN1252')!;
+        const text = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
+        const bytes = Buffer.from('8082838485868788898a8b8c8e9192939495969798999a9b9c9e9f', 'hex');
+
+        expect(c).toBeTruthy();
+        expect(c.encode(text)).toEqual(bytes);
+        expect(c.decode(bytes)).toBe(text);
+        expect(getCodec('win1252')).toBe(c);
+    });
+
     it('round-trips greek through WIN1253', () => {
         const c = getCodec('WIN1253')!;
         expect(c).toBeTruthy();
@@ -22,11 +38,28 @@ describe('codepage codecs', () => {
     it('replaces unmappable characters with ? on encode', () => {
         const c = getCodec('WIN1253')!;
         expect(c.encode('a日b').toString('latin1')).toBe('a?b');
+        expect(getCodec('WIN1252')!.encode('a日b').toString('latin1')).toBe('a?b');
     });
 
     it('returns null for unknown charsets and caches results', () => {
         expect(getCodec('NO_SUCH_CHARSET')).toBeNull();
         expect(getCodec('WIN1253')).toBe(getCodec('win1253')); // case-insensitive, cached
+    });
+
+    it('fails explicitly when a requested codepage codec is unavailable and does not cache the failure', () => {
+        const NativeTextDecoder = TextDecoder;
+        vi.stubGlobal('TextDecoder', class {
+            constructor(label: string) {
+                throw new RangeError(`Unsupported encoding: ${label}`);
+            }
+        });
+
+        expect(() => resolveTextState({ encoding: 'WIN1258' })).toThrow(
+            /Firebird encoding WIN1258 requires the windows-1258 ICU codec/
+        );
+
+        vi.stubGlobal('TextDecoder', NativeTextDecoder);
+        expect(resolveTextState({ encoding: 'WIN1258' }).codec).toBeTruthy();
     });
 
     it('knows multi-byte charset widths by id', () => {

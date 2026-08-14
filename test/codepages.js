@@ -45,6 +45,25 @@ async function withDb(extra, work) {
 }
 
 describe('single-byte codepage support', function () {
+    it('WIN1252 connection round-trips a NONE database without treating it as Latin-1', async function () {
+        await withDb({ encoding: 'WIN1252', defaultCharset: 'NONE', blobAsText: true }, async (db) => {
+            const text = '€ “Windows” — Œuvre ™ ŠŽŸ';
+            await db.queryAsync('CREATE TABLE W (V VARCHAR(80), C CHAR(20), B BLOB SUB_TYPE TEXT)');
+            await db.queryAsync('INSERT INTO W VALUES (?, ?, ?)', [text, '€—™', text]);
+
+            const rows = await db.queryAsync('SELECT V, C, B FROM W WHERE V = ?', [text]);
+            assert.strictEqual(rows.length, 1);
+            assert.strictEqual(rows[0].V, text);
+            assert.strictEqual(rows[0].C.trimEnd(), '€—™');
+            assert.strictEqual(rows[0].B, text);
+
+            const literal = await db.queryAsync("SELECT COUNT(*) C FROM W WHERE V = '€ “Windows” — Œuvre ™ ŠŽŸ'");
+            assert.strictEqual(Number(literal[0].C), 1);
+            const charset = await db.queryAsync('SELECT TRIM(RDB$CHARACTER_SET_NAME) CS FROM RDB$DATABASE');
+            assert.strictEqual(charset[0].CS, 'NONE');
+        });
+    });
+
     it('#422: NONE/ASCII columns read fully under the default UTF8 connection', async function () {
         await withDb({}, async (db) => {
             const r = await db.queryAsync("select cast('abcd' as varchar(15) character set none) v from rdb$database");
