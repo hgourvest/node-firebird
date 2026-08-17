@@ -210,6 +210,7 @@ options.jsonAsObject = false; // optional; automatically stringify parameters an
 options.namedPlaceholders = false; // set to true to allow :name placeholders in SQL with a { name: value } params object (see Named placeholders)
 options.nestTables = false; // true nests object rows by source table (row[table][column]); a string separator flattens to 'table<sep>column' keys — see Nested result tables (nestTables). Overridable per query
 options.transformKeys = undefined; // 'camel' (FIRST_NAME → firstName) or a (key) => key mapper for object-row keys — see Transforming row keys (transformKeys). Overridable per query
+options.numericMode = Firebird.NUMERIC_MODE_LEGACY; // INT64/INT128 result policy: LEGACY (default), SAFE, or STRING
 options.typeCast = undefined; // optional; custom type parser called for every result column value (see Custom type parsers)
 options.statementCacheSize = 0; // optional; per-connection LRU cache of prepared statements, 0 = disabled (see Prepared-statement cache)
 ```
@@ -738,6 +739,42 @@ on databases and transactions alike. It is ignored by the streaming APIs
 PROCEDURE`, `affectedRows` reflects DML the procedure performed — a
 procedure that only returns values reports 0 alongside its row.
 
+### Fixed-point numeric results (numericMode)
+
+Firebird sends `BIGINT`, `INT128`, and the `NUMERIC`/`DECIMAL` types backed by
+them as signed integer coefficients plus a decimal scale. JavaScript numbers
+cannot represent every INT64 or INT128 coefficient exactly. The connection
+option `numericMode` controls how those result values are exposed:
+
+| Mode | Safe coefficient | Unsafe coefficient |
+| :--- | :--- | :--- |
+| `Firebird.NUMERIC_MODE_LEGACY` | Existing node-firebird behavior | Existing node-firebird behavior |
+| `Firebird.NUMERIC_MODE_SAFE` | `number` | Exact scaled `string` |
+| `Firebird.NUMERIC_MODE_STRING` | Exact scaled `string` | Exact scaled `string` |
+
+`LEGACY` is the default, so upgrading does not change existing result types.
+`SAFE` tests the raw integer coefficient against JavaScript's inclusive safe
+range (`Number.MIN_SAFE_INTEGER` through `Number.MAX_SAFE_INTEGER`) before
+applying its scale. `STRING` provides a stable result type and retains zeroes
+implied by the declared scale:
+
+```js
+const db = await Firebird.attachAsync({
+    ...options,
+    numericMode: Firebird.NUMERIC_MODE_STRING,
+});
+
+// BIGINT 42                     -> '42'
+// DECIMAL coefficient 420000,-4 -> '42.0000'
+```
+
+The string literals `'legacy'`, `'safe'`, and `'string'` are accepted too,
+including in connection URIs (`?numericMode=safe`). `NULL` remains `null` in
+every mode. The option does not change `FLOAT`, `DOUBLE`, `DECFLOAT`, or input
+parameter encoding. A `SAFE` result returned as a number still has the normal
+IEEE-754 behavior of JavaScript fractional numbers; use `STRING` when the
+decimal representation itself must remain exact.
+
 ### Custom type parsers (typeCast)
 
 The `typeCast` connection option lets you override how column values are
@@ -757,10 +794,6 @@ Firebird.attach({
         if (column.typeName === 'DATE') {
             const v = next();
             return v === null ? null : v.toISOString().slice(0, 10);
-        }
-        // BIGINT columns as strings
-        if (column.type === Firebird.SQL_TYPES.SQL_INT64 && !column.scale) {
-            return String(next());
         }
         return next(); // everything else: default decoding
     },
@@ -782,6 +815,9 @@ Firebird.attach({
 
 Notes:
 
+- The hook runs after [`numericMode`](#fixed-point-numeric-results-numericmode).
+  Calling `String(next())` cannot recover digits already lost by legacy
+  numeric decoding; select `SAFE` or `STRING` when exact coefficients matter.
 - Non-text BLOB columns reach the hook as the usual asynchronous fetch
   function; text BLOBs with `blobAsText: true` reach it as the resolved
   string.

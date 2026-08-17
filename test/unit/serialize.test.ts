@@ -117,11 +117,36 @@ describe('XdrWriter / XdrReader round-trips', () => {
         expect(r.readInt64()).toBe(-1);
     });
 
+    it('readInt64BigInt preserves the full signed range', () => {
+        const w = new XdrWriter();
+        w.addInt64(-9223372036854775808n);
+        w.addInt64(9223372036854775807n);
+        const r = new XdrReader(w.getData());
+        expect(r.readInt64BigInt()).toBe(-9223372036854775808n);
+        expect(r.readInt64BigInt()).toBe(9223372036854775807n);
+    });
+
     it('int128 preserves bigint precision', () => {
         const big = 123456789012345678901234567890n;
         const w = new XdrWriter();
         w.addInt128(big);
         expect(new XdrReader(w.getData()).readInt128()).toBe(big);
+    });
+
+    it('readInt128Signed preserves signed extrema', () => {
+        const min = -(1n << 127n);
+        const max = (1n << 127n) - 1n;
+        const values = [min, -1n, max];
+        const buffer = Buffer.alloc(values.length * 16);
+        values.forEach((value, index) => {
+            const offset = index * 16;
+            buffer.writeBigInt64BE(value >> 64n, offset);
+            buffer.writeBigUInt64BE(value & 0xFFFFFFFFFFFFFFFFn, offset + 8);
+        });
+        const r = new XdrReader(buffer);
+        expect(r.readInt128Signed()).toBe(min);
+        expect(r.readInt128Signed()).toBe(-1n);
+        expect(r.readInt128Signed()).toBe(max);
     });
 
     it('readArray recovers Firebird 2.5 sign-extended lengths (issue #312)', () => {

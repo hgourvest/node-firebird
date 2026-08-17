@@ -9,6 +9,13 @@ function reader(write: (w: XdrWriter) => void): XdrReader {
     return new XdrReader(w.getData());
 }
 
+function signedInt128Reader(value: bigint): XdrReader {
+    const buffer = Buffer.alloc(16);
+    buffer.writeBigInt64BE(value >> 64n, 0);
+    buffer.writeBigUInt64BE(value & 0xFFFFFFFFFFFFFFFFn, 8);
+    return new XdrReader(buffer);
+}
+
 describe('SQLVar decoding (protocol 13+, lowerV13=false)', () => {
     it('SQLVarInt applies negative scale as a divisor', () => {
         const v = new Xsql.SQLVarInt();
@@ -28,6 +35,44 @@ describe('SQLVar decoding (protocol 13+, lowerV13=false)', () => {
         expect(v.decode(reader(w => w.addInt64(1234567)), false)).toBe(1234.567);
     });
 
+    it('legacy mode remains the default for unsafe INT64 values', () => {
+        const v = new Xsql.SQLVarInt64();
+        v.scale = -4;
+        expect(v.decode(reader(w => w.addInt64(9007199254740993n)), false))
+            .toBe(900719925474.0992);
+        expect(v.decode(reader(w => w.addInt64(9007199254740993n)), false,
+            { numericMode: 'legacy' })).toBe(900719925474.0992);
+    });
+
+    it.each([
+        [-9007199254740992n, 0, '-9007199254740992'],
+        [-9007199254740991n, 0, -9007199254740991],
+        [9007199254740991n, 0, 9007199254740991],
+        [9007199254740992n, 0, '9007199254740992'],
+        [-9223372036854775808n, -4, '-922337203685477.5808'],
+        [9223372036854775807n, -4, '922337203685477.5807'],
+        [9007199254740992n, -2, '90071992547409.92'],
+        [-9007199254741000n, -4, '-900719925474.1000'],
+    ])('safe mode preserves INT64 coefficient %s at scale %s', (coefficient, scale, expected) => {
+        const v = new Xsql.SQLVarInt64();
+        v.scale = scale;
+        expect(v.decode(reader(w => w.addInt64(coefficient)), false, { numericMode: 'safe' }))
+            .toBe(expected);
+    });
+
+    it('string mode returns safe INT64 values as scale-preserving strings', () => {
+        const v = new Xsql.SQLVarInt64();
+        v.scale = -4;
+        expect(v.decode(reader(w => w.addInt64(420000n)), false, { numericMode: 'string' }))
+            .toBe('42.0000');
+        expect(v.decode(reader(w => w.addInt64(0n)), false, { numericMode: 'string' }))
+            .toBe('0.0000');
+
+        v.scale = 0;
+        expect(v.decode(reader(w => w.addInt64(42n)), false, { numericMode: 'string' }))
+            .toBe('42');
+    });
+
     it('SQLVarInt128 returns a decimal string for values beyond MAX_SAFE_INTEGER', () => {
         const v = new Xsql.SQLVarInt128();
         v.scale = -2;
@@ -39,6 +84,33 @@ describe('SQLVar decoding (protocol 13+, lowerV13=false)', () => {
         const v = new Xsql.SQLVarInt128();
         v.scale = -2;
         expect(v.decode(reader(w => w.addInt128(12345n)), false)).toBe(123.45);
+    });
+
+    it('safe mode formats signed INT128 values exactly', () => {
+        const v = new Xsql.SQLVarInt128();
+        v.scale = -4;
+        expect(v.decode(signedInt128Reader(-123456789012345678901n), false,
+            { numericMode: 'safe' })).toBe('-12345678901234567.8901');
+
+        v.scale = 0;
+        expect(v.decode(signedInt128Reader(-(1n << 127n)), false,
+            { numericMode: 'safe' })).toBe('-170141183460469231731687303715884105728');
+        expect(v.decode(reader(w => w.addInt128((1n << 127n) - 1n)), false,
+            { numericMode: 'safe' })).toBe('170141183460469231731687303715884105727');
+    });
+
+    it('string mode returns safe INT128 values as strings', () => {
+        const v = new Xsql.SQLVarInt128();
+        v.scale = -4;
+        expect(v.decode(signedInt128Reader(-42n), false, { numericMode: 'string' }))
+            .toBe('-0.0042');
+    });
+
+    it('numeric modes preserve null indicators', () => {
+        const v = new Xsql.SQLVarInt64();
+        v.scale = 0;
+        expect(v.decode(reader(w => { w.addInt64(9223372036854775807n); w.addInt(1); }), true,
+            { numericMode: 'safe' })).toBeNull();
     });
 
     it('SQLVarBoolean decodes to true/false', () => {

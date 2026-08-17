@@ -35,6 +35,13 @@ export const AUTH_PLUGIN_SRP512: string = Const.AUTH_PLUGIN_SRP512;
 export const WIRE_CRYPT_DISABLE: number = Const.WIRE_CRYPT_DISABLE;
 export const WIRE_CRYPT_ENABLE: number = Const.WIRE_CRYPT_ENABLE;
 
+/** Preserve the result types produced by older node-firebird releases. */
+export const NUMERIC_MODE_LEGACY = Const.NUMERIC_MODE_LEGACY;
+/** Return safe INT64/INT128 coefficients as numbers and unsafe ones as exact strings. */
+export const NUMERIC_MODE_SAFE = Const.NUMERIC_MODE_SAFE;
+/** Return every INT64/INT128-backed fixed-point value as an exact string. */
+export const NUMERIC_MODE_STRING = Const.NUMERIC_MODE_STRING;
+
 /** A transaction sees changes done by uncommitted transactions. */
 export const ISOLATION_READ_UNCOMMITTED: number[] = Const.ISOLATION_READ_UNCOMMITTED;
 /** A transaction sees only data committed before the statement has been executed. */
