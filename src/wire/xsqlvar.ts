@@ -52,12 +52,7 @@ function decodeExactNumeric(value: bigint, scale: number, mode: 'safe' | 'string
 /** Decode INT128 using the mixed number/string policy of lossy mode. */
 function decodeLossyInt128(value: bigint, scale: number): number | string {
     if (value > MAX_SAFE_BIGINT) {
-        const digits = value.toString();
-        let integerPart = digits.slice(0, Math.abs(scale) * -1);
-        const decimalPart = digits.slice(Math.abs(scale) * -1);
-
-        if (integerPart === '') integerPart = '0';
-        return `${integerPart}.${decimalPart}`;
+        return formatScaledBigInt(value, scale);
     }
 
     return Number(value) / ScaleDivisor[Math.abs(scale)];

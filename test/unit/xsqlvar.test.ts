@@ -80,6 +80,23 @@ describe('SQLVar decoding (protocol 13+, lowerV13=false)', () => {
         expect(v.decode(reader(w => w.addInt128(big)), false)).toBe('1234567890123456789.01');
     });
 
+    it('lossy mode formats unsafe positive INT128 values for every scale shape', () => {
+        const v = new Xsql.SQLVarInt128();
+        const coefficient = 9007199254740992n;
+
+        v.scale = 0;
+        expect(v.decode(reader(w => w.addInt128(coefficient)), false))
+            .toBe('9007199254740992');
+
+        v.scale = -20;
+        expect(v.decode(reader(w => w.addInt128(coefficient)), false,
+            { numericMode: 'lossy' })).toBe('0.00009007199254740992');
+
+        v.scale = 2;
+        expect(v.decode(reader(w => w.addInt128(coefficient)), false,
+            { numericMode: 'lossy' })).toBe('900719925474099200');
+    });
+
     it('SQLVarInt128 returns a number for small values', () => {
         const v = new Xsql.SQLVarInt128();
         v.scale = -2;
