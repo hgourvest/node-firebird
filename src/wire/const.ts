@@ -26,7 +26,7 @@ const int = {
 };
 
 const numericMode = {
-    NUMERIC_MODE_LEGACY : 'legacy',
+    NUMERIC_MODE_LOSSY : 'lossy',
     NUMERIC_MODE_SAFE : 'safe',
     NUMERIC_MODE_STRING : 'string',
 } as const;

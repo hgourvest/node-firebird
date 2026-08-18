@@ -71,7 +71,7 @@ export interface ColumnMetadata {
 export type Isolation = number[];
 
 /** Result conversion policy for INT64/INT128-backed fixed-point values. */
-export type NumericMode = 'legacy' | 'safe' | 'string';
+export type NumericMode = 'lossy' | 'safe' | 'string';
 
 export type TransactionOptions = {
     autoCommit?: boolean;
@@ -440,7 +440,8 @@ export interface Options {
      * Result conversion policy for BIGINT/INT128 and fixed-point
      * NUMERIC/DECIMAL values backed by them.
      *
-     * - `legacy` (default) preserves the result types of older releases.
+     * - `lossy` (default) decodes through JavaScript `Number` where
+     *   applicable; unsafe coefficients may lose precision.
      * - `safe` returns a number when the raw integer coefficient is within
      *   JavaScript's safe range, otherwise an exact scaled string.
      * - `string` always returns an exact scaled string.

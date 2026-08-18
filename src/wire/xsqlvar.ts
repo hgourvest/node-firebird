@@ -49,8 +49,8 @@ function decodeExactNumeric(value: bigint, scale: number, mode: 'safe' | 'string
         : Number(value) * Math.pow(10, scale);
 }
 
-/** Preserve the pre-numericMode INT128 result contract in legacy mode. */
-function decodeLegacyInt128(value: bigint, scale: number): number | string {
+/** Decode INT128 using the mixed number/string policy of lossy mode. */
+function decodeLossyInt128(value: bigint, scale: number): number | string {
     if (value > MAX_SAFE_BIGINT) {
         const digits = value.toString();
         let integerPart = digits.slice(0, Math.abs(scale) * -1);
@@ -599,10 +599,10 @@ export class SQLVarShort extends SQLVarInt {
 
 export class SQLVarInt64 extends SQLVarBase {
     decode(data: XdrReader, lowerV13: boolean, options?: NumericDecodeOptions) {
-        const mode = options?.numericMode || Const.NUMERIC_MODE_LEGACY;
+        const mode = options?.numericMode || Const.NUMERIC_MODE_LOSSY;
         let ret: number | string;
 
-        if (mode === Const.NUMERIC_MODE_LEGACY) {
+        if (mode === Const.NUMERIC_MODE_LOSSY) {
             ret = data.readInt64();
             if (this.scale) ret = ret / ScaleDivisor[Math.abs(this.scale)];
         } else {
@@ -625,9 +625,9 @@ export class SQLVarInt64 extends SQLVarBase {
 
 export class SQLVarInt128 extends SQLVarBase {
     decode(data: XdrReader, lowerV13: boolean, options?: NumericDecodeOptions) {
-        const mode = options?.numericMode || Const.NUMERIC_MODE_LEGACY;
-        const ret = mode === Const.NUMERIC_MODE_LEGACY
-            ? decodeLegacyInt128(data.readInt128(), this.scale)
+        const mode = options?.numericMode || Const.NUMERIC_MODE_LOSSY;
+        const ret = mode === Const.NUMERIC_MODE_LOSSY
+            ? decodeLossyInt128(data.readInt128(), this.scale)
             : decodeExactNumeric(data.readInt128Signed(), this.scale, mode);
 
         if (!lowerV13 || !data.readInt()) {

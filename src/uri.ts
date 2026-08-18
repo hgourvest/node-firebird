@@ -202,10 +202,10 @@ export function normalizeOptions<T>(options: T | string): T {
     }
     const normalized = applyEnvDefaults(options as any);
     const numericMode = normalized && normalized.numericMode;
-    if (numericMode !== undefined && numericMode !== 'legacy' &&
+    if (numericMode !== undefined && numericMode !== 'lossy' &&
         numericMode !== 'safe' && numericMode !== 'string') {
         throw new Error('Invalid numericMode option: ' + numericMode +
-            ' (expected "legacy", "safe", or "string")');
+            ' (expected "lossy", "safe", or "string")');
     }
     return normalized;
 }

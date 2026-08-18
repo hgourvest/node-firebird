@@ -87,6 +87,7 @@ describe('environment-variable connection defaults', () => {
     });
 
     it('accepts numericMode from objects and connection URIs', () => {
+        expect(normalizeOptions<any>({ numericMode: 'lossy' }).numericMode).toBe('lossy');
         expect(normalizeOptions<any>({ numericMode: 'safe' }).numericMode).toBe('safe');
         expect(normalizeOptions<any>('firebird://localhost/x.fdb?numericMode=string').numericMode)
             .toBe('string');
@@ -94,6 +95,8 @@ describe('environment-variable connection defaults', () => {
 
     it('rejects an unknown numericMode', () => {
         expect(() => normalizeOptions<any>({ numericMode: 'precise' }))
+            .toThrow(/Invalid numericMode option/);
+        expect(() => normalizeOptions<any>({ numericMode: 'legacy' }))
             .toThrow(/Invalid numericMode option/);
     });
 });

@@ -35,8 +35,8 @@ export const AUTH_PLUGIN_SRP512: string = Const.AUTH_PLUGIN_SRP512;
 export const WIRE_CRYPT_DISABLE: number = Const.WIRE_CRYPT_DISABLE;
 export const WIRE_CRYPT_ENABLE: number = Const.WIRE_CRYPT_ENABLE;
 
-/** Preserve the result types produced by older node-firebird releases. */
-export const NUMERIC_MODE_LEGACY = Const.NUMERIC_MODE_LEGACY;
+/** Decode through JavaScript Number where applicable; unsafe coefficients may lose precision. */
+export const NUMERIC_MODE_LOSSY = Const.NUMERIC_MODE_LOSSY;
 /** Return safe INT64/INT128 coefficients as numbers and unsafe ones as exact strings. */
 export const NUMERIC_MODE_SAFE = Const.NUMERIC_MODE_SAFE;
 /** Return every INT64/INT128-backed fixed-point value as an exact string. */

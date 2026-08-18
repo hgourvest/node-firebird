@@ -35,13 +35,13 @@ describe('SQLVar decoding (protocol 13+, lowerV13=false)', () => {
         expect(v.decode(reader(w => w.addInt64(1234567)), false)).toBe(1234.567);
     });
 
-    it('legacy mode remains the default for unsafe INT64 values', () => {
+    it('lossy mode remains the default for unsafe INT64 values', () => {
         const v = new Xsql.SQLVarInt64();
         v.scale = -4;
         expect(v.decode(reader(w => w.addInt64(9007199254740993n)), false))
             .toBe(900719925474.0992);
         expect(v.decode(reader(w => w.addInt64(9007199254740993n)), false,
-            { numericMode: 'legacy' })).toBe(900719925474.0992);
+            { numericMode: 'lossy' })).toBe(900719925474.0992);
     });
 
     it.each([

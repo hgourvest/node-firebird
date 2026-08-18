@@ -26,7 +26,7 @@ describe('public API surface', () => {
     });
 
     it('exports numeric result modes', () => {
-        expect(Firebird.NUMERIC_MODE_LEGACY).toBe('legacy');
+        expect(Firebird.NUMERIC_MODE_LOSSY).toBe('lossy');
         expect(Firebird.NUMERIC_MODE_SAFE).toBe('safe');
         expect(Firebird.NUMERIC_MODE_STRING).toBe('string');
 
