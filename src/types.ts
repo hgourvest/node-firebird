@@ -70,6 +70,9 @@ export interface ColumnMetadata {
 
 export type Isolation = number[];
 
+/** Result conversion policy for INT64/INT128-backed fixed-point values. */
+export type NumericMode = 'lossy' | 'safe' | 'string';
+
 export type TransactionOptions = {
     autoCommit?: boolean;
     autoUndo?: boolean;
@@ -433,6 +436,17 @@ export interface Options {
      */
     blobReadChunkSize?: number;
     wireCrypt?: number; // WIRE_CRYPT_DISABLE or WIRE_CRYPT_ENABLE
+    /**
+     * Result conversion policy for BIGINT/INT128 and fixed-point
+     * NUMERIC/DECIMAL values backed by them.
+     *
+     * - `lossy` (default) decodes through JavaScript `Number` where
+     *   applicable; unsafe coefficients may lose precision.
+     * - `safe` returns a number when the raw integer coefficient is within
+     *   JavaScript's safe range, otherwise an exact scaled string.
+     * - `string` always returns an exact scaled string.
+     */
+    numericMode?: NumericMode;
     wireCompression?: boolean;
     /**
      * Enable named placeholders: SQL may use `:name` markers and params may

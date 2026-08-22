@@ -481,13 +481,27 @@ export class XdrReader {
         // Note: precision is limited to Number.MAX_SAFE_INTEGER (±2^53-1).
         // Values outside this range lose precision, which matches the previous
         // Long(low, high).toNumber() behaviour.
-        const result = Number(this.buffer.readBigInt64BE(this.pos));
+        return Number(this.readInt64BigInt());
+    }
+
+    readInt64BigInt(): bigint {
+        const result = this.buffer.readBigInt64BE(this.pos);
         this.pos += 8;
         return result;
     }
 
-    readInt128() {
+    readInt128(): bigint {
         var high = this.buffer.readBigUInt64BE(this.pos)
+        this.pos += 8
+
+        var low = this.buffer.readBigUInt64BE(this.pos)
+        this.pos += 8
+
+        return (BigInt(high) << BigInt(64)) + BigInt(low)
+    }
+
+    readInt128Signed(): bigint {
+        var high = this.buffer.readBigInt64BE(this.pos)
         this.pos += 8
 
         var low = this.buffer.readBigUInt64BE(this.pos)

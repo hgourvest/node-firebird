@@ -25,6 +25,15 @@ describe('public API surface', () => {
         expect(Firebird.WIRE_CRYPT_ENABLE).toBe(1);
     });
 
+    it('exports numeric result modes', () => {
+        expect(Firebird.NUMERIC_MODE_LOSSY).toBe('lossy');
+        expect(Firebird.NUMERIC_MODE_SAFE).toBe('safe');
+        expect(Firebird.NUMERIC_MODE_STRING).toBe('string');
+
+        const options: Firebird.Options = { numericMode: Firebird.NUMERIC_MODE_SAFE };
+        expect(options.numericMode).toBe('safe');
+    });
+
     it('exports isolation level arrays', () => {
         for (const iso of [
             Firebird.ISOLATION_READ_UNCOMMITTED,

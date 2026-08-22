@@ -25,6 +25,12 @@ const int = {
     MIN_INT : -Math.pow(2, 31),
 };
 
+const numericMode = {
+    NUMERIC_MODE_LOSSY : 'lossy',
+    NUMERIC_MODE_SAFE : 'safe',
+    NUMERIC_MODE_STRING : 'string',
+} as const;
+
 const op = {
     op_void                   : 0,  // Packet has been voided
     op_connect                : 1,  // Connect to remote server
@@ -929,6 +935,7 @@ const Const = Object.freeze({
     ...int,
     ...iscAction,
     ...iscError,
+    ...numericMode,
     ...op,
     ...protocol,
     ...service,

@@ -3,7 +3,7 @@ import { BlrReader } from './serialize';
 import { getCodec } from './codepages';
 import type { TextCodec } from './codepages';
 import type { XdrReader, XdrWriter, BlrWriter } from './serialize';
-import type { RecordCounts } from '../types';
+import type { NumericMode, RecordCounts } from '../types';
 
 /***************************************
  *
@@ -19,6 +19,44 @@ const
     MsPerMinute = 60000;
 
 const EMPTY_BUFFER = Buffer.alloc(0);
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
+
+type NumericDecodeOptions = {
+    numericMode?: NumericMode;
+};
+
+/** Format a signed Firebird integer coefficient without passing through Number. */
+function formatScaledBigInt(value: bigint, scale: number): string {
+    const negative = value < 0n;
+    let digits = (negative ? -value : value).toString();
+    const sign = negative ? '-' : '';
+
+    if (scale === 0) return sign + digits;
+    if (scale > 0) return sign + digits + '0'.repeat(scale);
+
+    const places = -scale;
+    if (digits.length <= places) digits = digits.padStart(places + 1, '0');
+    return sign + digits.slice(0, -places) + '.' + digits.slice(-places);
+}
+
+function decodeExactNumeric(value: bigint, scale: number, mode: 'safe' | 'string'): number | string {
+    if (mode === 'string' || value > MAX_SAFE_BIGINT || value < MIN_SAFE_BIGINT) {
+        return formatScaledBigInt(value, scale);
+    }
+    return scale < 0
+        ? Number(value) / Math.pow(10, -scale)
+        : Number(value) * Math.pow(10, scale);
+}
+
+/** Decode INT128 using the mixed number/string policy of lossy mode. */
+function decodeLossyInt128(value: bigint, scale: number): number | string {
+    if (value > MAX_SAFE_BIGINT) {
+        return formatScaledBigInt(value, scale);
+    }
+
+    return Number(value) / ScaleDivisor[Math.abs(scale)];
+}
 
 /**
  * Maps Firebird character-set names (upper-case) to the Node.js Buffer
@@ -555,11 +593,15 @@ export class SQLVarShort extends SQLVarInt {
 //------------------------------------------------------
 
 export class SQLVarInt64 extends SQLVarBase {
-    decode(data: XdrReader, lowerV13: boolean) {
-        var ret = data.readInt64();
+    decode(data: XdrReader, lowerV13: boolean, options?: NumericDecodeOptions) {
+        const mode = options?.numericMode || Const.NUMERIC_MODE_LOSSY;
+        let ret: number | string;
 
-        if (this.scale) {
-            ret = ret / ScaleDivisor[Math.abs(this.scale)];
+        if (mode === Const.NUMERIC_MODE_LOSSY) {
+            ret = data.readInt64();
+            if (this.scale) ret = ret / ScaleDivisor[Math.abs(this.scale)];
+        } else {
+            ret = decodeExactNumeric(data.readInt64BigInt(), this.scale, mode);
         }
 
         if (!lowerV13 || !data.readInt()) {
@@ -577,23 +619,11 @@ export class SQLVarInt64 extends SQLVarBase {
 //------------------------------------------------------
 
 export class SQLVarInt128 extends SQLVarBase {
-    decode(data: XdrReader, lowerV13: boolean) {
-        var retBigInt = BigInt(data.readInt128())
-        let ret: string | number;
-
-        if (retBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
-            ret = retBigInt.toString();
-
-            var integerPart = ret.slice(0, Math.abs(this.scale) * -1)
-            var decimalPart = ret.slice(Math.abs(this.scale) * -1)
-
-            if (integerPart === '') integerPart = '0'
-
-            ret = `${integerPart}.${decimalPart}`
-        } else {
-            ret = Number(retBigInt);
-            ret = ret / ScaleDivisor[Math.abs(this.scale)];
-        }
+    decode(data: XdrReader, lowerV13: boolean, options?: NumericDecodeOptions) {
+        const mode = options?.numericMode || Const.NUMERIC_MODE_LOSSY;
+        const ret = mode === Const.NUMERIC_MODE_LOSSY
+            ? decodeLossyInt128(data.readInt128(), this.scale)
+            : decodeExactNumeric(data.readInt128Signed(), this.scale, mode);
 
         if (!lowerV13 || !data.readInt()) {
             return ret;

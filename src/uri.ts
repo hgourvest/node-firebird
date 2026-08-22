@@ -200,7 +200,14 @@ export function normalizeOptions<T>(options: T | string): T {
     if (typeof options === 'string') {
         options = parseConnectionString(options) as T;
     }
-    return applyEnvDefaults(options as any);
+    const normalized = applyEnvDefaults(options as any);
+    const numericMode = normalized && normalized.numericMode;
+    if (numericMode !== undefined && numericMode !== 'lossy' &&
+        numericMode !== 'safe' && numericMode !== 'string') {
+        throw new Error('Invalid numericMode option: ' + numericMode +
+            ' (expected "lossy", "safe", or "string")');
+    }
+    return normalized;
 }
 
 /**

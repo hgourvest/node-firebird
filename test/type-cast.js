@@ -27,6 +27,19 @@ describe('typeCast hook', function () {
         await db.queryAsync(
             'INSERT INTO cast_test (id, name, big, price, born, note) VALUES (?, ?, ?, ?, ?, ?)',
             [2, 'bob', 42, null, null, null]);
+        await db.queryAsync(
+            'CREATE TABLE numeric_mode_test (id INT NOT NULL PRIMARY KEY, ' +
+            'amount DECIMAL(15,4), raw_big BIGINT)');
+        await db.queryAsync(
+            'INSERT INTO numeric_mode_test VALUES (1, 900719925474.0991, 9007199254740991)');
+        await db.queryAsync(
+            'INSERT INTO numeric_mode_test VALUES (2, 900719925474.0992, 9007199254740992)');
+        await db.queryAsync(
+            'INSERT INTO numeric_mode_test VALUES (3, 900719925474.0993, 9223372036854775807)');
+        await db.queryAsync(
+            'INSERT INTO numeric_mode_test VALUES (4, -900719925474.0993, -9223372036854775808)');
+        await db.queryAsync(
+            'INSERT INTO numeric_mode_test VALUES (5, 42.0000, 42)');
     });
 
     afterAll(async function () {
@@ -70,6 +83,45 @@ describe('typeCast hook', function () {
         assert.strictEqual(rows[0].big, '123456789012345');
         assert.strictEqual(typeof rows[1].big, 'string');
         assert.strictEqual(rows[0].name, 'alice'); // untouched
+    });
+
+    it('safe numeric mode preserves unsafe INT64-backed values exactly', async function () {
+        const safeDb = await Firebird.attachAsync(Config.extends(config, {
+            numericMode: Firebird.NUMERIC_MODE_SAFE,
+        }));
+        try {
+            const rows = await safeDb.queryAsync(
+                'SELECT id, amount, raw_big, CAST(amount AS VARCHAR(40)) expected_amount, ' +
+                'CAST(raw_big AS VARCHAR(40)) expected_big FROM numeric_mode_test ORDER BY id');
+
+            assert.strictEqual(rows[0].amount, 900719925474.0991);
+            assert.strictEqual(rows[0].raw_big, 9007199254740991);
+            for (const row of rows.slice(1, 4)) {
+                assert.strictEqual(row.amount, row.expected_amount.trim());
+                assert.strictEqual(row.raw_big, row.expected_big.trim());
+            }
+            assert.strictEqual(rows[4].amount, 42);
+            assert.strictEqual(rows[4].raw_big, 42);
+        } finally {
+            await safeDb.detachAsync();
+        }
+    });
+
+    it('string numeric mode gives INT64-backed columns a stable exact type', async function () {
+        const stringDb = await Firebird.attachAsync(Config.extends(config, {
+            numericMode: Firebird.NUMERIC_MODE_STRING,
+        }));
+        try {
+            const rows = await stringDb.queryAsync(
+                'SELECT amount, raw_big FROM numeric_mode_test ORDER BY id');
+            assert.deepStrictEqual(rows[0], {
+                amount: '900719925474.0991',
+                raw_big: '9007199254740991',
+            });
+            assert.deepStrictEqual(rows[4], { amount: '42.0000', raw_big: '42' });
+        } finally {
+            await stringDb.detachAsync();
+        }
     });
 
     it('casts DATE columns to strings', async function () {
