@@ -281,6 +281,11 @@ class Pool extends Events.EventEmitter {
                         if (db.connection._isClosed || db.connection._isDetach || db.connection._pooled === false) {
                             self.internaldb.splice(self.internaldb.indexOf(db), 1);
                             self.emit('remove', db);
+                        } else if (self._destroyed) {
+                            // destroy() deliberately does not wait for checked-out
+                            // connections. Close one for good when its caller later
+                            // releases it instead of returning it to a stopped pool.
+                            self._retire(db);
                         } else if (self._isExpired(db)) {
                             // worn out (maxUses / maxLifetimeMillis): close it
                             // for good instead of returning it to the idle
@@ -363,7 +368,8 @@ class Pool extends Events.EventEmitter {
             } else {
                 // [Fix 5] Connection is currently in use (dbinuse > 0).
                 // The caller is responsible for releasing it via detach().
-                // Count it down here so the destroy() callback is not blocked forever.
+                // Count it down here so the destroy() callback is not blocked forever;
+                // the detach listener retires it when the caller releases it.
                 detachCallback();
             }
         });
