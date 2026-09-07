@@ -107,14 +107,59 @@ describe('Pool', () => {
         const { attach } = makeFakeAttach();
         const pool = new Pool(attach, 2, {});
         const db1 = await poolGet(pool);
-        const detachSpy = vi.spyOn(db1, 'detach');
+        const db2 = await poolGet(pool);
         db1.detach(); // return to pool
-        detachSpy.mockClear();
+        db2.detach();
         await new Promise(setImmediate);
+        const detachSpy1 = vi.spyOn(db1, 'detach');
+        const detachSpy2 = vi.spyOn(db2, 'detach');
+        const removeSpy = vi.fn();
+        pool.on('remove', removeSpy);
+
+        expect(pool.activeCount).toBe(0);
+        expect(pool.idleCount).toBe(2);
+        expect(pool.totalCount).toBe(2);
 
         await new Promise<void>((resolve, reject) =>
             pool.destroy(err => (err ? reject(err) : resolve())));
-        expect(detachSpy).toHaveBeenCalled();
+
+        expect(detachSpy1).toHaveBeenCalledTimes(1);
+        expect(detachSpy2).toHaveBeenCalledTimes(1);
+        expect(pool.activeCount).toBe(0);
+        expect(pool.idleCount).toBe(0);
+        expect(pool.totalCount).toBe(0);
+        expect(pool.waitingCount).toBe(0);
+        expect(removeSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('retires an active connection when it is released after destroy()', async () => {
+        const { attach } = makeFakeAttach();
+        const pool = new Pool(attach, 1, {});
+        const db = await poolGet(pool);
+        const detachSpy = vi.spyOn(db, 'detach');
+        const removeSpy = vi.fn();
+        const releaseSpy = vi.fn();
+        pool.on('remove', removeSpy);
+        pool.on('release', releaseSpy);
+
+        await new Promise<void>((resolve, reject) =>
+            pool.destroy(err => (err ? reject(err) : resolve())));
+
+        expect(pool.activeCount).toBe(1);
+        expect(pool.totalCount).toBe(1);
+        expect(detachSpy).not.toHaveBeenCalled();
+
+        db.detach();
+
+        // The first call is the caller's release. _retire() makes the second
+        // call with _pooled=false, which is a physical detach in a real db.
+        expect(detachSpy).toHaveBeenCalledTimes(2);
+        expect(db.connection._pooled).toBe(false);
+        expect(pool.activeCount).toBe(0);
+        expect(pool.idleCount).toBe(0);
+        expect(pool.totalCount).toBe(0);
+        expect(removeSpy).toHaveBeenCalledTimes(1);
+        expect(releaseSpy).not.toHaveBeenCalled();
     });
 
     it('times out attach() when connectTimeout expires', async () => {

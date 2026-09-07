@@ -281,6 +281,11 @@ class Pool extends Events.EventEmitter {
                         if (db.connection._isClosed || db.connection._isDetach || db.connection._pooled === false) {
                             self.internaldb.splice(self.internaldb.indexOf(db), 1);
                             self.emit('remove', db);
+                        } else if (self._destroyed) {
+                            // destroy() deliberately does not wait for checked-out
+                            // connections. Close one for good when its caller later
+                            // releases it instead of returning it to a stopped pool.
+                            self._retire(db);
                         } else if (self._isExpired(db)) {
                             // worn out (maxUses / maxLifetimeMillis): close it
                             // for good instead of returning it to the idle
@@ -348,7 +353,7 @@ class Pool extends Events.EventEmitter {
             }
         }
 
-        this.internaldb.forEach(function(db) {
+        this.internaldb.slice().forEach(function(db) {
             if (db.connection._pooled === false) {
                 detachCallback();
                 return;
@@ -356,14 +361,19 @@ class Pool extends Events.EventEmitter {
             // check if the db is not free into the pool otherwise user should manual detach it
             var _db_in_pool = self.pooldb.indexOf(db);
             if (_db_in_pool !== -1) {
-                self.pooldb.splice(_db_in_pool, 1);
                 db.connection._pooled = false;
-                db.detach(detachCallback);
-                self.emit('remove', db);
+                // Keep the connection marked idle until physical detach emits
+                // its detach event. The listener above will then ignore that
+                // event instead of counting it as an active release.
+                db.detach(function(err?: any) {
+                    self._forget(db);
+                    detachCallback(err);
+                });
             } else {
                 // [Fix 5] Connection is currently in use (dbinuse > 0).
                 // The caller is responsible for releasing it via detach().
-                // Count it down here so the destroy() callback is not blocked forever.
+                // Count it down here so the destroy() callback is not blocked forever;
+                // the detach listener retires it when the caller releases it.
                 detachCallback();
             }
         });

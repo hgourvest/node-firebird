@@ -60,8 +60,11 @@ describe('Pool observability (events + metrics)', function () {
             await pool.destroyAsync();
         }
         // destroy closes the idle physical connection
-        assert.ok(events.includes('remove'));
+        assert.strictEqual(events.filter((event) => event === 'remove').length, 1);
+        assert.strictEqual(pool.totalCount, 0);
         assert.strictEqual(pool.idleCount, 0);
+        assert.strictEqual(pool.activeCount, 0);
+        assert.strictEqual(pool.waitingCount, 0);
     });
 
     it('should count callers waiting for a slot', async function () {
