@@ -186,7 +186,8 @@ class Connection {
         this._detachAuto;
         this._socket = new Socket(port, host,
             options.enableKeepAlive !== false,
-            options.keepAliveInitialDelay);
+            options.keepAliveInitialDelay,
+            options.ipFamily);
         this._pending = [];
         this._isOpened = false;
         this._isClosed = false;

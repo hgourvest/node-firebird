@@ -493,6 +493,12 @@ export interface Options {
      * probe is sent (default 60000). Ignored when enableKeepAlive is false.
      */
     keepAliveInitialDelay?: number;
+    /**
+     * Force the TCP socket to IPv4 (4) or IPv6 (6) when resolving `host`.
+     * Unset lets the resolver choose. Set automatically by `inet4://` /
+     * `inet6://` connection URIs.
+     */
+    ipFamily?: 4 | 6;
     pluginName?: string;
     parallelWorkers?: number;
     maxInlineBlobSize?: number;

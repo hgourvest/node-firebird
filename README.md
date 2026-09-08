@@ -11,7 +11,7 @@
 - [Installation](#installation)
 - [Usage](#usage) — including [developing the driver](#developing-the-driver)
 - [Promises and async/await](#promises-and-asyncawait) — the `*Async` API plus `withConnection` / `withTransaction` helpers
-- [Connection types](#connection-types) — connection options, `firebird://` URIs and traditional connection strings, classic connections, pooling
+- [Connection types](#connection-types) — connection options, `firebird://` / `inet://` URIs and traditional connection strings, classic connections, pooling
 - [Database object (db)](#database-object-db) — database, transaction and statement methods/options
 - [Examples](#examples) — parametrized queries, tagged-template queries (sql), named placeholders, nested result tables (nestTables), row-key transforms (transformKeys), result metadata / affected rows (withMeta), custom type parsers (typeCast), BLOBs, streaming big data, transactions, driver events, database events (POST_EVENT), service manager, charsets/encoding, Firebird 3.0–6.0 features
 - [Extensive Examples](#extensive-examples) — DECFLOAT/INT128, query cancellation (AbortSignal), batch execution (bulk inserts incl. BLOBs), bulk-insert stream (batchStream), statement timeouts, scrollable cursors, RETURNING multiple rows, SKIP LOCKED, advanced pooling
@@ -200,6 +200,7 @@ options.dbCryptConfig = undefined; // optional; database encryption key for encr
 options.connectTimeout = 10000; // optional; timeout in ms for a single pool.get() attach operation (default: no timeout)
 options.enableKeepAlive = true; // TCP keepalive probing to detect dead/stale connections (same option names as mysql2); set to false to disable
 options.keepAliveInitialDelay = 60000; // ms a socket must be idle before the first keepalive probe (ignored when enableKeepAlive is false)
+options.ipFamily = 4; // optional; force IPv4 (4) or IPv6 (6) when resolving host — also set by inet4:// / inet6:// URIs
 options.parallelWorkers = undefined; // optional; request multiple thread workers for maintenance/index tasks (FB >= 5)
 options.maxInlineBlobSize = undefined; // optional; threshold size in bytes for inline blob transmission (default 65535, FB >= 5.0.3)
 options.maxNegotiatedProtocols = undefined; // optional; cap how many protocol versions are offered, oldest first (default: all, up to Protocol 20; set to 10 to stop at Protocol 19)
@@ -247,6 +248,20 @@ percent-encoded (`p%40ss` for `p@ss`); `user`/`password` may alternatively
 be passed as query parameters. IPv6 hosts use brackets:
 `firebird://[::1]:3050/employee`. The parser is exported as
 `Firebird.parseConnectionUri(uri)` if you need the resulting options object.
+
+Firebird's own URL-style connection strings (Firebird 3+) are accepted with
+the same rules, so a string that works with isql works here unchanged:
+
+| URI | meaning |
+| :--- | :--- |
+| `inet://host/employee` | same as `firebird://host/employee` |
+| `inet://host:3051//var/fb/prod.fdb` | host, port and an absolute path |
+| `inet4://host/employee` | resolve `host` as IPv4 only (sets `ipFamily: 4`) |
+| `inet6://[::1]/employee` | IPv6 only (sets `ipFamily: 6`) |
+
+`inet://` strings may carry credentials and query options exactly like
+`firebird://` ones. The local-only transports `xnet://` and `wnet://` are
+rejected — this driver speaks TCP only.
 
 ### Traditional connection strings (old style)
 

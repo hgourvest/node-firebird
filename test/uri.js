@@ -73,8 +73,44 @@ describe('Connection URI strings (firebird://...)', function () {
             assert.strictEqual(o.password, undefined);
         });
 
+        it('should accept Firebird-native inet:// URIs', function () {
+            const o = parseConnectionUri('inet://db.example.com:3051//var/fb/prod.fdb');
+            assert.deepStrictEqual(o, {
+                host: 'db.example.com',
+                port: 3051,
+                database: '/var/fb/prod.fdb',
+            });
+            assert.strictEqual(parseConnectionUri('inet://localhost/employee').database, 'employee');
+            assert.strictEqual(parseConnectionUri('inet://localhost/C:/fbdata/prod.fdb').database, 'C:/fbdata/prod.fdb');
+        });
+
+        it('should pin the IP family for inet4:// and inet6://', function () {
+            const v4 = parseConnectionUri('inet4://localhost/employee');
+            assert.strictEqual(v4.ipFamily, 4);
+            assert.strictEqual(v4.host, 'localhost');
+            const v6 = parseConnectionUri('inet6://[::1]:3050/employee');
+            assert.strictEqual(v6.ipFamily, 6);
+            assert.strictEqual(v6.host, '::1');
+            assert.strictEqual(v6.port, 3050);
+            assert.strictEqual(parseConnectionUri('inet://localhost/employee').ipFamily, undefined);
+            assert.strictEqual(parseConnectionUri('firebird://localhost/employee').ipFamily, undefined);
+        });
+
+        it('should accept credentials and query options on inet:// URIs', function () {
+            const o = parseConnectionUri('INET://alice:secret@h/employee?ipFamily=6&lowercase_keys=1');
+            assert.strictEqual(o.user, 'alice');
+            assert.strictEqual(o.password, 'secret');
+            assert.strictEqual(o.ipFamily, 6);
+            assert.strictEqual(o.lowercase_keys, true);
+        });
+
         it('should reject non-firebird schemes', function () {
             assert.throws(() => parseConnectionUri('postgres://localhost/db'), /Unsupported connection URI scheme/);
+        });
+
+        it('should reject local-only Firebird transports (xnet, wnet)', function () {
+            assert.throws(() => parseConnectionUri('xnet://employee'), /local IPC transports/);
+            assert.throws(() => parseConnectionUri('wnet://server/employee'), /local IPC transports/);
         });
 
         it('should reject malformed URIs', function () {
@@ -134,6 +170,14 @@ describe('Connection URI strings (firebird://...)', function () {
             assert.strictEqual(o.database, 'employee');
         });
 
+        it('should route inet:// strings to the URI parser', function () {
+            const o = parseConnectionString('inet6://[::1]:3051/employee');
+            assert.strictEqual(o.host, '::1');
+            assert.strictEqual(o.port, 3051);
+            assert.strictEqual(o.ipFamily, 6);
+            assert.strictEqual(o.database, 'employee');
+        });
+
         it('should still reject other URI schemes', function () {
             assert.throws(() => parseConnectionString('postgres://localhost/db'),
                 /Unsupported connection URI scheme/);
@@ -166,6 +210,23 @@ describe('Connection URI strings (firebird://...)', function () {
                 await db.detachAsync();
             }
             await Firebird.dropAsync(uri);
+        });
+
+        it('should attachOrCreate, query and drop via a Firebird-native inet4:// URI', async function () {
+            const inetPath = cfg.database.replace(/\.fdb$/, '-inet.fdb');
+            // inet4:// pins the socket to IPv4 — the test config host is
+            // an IPv4 literal or a name that resolves to one
+            const inetUri = 'inet4://' +
+                encodeURIComponent(cfg.user) + ':' + encodeURIComponent(cfg.password) +
+                '@' + cfg.host + ':' + cfg.port + '/' + inetPath;
+            const db = await Firebird.attachOrCreateAsync(inetUri);
+            try {
+                const rows = await db.queryAsync('SELECT 1 AS ANSWER FROM rdb$database');
+                assert.strictEqual(rows[0].ANSWER, 1);
+            } finally {
+                await db.detachAsync();
+            }
+            await Firebird.dropAsync(inetUri);
         });
 
         it('should attach with a traditional host/port:database string', async function () {

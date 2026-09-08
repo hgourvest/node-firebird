@@ -109,8 +109,9 @@ class Socket {
     encryptCipher: any;
     decryptCipher: any;
 
-    constructor(port: number, host: string, enableKeepAlive = true, keepAliveInitialDelay = 60000) {
-        this._socket = net.createConnection(port, host);
+    constructor(port: number, host: string, enableKeepAlive = true, keepAliveInitialDelay = 60000, ipFamily?: 4 | 6) {
+        // family: 0 is "either" (Node's default); 4/6 pin the resolver
+        this._socket = net.createConnection({ port: port, host: host, family: ipFamily || 0 });
         this._socket.setNoDelay(true);
         // TCP keepalive probing detects dead/stale connections; the delay is
         // how long the socket must be idle before the first probe.

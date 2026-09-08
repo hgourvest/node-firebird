@@ -20,7 +20,7 @@ const NUMBER_KEYS = new Set([
     'port', 'pageSize', 'timeout', 'retryConnectionInterval',
     'blobChunkSize', 'blobReadChunkSize', 'wireCrypt', 'parallelWorkers',
     'maxInlineBlobSize', 'maxNegotiatedProtocols', 'connectTimeout',
-    'min', 'idleTimeoutMillis', 'keepAliveInitialDelay',
+    'min', 'idleTimeoutMillis', 'keepAliveInitialDelay', 'ipFamily',
 ]);
 
 function coerce(key: string, value: string): any {
@@ -38,9 +38,31 @@ function coerce(key: string, value: string): any {
 }
 
 /**
- * Parse a firebird:// connection URI into an options object.
+ * URI schemes accepted by parseConnectionUri. `firebird://` is this driver's
+ * own scheme; `inet://`, `inet4://` and `inet6://` are Firebird's native
+ * URL-style connection strings (Firebird 3+), so a string that works with
+ * isql works here too. inet4/inet6 pin the socket's IP family (the
+ * `ipFamily` option); inet and firebird let the resolver pick.
+ */
+const URI_SCHEMES: Record<string, 4 | 6 | undefined> = {
+    'firebird:': undefined,
+    'inet:': undefined,
+    'inet4:': 4,
+    'inet6:': 6,
+};
+
+/**
+ * Firebird protocols this driver cannot speak: they are local-machine IPC
+ * transports (shared memory / named pipes), not TCP.
+ */
+const LOCAL_SCHEMES = /^(xnet|wnet):$/;
+
+/**
+ * Parse a firebird:// or inet:// connection URI into an options object.
  *
  *   firebird://user:password@host:port/database?option=value&...
+ *   inet://host:port/database              (Firebird's own URL style;
+ *   inet4://... / inet6://...               also force IPv4 / IPv6)
  *
  * The database part:
  *   firebird://host/employee              → alias "employee"
@@ -64,12 +86,22 @@ export function parseConnectionUri(uri: string): Options {
         throw new Error('Invalid connection URI: ' + uri);
     }
 
-    if (url.protocol !== 'firebird:') {
-        throw new Error('Unsupported connection URI scheme "' + url.protocol.replace(/:$/, '') +
-            '" (expected firebird://...)');
+    var scheme = url.protocol.toLowerCase();
+    if (LOCAL_SCHEMES.test(scheme)) {
+        throw new Error('Unsupported connection URI scheme "' + scheme.replace(/:$/, '') +
+            '" (local IPC transports are not available over the wire — use inet:// or firebird://)');
+    }
+    if (!Object.prototype.hasOwnProperty.call(URI_SCHEMES, scheme)) {
+        throw new Error('Unsupported connection URI scheme "' + scheme.replace(/:$/, '') +
+            '" (expected firebird://, inet://, inet4:// or inet6://)');
     }
 
     var options: any = {};
+
+    var ipFamily = URI_SCHEMES[scheme];
+    if (ipFamily !== undefined) {
+        options.ipFamily = ipFamily;
+    }
 
     if (url.hostname) {
         // URL keeps IPv6 hostnames bracketed ([::1]); net.connect wants them bare
@@ -182,8 +214,9 @@ export function parseOldStyleConnectionString(str: string): Options {
 const URI_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
 
 /**
- * Parse any connection string the driver accepts: a firebird:// URI, or a
- * traditional [host[/port]:]database string when there is no scheme.
+ * Parse any connection string the driver accepts: a firebird:// or
+ * inet[4|6]:// URI, or a traditional [host[/port]:]database string when
+ * there is no scheme.
  */
 export function parseConnectionString(str: string): Options {
     return URI_SCHEME.test(str)
@@ -192,8 +225,9 @@ export function parseConnectionString(str: string): Options {
 }
 
 /**
- * Accept either an options object or a connection string (firebird:// URI
- * or traditional host[/port]:database) everywhere options are taken.
+ * Accept either an options object or a connection string (firebird:// or
+ * inet:// URI, or traditional host[/port]:database) everywhere options are
+ * taken.
  * Strings are parsed; objects pass through unchanged.
  */
 export function normalizeOptions<T>(options: T | string): T {
