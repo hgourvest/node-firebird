@@ -93,6 +93,52 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
         assert.strictEqual(rows[0].created.getTime(), created.getTime());
     });
 
+    itBatch('should preserve and consistently round fixed-point values', async function () {
+        await db.executeAsync(`RECREATE TABLE batch_numeric (
+            id INT NOT NULL PRIMARY KEY,
+            n2 NUMERIC(18,2),
+            n4 NUMERIC(18,4),
+            big BIGINT
+        )`);
+
+        const sql = 'INSERT INTO batch_numeric VALUES (?, ?, ?, ?)';
+        // op_execute is the reference for Firebird decimal conversion.
+        await db.queryAsync(sql, [1, 1.005, 1.00105, '9223372036854775807']);
+        await db.executeBatchAsync(sql, [
+            [2, 1.005, 1.00105, '9223372036854775807'],
+            [3, -1.005, -1.00105, '-9223372036854775808'],
+            [4, '90071992547409.92', '900719925474.0992', '9007199254740991'],
+        ]);
+
+        const rows = await db.queryAsync(
+            'SELECT id, CAST(n2 AS VARCHAR(40)) n2_text, ' +
+            'CAST(n4 AS VARCHAR(40)) n4_text, CAST(big AS VARCHAR(40)) big_text ' +
+            'FROM batch_numeric ORDER BY id');
+        const values = rows.map(row => ({
+            id: row.id,
+            n2: row.n2_text.trim(),
+            n4: row.n4_text.trim(),
+            big: row.big_text.trim(),
+        }));
+
+        assert.deepStrictEqual(values, [
+            { id: 1, n2: '1.01', n4: '1.0011', big: '9223372036854775807' },
+            { id: 2, n2: '1.01', n4: '1.0011', big: '9223372036854775807' },
+            { id: 3, n2: '-1.01', n4: '-1.0011', big: '-9223372036854775808' },
+            { id: 4, n2: '90071992547409.92', n4: '900719925474.0992', big: '9007199254740991' },
+        ]);
+    });
+
+    itBatch('should round-trip signed INT128 values from regular and batch parameters', async function () {
+        await db.executeAsync('RECREATE TABLE batch_int128 (id INT PRIMARY KEY, value_i128 INT128)');
+
+        await db.queryAsync('INSERT INTO batch_int128 VALUES (?, ?)', [1, -1n]);
+        await db.executeBatchAsync('INSERT INTO batch_int128 VALUES (?, ?)', [[2, -2n]]);
+
+        const rows = await db.queryAsync('SELECT value_i128 FROM batch_int128 ORDER BY id');
+        assert.deepStrictEqual(rows.map(row => row.value_i128), [-1, -2]);
+    });
+
     itBatch('should chunk large batches into multiple op_batch_msg packets', async function () {
         const rows = [];
         for (let i = 1; i <= 120; i++) {
@@ -168,6 +214,44 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
             db.executeBatchAsync(INSERT, [[1, 'a']]),
             /row 0 must be an array of 6 values/
         );
+    });
+
+    itBatch('should reject invalid fixed-point values before sending packets', async function () {
+        const created = new Date(2026, 0, 1);
+        await assert.rejects(
+            db.executeBatchAsync(INSERT, [[1, 'bad', '1oops', created, true, 1n]]),
+            /Invalid fixed-point batch value for column 3/
+        );
+        await assert.rejects(
+            db.executeBatchAsync(INSERT, [[1, 'overflow', 1, created, true, '9223372036854775808']]),
+            /Invalid fixed-point batch value for column 6/
+        );
+
+        const check = await db.queryAsync('SELECT COUNT(*) AS n FROM batch_t');
+        assert.strictEqual(check[0].n, 0);
+    });
+
+    itBatch('should validate fixed-point values before uploading BLOBs', async function () {
+        await db.executeAsync('RECREATE TABLE batch_blob_numeric (payload BLOB, amount NUMERIC(12,2))');
+        const originalUploadBlob = db.connection.uploadBlob;
+        let uploadCount = 0;
+        db.connection.uploadBlob = function () {
+            uploadCount++;
+            return originalUploadBlob.apply(this, arguments);
+        };
+
+        try {
+            await assert.rejects(
+                db.executeBatchAsync(
+                    'INSERT INTO batch_blob_numeric VALUES (?, ?)',
+                    [[Buffer.from('must not upload'), '1oops']]
+                ),
+                /Invalid fixed-point batch value for column 2/
+            );
+            assert.strictEqual(uploadCount, 0);
+        } finally {
+            db.connection.uploadBlob = originalUploadBlob;
+        }
     });
 
     itBatch('should reject string truncation server-side', async function () {

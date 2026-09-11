@@ -137,13 +137,9 @@ describe('XdrWriter / XdrReader round-trips', () => {
         const min = -(1n << 127n);
         const max = (1n << 127n) - 1n;
         const values = [min, -1n, max];
-        const buffer = Buffer.alloc(values.length * 16);
-        values.forEach((value, index) => {
-            const offset = index * 16;
-            buffer.writeBigInt64BE(value >> 64n, offset);
-            buffer.writeBigUInt64BE(value & 0xFFFFFFFFFFFFFFFFn, offset + 8);
-        });
-        const r = new XdrReader(buffer);
+        const w = new XdrWriter();
+        values.forEach(value => w.addInt128(value));
+        const r = new XdrReader(w.getData());
         expect(r.readInt128Signed()).toBe(min);
         expect(r.readInt128Signed()).toBe(-1n);
         expect(r.readInt128Signed()).toBe(max);
