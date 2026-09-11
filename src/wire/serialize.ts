@@ -303,7 +303,7 @@ export class XdrWriter {
         const high = bigValue >> BigInt(64);
         const low = bigValue & BigInt("0xFFFFFFFFFFFFFFFF");
 
-        this.buffer.writeBigUInt64BE(high, this.pos);
+        this.buffer.writeBigInt64BE(high, this.pos);
         this.pos += 8;
         this.buffer.writeBigUInt64BE(low, this.pos);
         this.pos += 8;
