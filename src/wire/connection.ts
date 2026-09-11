@@ -3568,7 +3568,7 @@ function validateBatchFixedPointRows(input: any[], rows: any[][]): void {
             var value = rows[i][j];
             if (value === null || value === undefined) continue;
 
-            var bits: 16 | 32 | 64 | 128 | undefined;
+            var bits: 16 | 32 | 64 | 128 | undefined = undefined;
             switch (input[j].type) {
                 case Const.SQL_SHORT: bits = 16; break;
                 case Const.SQL_LONG: bits = 32; break;
