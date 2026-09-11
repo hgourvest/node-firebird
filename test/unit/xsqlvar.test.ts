@@ -205,6 +205,51 @@ describe('SQLParam encoding', () => {
         expect(r.readText(3, 'utf8')).toBe('abc');
     });
 
+    it('converts canonical decimal numbers to scaled coefficients with Firebird rounding', () => {
+        expect(Xsql.toScaledInteger(2.675, -2, 64)).toBe(268n);
+        expect(Xsql.toScaledInteger(1.005, -2, 64)).toBe(101n);
+        expect(Xsql.toScaledInteger(-2.675, -2, 64)).toBe(-268n);
+        expect(Xsql.toScaledInteger(-1.005, -2, 64)).toBe(-101n);
+        expect(Xsql.toScaledInteger(1.00105, -4, 64)).toBe(10011n);
+        expect(Xsql.toScaledInteger(-1.00105, -4, 64)).toBe(-10011n);
+    });
+
+    it('preserves exact string and bigint fixed-point inputs', () => {
+        expect(Xsql.toScaledInteger('900719925474.0992', -4, 64)).toBe(9007199254740992n);
+        expect(Xsql.toScaledInteger('9223372036854775807', 0, 64)).toBe(9223372036854775807n);
+        expect(Xsql.toScaledInteger('-9223372036854775808', 0, 64)).toBe(-9223372036854775808n);
+        expect(Xsql.toScaledInteger(42n, -4, 64)).toBe(420000n);
+        expect(Xsql.toScaledInteger('1.2345e2', -2, 64)).toBe(12345n);
+        expect(Xsql.toScaledInteger('.00005', -4, 64)).toBe(1n);
+        expect(Xsql.toScaledInteger('-.00005', -4, 64)).toBe(-1n);
+    });
+
+    it('supports positive scales and normalizes signed zero', () => {
+        expect(Xsql.toScaledInteger('150', 2, 64)).toBe(2n);
+        expect(Xsql.toScaledInteger('-150', 2, 64)).toBe(-2n);
+        expect(Xsql.toScaledInteger('149', 2, 64)).toBe(1n);
+        expect(Xsql.toScaledInteger(-0, -4, 64)).toBe(0n);
+    });
+
+    it('validates fixed-point input syntax, finiteness, exponents, and signed ranges', () => {
+        expect(() => Xsql.toScaledInteger(Number.NaN, -2, 64)).toThrow(/finite/);
+        expect(() => Xsql.toScaledInteger(Number.POSITIVE_INFINITY, -2, 64)).toThrow(/finite/);
+        expect(() => Xsql.toScaledInteger(1, Number.MAX_VALUE, 64)).toThrow(/scale/);
+        expect(() => Xsql.toScaledInteger('1oops', -2, 64)).toThrow(/Invalid fixed-point/);
+        expect(() => Xsql.toScaledInteger('', -2, 64)).toThrow(/Invalid fixed-point/);
+        expect(() => Xsql.toScaledInteger('1e999999999999999999999', -2, 64)).toThrow(/exponent/);
+
+        expect(Xsql.toScaledInteger('327.67', -2, 16)).toBe(32767n);
+        expect(Xsql.toScaledInteger('-327.68', -2, 16)).toBe(-32768n);
+        expect(() => Xsql.toScaledInteger('327.675', -2, 16)).toThrow(/signed 16-bit range/);
+        expect(() => Xsql.toScaledInteger('-327.685', -2, 16)).toThrow(/signed 16-bit range/);
+        expect(() => Xsql.toScaledInteger('2147483648', 0, 32)).toThrow(/signed 32-bit range/);
+        expect(() => Xsql.toScaledInteger('9223372036854775808', 0, 64)).toThrow(/signed 64-bit range/);
+        expect(Xsql.toScaledInteger(-(1n << 127n), 0, 128)).toBe(-(1n << 127n));
+        expect(Xsql.toScaledInteger((1n << 127n) - 1n, 0, 128)).toBe((1n << 127n) - 1n);
+        expect(() => Xsql.toScaledInteger(1n << 127n, 0, 128)).toThrow(/signed 128-bit range/);
+    });
+
     it('SQLParamQuad encodes blob ids', () => {
         const r = reader(w => new Xsql.SQLParamQuad({ high: 1, low: 2 }).encode(w));
         expect(r.readInt()).toBe(1);
