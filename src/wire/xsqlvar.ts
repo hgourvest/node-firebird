@@ -622,7 +622,7 @@ export class SQLVarInt128 extends SQLVarBase {
     decode(data: XdrReader, lowerV13: boolean, options?: NumericDecodeOptions) {
         const mode = options?.numericMode || Const.NUMERIC_MODE_LOSSY;
         const ret = mode === Const.NUMERIC_MODE_LOSSY
-            ? decodeLossyInt128(data.readInt128(), this.scale)
+            ? decodeLossyInt128(data.readInt128Signed(), this.scale)
             : decodeExactNumeric(data.readInt128Signed(), this.scale, mode);
 
         if (!lowerV13 || !data.readInt()) {

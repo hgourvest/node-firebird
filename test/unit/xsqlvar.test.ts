@@ -101,6 +101,7 @@ describe('SQLVar decoding (protocol 13+, lowerV13=false)', () => {
         const v = new Xsql.SQLVarInt128();
         v.scale = -2;
         expect(v.decode(reader(w => w.addInt128(12345n)), false)).toBe(123.45);
+        expect(v.decode(reader(w => w.addInt128(-12345n)), false)).toBe(-123.45);
     });
 
     it('safe mode formats signed INT128 values exactly', () => {
