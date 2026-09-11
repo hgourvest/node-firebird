@@ -1454,6 +1454,17 @@ class Connection {
             }
         }
 
+        // Validate fixed-point values before the BLOB pre-pass. Blob uploads
+        // write immediately, so deferring numeric validation until message
+        // encoding could leave transaction blob state behind for a batch that
+        // can never be sent.
+        try {
+            validateBatchFixedPointRows(input, rows as any[][]);
+        } catch (err) {
+            doError(err, callback);
+            return;
+        }
+
         var self = this;
 
         // BLOB pre-pass: upload every Buffer/string blob value as a
@@ -3538,6 +3549,39 @@ function scaleOutputLengths(output: any[], options: any) {
     }
 }
 
+function scaleBatchFixedPoint(value: any, meta: any, bits: 16 | 32 | 64 | 128, column: number): bigint {
+    try {
+        return Xsql.toScaledInteger(value, meta.scale, bits);
+    } catch (err) {
+        var message = err instanceof Error ? err.message : String(err);
+        throw new Error('Invalid fixed-point batch value for column ' + column +
+            ' (' + (meta.field || '?') + '): ' + message);
+    }
+}
+
+/** Validate values whose batch wire representation is metadata-directed.
+ * This runs before BLOB uploads, which may write to the transaction as soon
+ * as executeBatch starts its asynchronous pre-pass. */
+function validateBatchFixedPointRows(input: any[], rows: any[][]): void {
+    for (var i = 0; i < rows.length; i++) {
+        for (var j = 0; j < input.length; j++) {
+            var value = rows[i][j];
+            if (value === null || value === undefined) continue;
+
+            var bits: 16 | 32 | 64 | 128 | undefined;
+            switch (input[j].type) {
+                case Const.SQL_SHORT: bits = 16; break;
+                case Const.SQL_LONG: bits = 32; break;
+                case Const.SQL_INT64: bits = 64; break;
+                case Const.SQL_INT128: bits = 128; break;
+            }
+            if (bits !== undefined) {
+                scaleBatchFixedPoint(value, input[j], bits, j + 1);
+            }
+        }
+    }
+}
+
 /**
  * Batch support: the engine requires every batch message to use EXACTLY the
  * statement's described input format (unlike op_execute, where the client
@@ -3573,16 +3617,6 @@ function buildBatchEncoders(input: any[], options: any) {
         if (typeof v === 'string') return parseDate(v);
         return new Date(v);
     };
-    var scaled = function(v: any, meta: any, bits: 16 | 32 | 64 | 128, column: number): bigint {
-        try {
-            return Xsql.toScaledInteger(v, meta.scale, bits);
-        } catch (err) {
-            var message = err instanceof Error ? err.message : String(err);
-            throw new Error('Invalid fixed-point batch value for column ' + column +
-                ' (' + (meta.field || '?') + '): ' + message);
-        }
-    };
-
     for (var j = 0; j < input.length; j++) {
         var meta = input[j];
         var column = j + 1;
@@ -3616,14 +3650,14 @@ function buildBatchEncoders(input: any[], options: any) {
             case Const.SQL_SHORT:
                 // 2 bytes in the message struct (msglen), 4 on the XDR wire
                 encoders.push((function(m, col) {
-                    return function(msg: any, v: any) { msg.addInt(Number(scaled(v, m, 16, col))); };
+                    return function(msg: any, v: any) { msg.addInt(Number(scaleBatchFixedPoint(v, m, 16, col))); };
                 })(meta, column));
                 align(2); offset += 2;
                 break;
 
             case Const.SQL_LONG:
                 encoders.push((function(m, col) {
-                    return function(msg: any, v: any) { msg.addInt(Number(scaled(v, m, 32, col))); };
+                    return function(msg: any, v: any) { msg.addInt(Number(scaleBatchFixedPoint(v, m, 32, col))); };
                 })(meta, column));
                 align(4); offset += 4;
                 break;
@@ -3631,7 +3665,7 @@ function buildBatchEncoders(input: any[], options: any) {
             case Const.SQL_INT64:
                 encoders.push((function(m, col) {
                     return function(msg: any, v: any) {
-                        msg.addInt64(scaled(v, m, 64, col));
+                        msg.addInt64(scaleBatchFixedPoint(v, m, 64, col));
                     };
                 })(meta, column));
                 align(8); offset += 8;
@@ -3639,7 +3673,7 @@ function buildBatchEncoders(input: any[], options: any) {
 
             case Const.SQL_INT128:
                 encoders.push((function(m, col) {
-                    return function(msg: any, v: any) { msg.addInt128(scaled(v, m, 128, col)); };
+                    return function(msg: any, v: any) { msg.addInt128(scaleBatchFixedPoint(v, m, 128, col)); };
                 })(meta, column));
                 align(8); offset += 16;
                 break;

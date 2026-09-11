@@ -129,6 +129,16 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
         ]);
     });
 
+    itBatch('should round-trip signed INT128 values from regular and batch parameters', async function () {
+        await db.executeAsync('RECREATE TABLE batch_int128 (id INT PRIMARY KEY, value_i128 INT128)');
+
+        await db.queryAsync('INSERT INTO batch_int128 VALUES (?, ?)', [1, -1n]);
+        await db.executeBatchAsync('INSERT INTO batch_int128 VALUES (?, ?)', [[2, -2n]]);
+
+        const rows = await db.queryAsync('SELECT value_i128 FROM batch_int128 ORDER BY id');
+        assert.deepStrictEqual(rows.map(row => row.value_i128), [-1, -2]);
+    });
+
     itBatch('should chunk large batches into multiple op_batch_msg packets', async function () {
         const rows = [];
         for (let i = 1; i <= 120; i++) {
@@ -219,6 +229,29 @@ describe('Batch API (op_batch_create/msg/exec, Firebird 4+)', function () {
 
         const check = await db.queryAsync('SELECT COUNT(*) AS n FROM batch_t');
         assert.strictEqual(check[0].n, 0);
+    });
+
+    itBatch('should validate fixed-point values before uploading BLOBs', async function () {
+        await db.executeAsync('RECREATE TABLE batch_blob_numeric (payload BLOB, amount NUMERIC(12,2))');
+        const originalUploadBlob = db.connection.uploadBlob;
+        let uploadCount = 0;
+        db.connection.uploadBlob = function () {
+            uploadCount++;
+            return originalUploadBlob.apply(this, arguments);
+        };
+
+        try {
+            await assert.rejects(
+                db.executeBatchAsync(
+                    'INSERT INTO batch_blob_numeric VALUES (?, ?)',
+                    [[Buffer.from('must not upload'), '1oops']]
+                ),
+                /Invalid fixed-point batch value for column 2/
+            );
+            assert.strictEqual(uploadCount, 0);
+        } finally {
+            db.connection.uploadBlob = originalUploadBlob;
+        }
     });
 
     itBatch('should reject string truncation server-side', async function () {
