@@ -12,8 +12,6 @@ import type { NumericMode, RecordCounts } from '../types';
  ***************************************/
 
 const
-    ScaleDivisor = [1,10,100,1000,10000,100000,1000000,10000000,100000000,1000000000,10000000000, 100000000000,1000000000000,10000000000000,100000000000000,1000000000000000];
-const
     DateOffset = 40587,
     TimeCoeff = 86400000,
     MsPerMinute = 60000;
@@ -25,6 +23,25 @@ const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
 type NumericDecodeOptions = {
     numericMode?: NumericMode;
 };
+
+/**
+ * Apply a Firebird numeric scale to a value already narrowed to a JS number.
+ *
+ * This replaces the former lookup table of divisors, which only held
+ * 10^0..10^15: any larger scale indexed past its end and yielded NaN. That is
+ * reachable for INT64 (NUMERIC(18,18)) and routine for INT128, where the scale
+ * runs to 38. Math.pow(10, n) returns the identical double for every exponent
+ * the table did cover, so in-range results are unchanged.
+ *
+ * Positive scales multiply, matching decodeExactNumeric and formatScaledBigInt;
+ * the table path divided by them, which was the wrong direction.
+ */
+function applyScale(value: number, scale: number): number {
+    if (!scale) return value;
+    return scale < 0
+        ? value / Math.pow(10, -scale)
+        : value * Math.pow(10, scale);
+}
 
 /** Format a signed Firebird integer coefficient without passing through Number. */
 function formatScaledBigInt(value: bigint, scale: number): string {
@@ -51,11 +68,17 @@ function decodeExactNumeric(value: bigint, scale: number, mode: 'safe' | 'string
 
 /** Decode INT128 using the mixed number/string policy of lossy mode. */
 function decodeLossyInt128(value: bigint, scale: number): number | string {
-    if (value > MAX_SAFE_BIGINT) {
+    // Both bounds matter, as in decodeExactNumeric. While this path read the
+    // coefficient unsigned, every negative arrived as a huge positive and so
+    // always took the exact-string branch, which masked the missing lower
+    // bound. Now that the reader is signed, a large negative would otherwise
+    // fall through to Number() and lose precision while its positive twin
+    // stayed exact.
+    if (value > MAX_SAFE_BIGINT || value < MIN_SAFE_BIGINT) {
         return formatScaledBigInt(value, scale);
     }
 
-    return Number(value) / ScaleDivisor[Math.abs(scale)];
+    return applyScale(Number(value), scale);
 }
 
 /**
@@ -564,9 +587,7 @@ export class SQLVarInt extends SQLVarBase {
     decode(data: XdrReader, lowerV13: boolean) {
         var ret = data.readInt();
 
-        if (this.scale) {
-            ret = ret / ScaleDivisor[Math.abs(this.scale)];
-        }
+        ret = applyScale(ret, this.scale);
 
         if (!lowerV13 || !data.readInt()) {
             return ret;
@@ -599,7 +620,7 @@ export class SQLVarInt64 extends SQLVarBase {
 
         if (mode === Const.NUMERIC_MODE_LOSSY) {
             ret = data.readInt64();
-            if (this.scale) ret = ret / ScaleDivisor[Math.abs(this.scale)];
+            ret = applyScale(ret, this.scale);
         } else {
             ret = decodeExactNumeric(data.readInt64BigInt(), this.scale, mode);
         }

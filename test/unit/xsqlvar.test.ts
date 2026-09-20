@@ -104,6 +104,56 @@ describe('SQLVar decoding (protocol 13+, lowerV13=false)', () => {
         expect(v.decode(reader(w => w.addInt128(-12345n)), false)).toBe(-123.45);
     });
 
+    it('lossy mode formats unsafe INT128 values symmetrically around zero', () => {
+        // The unsafe-magnitude check must cover both bounds: a negative past
+        // MIN_SAFE_INTEGER has to stay an exact string like its positive twin,
+        // not degrade to a float.
+        const v = new Xsql.SQLVarInt128();
+        v.scale = 0;
+
+        const max = (1n << 127n) - 1n;
+        const min = -(1n << 127n);
+        expect(v.decode(reader(w => w.addInt128(max)), false))
+            .toBe('170141183460469231731687303715884105727');
+        expect(v.decode(reader(w => w.addInt128(min)), false))
+            .toBe('-170141183460469231731687303715884105728');
+
+        const unsafe = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+        v.scale = -2;
+        expect(v.decode(reader(w => w.addInt128(unsafe)), false)).toBe('90071992547409.92');
+        expect(v.decode(reader(w => w.addInt128(-unsafe)), false)).toBe('-90071992547409.92');
+    });
+
+    it('applies scales beyond the old divisor table without producing NaN', () => {
+        // Scales past 15 used to index past the end of a lookup table.
+        // NUMERIC(18,18) reaches 18 on INT64 and INT128 runs to 38.
+        const i128 = new Xsql.SQLVarInt128();
+        i128.scale = -18;
+        expect(i128.decode(reader(w => w.addInt128(123n)), false)).toBe(1.23e-16);
+        i128.scale = -38;
+        expect(i128.decode(reader(w => w.addInt128(-1n)), false)).toBe(-1e-38);
+
+        const i64 = new Xsql.SQLVarInt64();
+        i64.scale = -18;
+        expect(i64.decode(reader(w => w.addInt64(123n)), false)).toBe(1.23e-16);
+    });
+
+    it('applies positive scales as a multiplier', () => {
+        // Firebird stores coefficient * 10^scale, so a positive scale scales
+        // up; dividing by it was the wrong direction.
+        const v = new Xsql.SQLVarInt();
+        v.scale = 2;
+        expect(v.decode(reader(w => w.addInt(12345)), false)).toBe(1234500);
+
+        const i64 = new Xsql.SQLVarInt64();
+        i64.scale = 3;
+        expect(i64.decode(reader(w => w.addInt64(42)), false)).toBe(42000);
+
+        const i128 = new Xsql.SQLVarInt128();
+        i128.scale = 2;
+        expect(i128.decode(reader(w => w.addInt128(12345n)), false)).toBe(1234500);
+    });
+
     it('safe mode formats signed INT128 values exactly', () => {
         const v = new Xsql.SQLVarInt128();
         v.scale = -4;
