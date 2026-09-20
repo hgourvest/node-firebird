@@ -763,16 +763,29 @@ option `numericMode` controls how those result values are exposed:
 
 | Mode | Result policy |
 | :--- | :--- |
-| `Firebird.NUMERIC_MODE_LOSSY` | INT64-backed values are returned as `number`; INT128 uses a mixed `number`/`string` path. Unsafe coefficients may lose precision. |
+| `Firebird.NUMERIC_MODE_LOSSY` | INT64-backed values are returned as `number`, losing precision beyond the safe integer range; INT128 returns a `number` for a safe coefficient and an exact scaled `string` for an unsafe one. |
 | `Firebird.NUMERIC_MODE_SAFE` | Safe coefficients are returned as `number`; unsafe coefficients as exact scaled `string`. |
 | `Firebird.NUMERIC_MODE_STRING` | All values are returned as exact scaled `string`. |
 
-`LOSSY` decodes INT64-backed values through JavaScript `Number`. INT128 uses a
-mixed number/string decoding path. For coefficients outside JavaScript's safe
-integer range, the result type can depend on the Firebird wire type and value,
-and numeric precision is not guaranteed. `LOSSY` remains the default so that
-adding `numericMode` does not silently change result types for applications
-upgrading from earlier node-firebird releases.
+`LOSSY` decodes INT64-backed values through JavaScript `Number`, so a
+coefficient beyond JavaScript's safe integer range loses digits silently.
+INT128 instead takes a mixed path: a coefficient inside the inclusive safe
+range is returned as a scaled `number`, and one outside it — in either
+direction — is returned as an exact scaled `string`, formatted just as
+`STRING` would format it. The result type of an INT128 column therefore
+depends on the value:
+
+```js
+// numericMode: LOSSY, INT128 column
+// coefficient 12345, scale -2   -> 123.45   (number)
+// coefficient -12345, scale -2  -> -123.45  (number)
+// coefficient 2^127-1, scale 0  -> '170141183460469231731687303715884105727'
+// coefficient -2^127, scale 0   -> '-170141183460469231731687303715884105728'
+```
+
+Use `SAFE` or `STRING` when a stable result type matters. `LOSSY` remains the
+default so that adding `numericMode` does not silently change result types for
+applications upgrading from earlier node-firebird releases.
 
 `SAFE` tests the raw integer coefficient against JavaScript's inclusive safe
 range (`Number.MIN_SAFE_INTEGER` through `Number.MAX_SAFE_INTEGER`) before
@@ -788,6 +801,12 @@ const db = await Firebird.attachAsync({
 // BIGINT 42                     -> '42'
 // DECIMAL coefficient 420000,-4 -> '42.0000'
 ```
+
+Every declared scale is supported in all three modes, including the 18
+fractional digits an INT64-backed `NUMERIC(18,18)` allows and the 38 an INT128
+column can declare. A Firebird coefficient represents `value * 10^scale`, so
+the positive scales that dialect 1 and some legacy metadata still produce
+scale the value up rather than down.
 
 The string literals `'lossy'`, `'safe'`, and `'string'` are accepted too,
 including in connection URIs (`?numericMode=safe`). `NULL` remains `null` in
