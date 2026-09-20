@@ -1908,10 +1908,14 @@ in bytes).
 Notes:
 
 - Requires wire protocol 16+ (Firebird 4.0 or newer server).
-- Values are encoded from the statement's own parameter metadata, so
-  NUMERIC/DECIMAL scale, `BIGINT`/`INT128` (pass `BigInt`), `BOOLEAN`,
-  `TIMESTAMP`/`DATE`/`TIME`, `FLOAT`/`DOUBLE` and `DECFLOAT` all round-trip
-  exactly.
+- Values are encoded from the statement's own parameter metadata. Fixed-point
+  `NUMERIC`/`DECIMAL`, `BIGINT`, and `INT128` parameters accept numbers, decimal
+  strings, and `BigInt`. Decimal strings retain their exact digits; finite
+  numbers are interpreted through their canonical decimal representation and
+  rounded to the declared scale with ties away from zero. Use a string (or
+  `BigInt` for whole values) when the input is outside JavaScript's safe integer
+  range. `BOOLEAN`, `TIMESTAMP`/`DATE`/`TIME`, `FLOAT`/`DOUBLE`, and `DECFLOAT`
+  use their corresponding wire types.
 - `BLOB` columns accept Buffers, strings, JSON-able objects, or
   pre-created blob quad ids: values are uploaded as transaction blobs
   first — all initiated back-to-back so the blob ops pipeline on the

@@ -622,7 +622,7 @@ export class SQLVarInt128 extends SQLVarBase {
     decode(data: XdrReader, lowerV13: boolean, options?: NumericDecodeOptions) {
         const mode = options?.numericMode || Const.NUMERIC_MODE_LOSSY;
         const ret = mode === Const.NUMERIC_MODE_LOSSY
-            ? decodeLossyInt128(data.readInt128(), this.scale)
+            ? decodeLossyInt128(data.readInt128Signed(), this.scale)
             : decodeExactNumeric(data.readInt128Signed(), this.scale, mode);
 
         if (!lowerV13 || !data.readInt()) {
@@ -953,6 +953,83 @@ export class SQLParamInt128 {
             data.addInt(1);
         }
     }
+}
+
+//------------------------------------------------------
+
+const FIXED_POINT_RE = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/;
+
+/**
+ * Convert a decimal input to the signed integer coefficient used by a
+ * Firebird fixed-point wire type. Numbers are interpreted through their
+ * canonical decimal string; strings and bigints never pass through Number.
+ * Digits discarded by the target scale are rounded to nearest, ties away
+ * from zero, matching Firebird's conversion of decimal parameter text.
+ */
+export function toScaledInteger(value: number | string | bigint, scale: number, bits: 16 | 32 | 64 | 128): bigint {
+    if (!Number.isSafeInteger(scale)) {
+        throw new TypeError('Fixed-point scale must be an integer');
+    }
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+        throw new TypeError('Fixed-point value must be finite');
+    }
+    if (typeof value !== 'number' && typeof value !== 'string' && typeof value !== 'bigint') {
+        throw new TypeError('Fixed-point value must be a number, string, or bigint');
+    }
+
+    const text = String(value).trim();
+    const match = FIXED_POINT_RE.exec(text);
+    if (!match) {
+        throw new TypeError('Invalid fixed-point value: ' + text);
+    }
+
+    const negative = match[1] === '-';
+    const integer = match[2] || '0';
+    const fraction = match[3] !== undefined ? match[3] : (match[4] || '');
+    const exponent = match[5] === undefined ? 0 : Number(match[5]);
+    if (!Number.isSafeInteger(exponent)) {
+        throw new RangeError('Fixed-point exponent is outside the supported range: ' + match[5]);
+    }
+
+    let digits = (integer + fraction).replace(/^0+/, '') || '0';
+    if (digits === '0') return 0n;
+
+    const shift = exponent - fraction.length - scale;
+    let coefficientDigits: string;
+    let roundUp = false;
+
+    if (shift >= 0) {
+        // Every supported destination is at most 39 decimal digits. Avoid
+        // constructing an arbitrarily large BigInt for inputs such as 1e999999.
+        if (digits.length + shift > 40) {
+            throw new RangeError('Fixed-point value is outside the signed ' + bits + '-bit range: ' + text);
+        }
+        coefficientDigits = digits + '0'.repeat(shift);
+    } else {
+        const discarded = -shift;
+        if (discarded < digits.length) {
+            const split = digits.length - discarded;
+            coefficientDigits = digits.slice(0, split);
+            roundUp = digits.charCodeAt(split) >= 0x35;
+        } else {
+            coefficientDigits = '0';
+            // If discarded exceeds the number of significant digits, the
+            // magnitude is below 0.1 coefficient and cannot round to one.
+            roundUp = discarded === digits.length && digits.charCodeAt(0) >= 0x35;
+        }
+    }
+
+    let coefficient = BigInt(coefficientDigits);
+    if (roundUp) coefficient += 1n;
+    if (negative) coefficient = -coefficient;
+
+    const width = BigInt(bits);
+    const min = -(1n << (width - 1n));
+    const max = (1n << (width - 1n)) - 1n;
+    if (coefficient < min || coefficient > max) {
+        throw new RangeError('Fixed-point value is outside the signed ' + bits + '-bit range: ' + text);
+    }
+    return coefficient;
 }
 
 //------------------------------------------------------
