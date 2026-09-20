@@ -1434,6 +1434,49 @@ Firebird.attach(options, function (err, db) {
 });
 ```
 
+#### The auxiliary connection, and when `attachEvent` fails
+
+Events do **not** travel over the connection you attached with. `db.attachEvent()` sends
+`op_connect_request`; the server opens a fresh listening socket, replies with its address and
+port, and the driver dials that address as a **second, independent TCP connection**. Only once
+that aux socket is up is the `FbEventManager` created and handed to your callback.
+
+The aux port is chosen by the server and is *not* the port you connected to, so it has to be
+reachable from the client in its own right. Two deployments commonly get this wrong:
+
+- **Containers.** A Firebird container that publishes only `3050` answers `op_connect_request`
+  with an aux port nothing outside the container can reach. Pin it with `RemoteAuxPort` in
+  `firebird.conf` and publish that port too, or run the client on the same network.
+- **Firewalls.** A rule that DROPs the aux port (rather than REJECTing it) leaves the dial
+  waiting out the operating system's connect timeout — around two minutes on Linux — before
+  the failure is reported.
+
+If the server reports `0.0.0.0` or `::` as the aux address — usual when it listens on all
+interfaces — the driver dials the host from your connection options instead, so that host must
+be the one reaching the aux port.
+
+Since **2.16.2** a failed dial is reported to the attachment callback as an `Error`, exactly
+once, carrying Node's socket `code`. Earlier versions recorded it internally and never called
+back, so `attachEvent()` and `attachEventAsync()` hung indefinitely:
+
+```js
+db.attachEvent(function (err, evtmgr) {
+  if (err) {
+    // ECONNREFUSED  → aux port not reachable (unpublished container port, nothing listening)
+    // ETIMEDOUT     → aux port filtered by a firewall
+    // EHOSTUNREACH  → wrong host: the address the server reported, or your connection host
+    //                 when the server reported 0.0.0.0/::
+    console.error('event attachment failed:', err.code || err.message);
+    return;
+  }
+  // ...
+});
+```
+
+Errors on the aux socket *after* it connects are not delivered to this callback. Poll
+`evtmgr.getState().isEventConnectionOpen` if you need to detect an aux connection that dies
+mid-subscription.
+
 ### Escaping Query values
 
 ```js
@@ -2428,6 +2471,21 @@ db.query('SELECT * FROM ACTORS WHERE NAME LIKE ?', ['James Wick%'], function (er
 If the failure is intermittent — the same code with the same credentials succeeds on most attempts and fails on others — update the driver: versions before 2.8.1 had two serialization mismatches in the SRP (Srp/Srp256/384/512) proof-of-password computation that made roughly 1 in 80 attaches fail with exactly this error (whenever the ephemeral SRP values happened to have a leading zero byte). Fixed in 2.8.1; see [issue #421](https://github.com/hgourvest/node-firebird/issues/421) and [issue #347](https://github.com/hgourvest/node-firebird/issues/347). Switching the user to `Legacy_UserManager`/`Legacy_Auth` "fixed" it on older versions only because that avoids the SRP code path entirely — with 2.8.1+ this workaround is no longer needed.
 
 If the failure is consistent, the credentials really don't match an account for the authentication plugin in use: check `AuthServer`/`UserManager` in `firebird.conf` and remember that SRP and Legacy user managers keep separate password stores — a user created under one plugin does not automatically exist for the other.
+
+#### `db.attachEvent()` never calls back, or hangs, in Docker or behind a firewall
+
+Upgrade to **2.16.2 or later**: before that release the driver recorded a failure to open the
+auxiliary event connection internally and never invoked the attachment callback, so
+`attachEvent()` silently stalled and `attachEventAsync()` returned a promise that never settled.
+From 2.16.2 the failure reaches your callback as an `Error` carrying Node's socket `code`.
+
+The failure itself is a reachability problem, not a driver bug, and upgrading only makes it
+visible. Firebird events use a **second TCP connection** to a port the *server* chooses, which
+is not the port you connected to, so publishing `3050` alone is not enough: pin `RemoteAuxPort`
+in `firebird.conf` and publish that port too. See
+[§ The auxiliary connection](#the-auxiliary-connection-and-when-attachevent-fails) for the full
+picture, including the `0.0.0.0`/`::` case and why a DROP firewall rule delays the error by
+roughly two minutes.
 
 ## Contributing
 
