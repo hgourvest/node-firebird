@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import net from 'net';
 import EventConnection from '../../src/wire/eventConnection';
 
 const servers: net.Server[] = [];
 
 afterEach(async () => {
+    vi.restoreAllMocks();
     await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => {
         if (!server.listening) {
             resolve();
@@ -15,6 +16,23 @@ afterEach(async () => {
 });
 
 describe('EventConnection attachment', () => {
+    it('reports a socket that closes before connecting without an error event', () => {
+        const socket = new net.Socket();
+        vi.spyOn(net, 'createConnection').mockReturnValue(socket);
+
+        const errors: Array<Error | undefined> = [];
+        const connection = new EventConnection('event-host', 3050, err => errors.push(err), {});
+
+        socket.emit('close');
+        socket.emit('close');
+
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toEqual(new Error('Event connection to event-host:3050 closed before connecting.'));
+        expect(connection._isOpened).toBe(false);
+        expect(connection._isClosed).toBe(true);
+        socket.destroy();
+    });
+
     it('reports a refused auxiliary connection exactly once and closes its socket', async () => {
         const probe = net.createServer();
         servers.push(probe);
