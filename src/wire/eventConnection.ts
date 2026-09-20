@@ -13,37 +13,49 @@ class EventConnection {
     _xdr?: XdrReader;
     error: any;
     eventcallback: ((err: any, ret?: any) => void) | null;
+    _connectSettled: boolean;
 
-    constructor(host: string, port: number, callback: (() => void) | undefined, db: any) {
+    constructor(host: string, port: number, callback: ((err?: Error) => void) | undefined, db: any) {
         var self = this;
         this.db = db;
         this.emgr = null;
         this._isClosed = false;
         this._isOpened = false;
+        this._connectSettled = false;
         this._socket = net.createConnection(port, host);
         this._bind_events(host, port, callback);
         this.error = null;
         this.eventcallback = null;
     }
 
-    _bind_events(host: string, port: number, callback?: () => void): void {
+    _bind_events(host: string, port: number, callback?: (err?: Error) => void): void {
         var self = this;
 
-        self._socket.on('close', function () {
+        function finishConnect(err?: Error) {
+            if (self._connectSettled) return;
+            self._connectSettled = true;
+            if (callback) callback(err);
+        }
 
+        self._socket.on('close', function () {
             self._isClosed = true;
+            if (!self._isOpened) {
+                finishConnect(self.error || new Error(`Event connection to ${host}:${port} closed before connecting.`));
+            }
         })
 
         self._socket.on('error', function (e) {
-
             self.error = e;
+            if (!self._isOpened) {
+                if (!self._socket.destroyed) self._socket.destroy();
+                finishConnect(e);
+            }
         })
 
         self._socket.on('connect', function () {
             self._isClosed = false;
             self._isOpened = true;
-            if (callback)
-                callback();
+            finishConnect();
         });
 
         self._socket.on('data', function (data: Buffer) {
