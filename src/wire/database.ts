@@ -464,6 +464,12 @@ class Database extends Events.EventEmitter {
     attachEvent(callback: Callback<FbEventManager>): this {
         var self = this;
         const eventid = self.eventid++;
+        let completed = false;
+        const complete: Callback<FbEventManager> = function(err?: any, manager?: FbEventManager) {
+            if (completed) return;
+            completed = true;
+            callback(err, manager);
+        };
         if (process.env.FIREBIRD_DEBUG) {
             console.log('[fb-debug] Database.attachEvent: calling auxConnection, eventid=%d queue=%d', eventid, self.connection._queue.length);
         }
@@ -473,7 +479,7 @@ class Database extends Events.EventEmitter {
                 if (process.env.FIREBIRD_DEBUG) {
                     console.log('[fb-debug] Database.attachEvent: auxConnection error:', err.message);
                 }
-                doError(err, callback);
+                doError(err, complete);
                 return;
             }
 
@@ -489,7 +495,7 @@ class Database extends Events.EventEmitter {
                     if (process.env.FIREBIRD_DEBUG) {
                         console.log('[fb-debug] Database.attachEvent: EventConnection error:', err.message);
                     }
-                    doError(err, callback);
+                    doError(err, complete);
                     return;
                 }
 
@@ -499,14 +505,14 @@ class Database extends Events.EventEmitter {
 
                 const evt = new FbEventManager(self, eventConnection, eventid, function (err: any) {
                     if (err) {
-                        doError(err, callback);
+                        doError(err, complete);
                         return;
                     }
 
                     if (process.env.FIREBIRD_DEBUG) {
                         console.log('[fb-debug] Database.attachEvent: FbEventManager ready, eventid=%d', evt.eventid);
                     }
-                callback(err, evt);
+                complete(err, evt);
                 });
             }, self);
         });
