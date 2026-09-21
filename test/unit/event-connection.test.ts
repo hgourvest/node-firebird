@@ -104,7 +104,9 @@ describe('EventConnection post-attachment failures', () => {
         const guardedError = vi.fn();
         const { socket, connection } = createConnected({ connection: { _emitError: guardedError } });
         connection.eventcallback = null;
+        connection._intentionalClose = true;
 
+        socket.emit('error', new Error('ECONNRESET during shutdown'));
         socket.emit('close');
 
         expect(guardedError).not.toHaveBeenCalled();
@@ -140,6 +142,8 @@ describe('FbEventManager post-attachment failures', () => {
         const socket = {
             destroyed: false,
             destroy: vi.fn(function(this: { destroyed: boolean }) { this.destroyed = true; }),
+            end: vi.fn(),
+            once: vi.fn(),
         };
         const eventconnection: any = {
             _isClosed: false,
@@ -193,5 +197,15 @@ describe('FbEventManager post-attachment failures', () => {
         expect(ready).toHaveBeenCalledTimes(1);
         expect(ready).toHaveBeenCalledWith(failure);
         expect(guardedError).not.toHaveBeenCalled();
+    });
+
+    it('marks caller-initiated shutdown before ending the auxiliary socket', () => {
+        const { eventconnection, manager, socket } = createManager();
+
+        manager.close();
+
+        expect(eventconnection._intentionalClose).toBe(true);
+        expect(eventconnection.eventcallback).toBeNull();
+        expect(socket.end).toHaveBeenCalledTimes(1);
     });
 });

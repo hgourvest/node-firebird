@@ -15,6 +15,7 @@ class EventConnection {
     eventcallback: ((err: any, ret?: any) => void) | null;
     _connectSettled: boolean;
     _terminalErrorReported: boolean;
+    _intentionalClose: boolean;
 
     constructor(host: string, port: number, callback: ((err?: Error) => void) | undefined, db: any) {
         var self = this;
@@ -24,6 +25,7 @@ class EventConnection {
         this._isOpened = false;
         this._connectSettled = false;
         this._terminalErrorReported = false;
+        this._intentionalClose = false;
         this._socket = net.createConnection(port, host);
         this._bind_events(host, port, callback);
         this.error = null;
@@ -47,11 +49,14 @@ class EventConnection {
             self._isClosed = true;
             self._isOpened = false;
 
-            if (!wasOpened) {
+            // An error during a caller-initiated shutdown is part of tearing
+            // down the auxiliary socket, not a database error.
+            if (!self._intentionalClose && !wasOpened) {
                 finishConnect(err);
-            } else if (self.eventcallback) {
+            } else if (!self._intentionalClose && self.eventcallback) {
                 self.eventcallback(err);
-            } else if (self.db && self.db.connection && typeof self.db.connection._emitError === 'function') {
+            } else if (!self._intentionalClose && self.db && self.db.connection &&
+                typeof self.db.connection._emitError === 'function') {
                 self.db.connection._emitError(err);
             }
 
@@ -62,7 +67,7 @@ class EventConnection {
             self._isClosed = true;
             if (!self._isOpened) {
                 finishConnect(self.error || new Error(`Event connection to ${host}:${port} closed before connecting.`));
-            } else if (self.eventcallback && !self._terminalErrorReported) {
+            } else if (!self._intentionalClose && self.eventcallback && !self._terminalErrorReported) {
                 reportTerminalError(new Error(`Event connection to ${host}:${port} closed unexpectedly.`));
             }
             self._isOpened = false;

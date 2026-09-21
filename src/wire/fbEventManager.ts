@@ -316,6 +316,7 @@ class FbEventManager extends Events.EventEmitter {
 
         // Prevent the event loop from re-queuing on stale op_event notifications
         // that may arrive between closeEvents and socket.end()
+        self.eventconnection._intentionalClose = true;
         self.eventconnection.eventcallback = null;
 
         // Gracefully close the event socket using a FIN (end()) rather than a RST
