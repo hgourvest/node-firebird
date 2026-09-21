@@ -51,13 +51,15 @@ describe('Connection URI strings (firebird://...)', function () {
         it('should map query parameters onto options with type coercion', function () {
             const o = parseConnectionUri(
                 'firebird://localhost/employee?encoding=UTF8&lowercase_keys=true' +
-                '&pageSize=8192&wireCompression=1&role=READONLY&connectTimeout=5000');
+                '&pageSize=8192&wireCompression=1&role=READONLY&connectTimeout=5000' +
+                '&eventHost=events.example.com');
             assert.strictEqual(o.encoding, 'UTF8');
             assert.strictEqual(o.lowercase_keys, true);
             assert.strictEqual(o.pageSize, 8192);
             assert.strictEqual(o.wireCompression, true);
             assert.strictEqual(o.role, 'READONLY');
             assert.strictEqual(o.connectTimeout, 5000);
+            assert.strictEqual(o.eventHost, 'events.example.com');
         });
 
         it('should accept user/password as query parameters', function () {

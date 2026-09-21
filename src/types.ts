@@ -413,6 +413,8 @@ export type SupportedCharacterSet = |
 
 export interface Options {
     host?: string;
+    /** Override the server-advertised auxiliary event host (for NAT, tunnels and load balancers). */
+    eventHost?: string;
     port?: number;
     database?: string;
     user?: string;

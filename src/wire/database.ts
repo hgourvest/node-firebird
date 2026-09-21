@@ -1,6 +1,6 @@
 import Events from 'events';
 import { doError, fromCallback, type Callback, type SimpleCallback } from '../callback';
-import { batchResultToError, escape } from '../utils';
+import { batchResultToError, escape, resolveEventHost } from '../utils';
 import Const from './const';
 import { makeSqlTag, type SqlTag } from '../sql-template';
 import { computeColumnKeys, nestCell, resolveKeyTransform, resolveNestTables } from './xsqlvar';
@@ -481,9 +481,7 @@ class Database extends Events.EventEmitter {
                 console.log('[fb-debug] Database.attachEvent: auxConnection ok, connecting to aux port %s:%d', socket_info.host, socket_info.port);
             }
 
-            const host = (socket_info.host === '0.0.0.0' || socket_info.host === '::')
-                ? self.connection.options.host
-                : socket_info.host;
+            const host = resolveEventHost(self.connection.options, socket_info.host);
 
             const eventConnection = new EventConnection(
                 host, socket_info.port, function(err?: any) {

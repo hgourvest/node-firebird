@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escape, parseDate, lookupMessages, noop } from '../../src/utils';
+import { escape, parseDate, lookupMessages, noop, resolveEventHost } from '../../src/utils';
 import Const from '../../src/wire/const';
 
 describe('utils.escape', () => {
@@ -118,5 +118,27 @@ describe('utils.lookupMessages', () => {
 describe('utils.noop', () => {
     it('is a function returning undefined', () => {
         expect(noop()).toBeUndefined();
+    });
+});
+
+describe('utils.resolveEventHost', () => {
+    it('uses the server-advertised host when it is reachable', () => {
+        expect(resolveEventHost({ host: 'db.internal' }, 'events.internal')).toBe('events.internal');
+    });
+
+    it('uses the database host for wildcard advertisements', () => {
+        expect(resolveEventHost({ host: 'db.internal' }, '0.0.0.0')).toBe('db.internal');
+        expect(resolveEventHost({ host: 'db.internal' }, '::')).toBe('db.internal');
+    });
+
+    it('uses the default database host for wildcard advertisements when host is omitted', () => {
+        expect(resolveEventHost({}, '0.0.0.0')).toBe('127.0.0.1');
+        expect(resolveEventHost({}, '::')).toBe('127.0.0.1');
+    });
+
+    it('gives an explicit eventHost precedence over advertised and fallback hosts', () => {
+        const options = { host: 'db.internal', eventHost: 'public.example' };
+        expect(resolveEventHost(options, 'events.internal')).toBe('public.example');
+        expect(resolveEventHost(options, '0.0.0.0')).toBe('public.example');
     });
 });

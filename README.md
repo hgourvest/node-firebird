@@ -181,6 +181,7 @@ same way `PGUSER`/`PGPASSWORD` work with pg.
 var options = {};
 
 options.host = '127.0.0.1';
+options.eventHost = undefined; // optional; override the server-advertised host for the auxiliary event connection
 options.port = 3050;
 options.database = 'database.fdb';
 options.user = 'SYSDBA';
@@ -1454,6 +1455,11 @@ reachable from the client in its own right. Two deployments commonly get this wr
 If the server reports `0.0.0.0` or `::` as the aux address — usual when it listens on all
 interfaces — the driver dials the host from your connection options instead, so that host must
 be the one reaching the aux port.
+
+Behind NAT, a tunnel, container networking, or a load balancer, the advertised
+address may not be reachable from the client. Set `options.eventHost` to override
+only the host used for the auxiliary event connection. The auxiliary port is
+still selected by Firebird; use `RemoteAuxPort` when it also needs to be fixed.
 
 Since **2.16.2** a failed dial is reported to the attachment callback as an `Error`, exactly
 once, carrying Node's socket `code`. Earlier versions recorded it internally and never called
