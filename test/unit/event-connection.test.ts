@@ -228,8 +228,8 @@ describe('FbEventManager optional baseline', () => {
             eventcallback: null,
             emgr: null,
         };
-        const manager = new FbEventManager({ connection }, eventconnection, 7, vi.fn());
-        function packet(counts: Record<string, number>) {
+        const manager = new FbEventManager({ connection, eventid: 8 }, eventconnection, 7, vi.fn());
+        function packet(counts: Record<string, number>, eventId = manager.eventid) {
             const events = Object.entries(counts).filter(([name, count]) =>
                 Object.prototype.hasOwnProperty.call(manager.events, name) && manager.events[name] !== count
             ).map(([name, count]) => ({ name, count }));
@@ -238,7 +238,7 @@ describe('FbEventManager optional baseline', () => {
                     if (Object.prototype.hasOwnProperty.call(manager.events, name)) manager.events[name] = count;
                 }
             }
-            eventconnection.eventcallback(null, { eventid: 7, events, counts });
+            eventconnection.eventcallback(null, { eventid: eventId, events, counts });
         }
         return { connection, manager, packet, queuedEventSets };
     }
@@ -319,5 +319,99 @@ describe('FbEventManager optional baseline', () => {
         finishCancellation();
         expect(callback).toHaveBeenCalledTimes(1);
         expect(connection.queEvents).toHaveBeenCalledTimes(queuedBeforeLatePacket);
+    });
+
+    it('ignores a delayed packet even when the old and new subscriptions share a name', () => {
+        const { manager, packet } = createManager(true);
+        const baseline = vi.fn();
+        const posts = vi.fn();
+        manager.on('baseline', baseline);
+        manager.on('post_event', posts);
+        manager.registerEvent(['A', 'B'], vi.fn());
+        packet({ A: 1, B: 2 });
+        const oldId = manager.eventid;
+
+        manager.unregisterEvent(['A'], vi.fn());
+        expect(manager.eventid).not.toBe(oldId);
+        packet({ B: 3 }, oldId);
+        expect(baseline).toHaveBeenCalledTimes(1);
+        expect(manager.events.B).toBe(0);
+        expect(posts).not.toHaveBeenCalled();
+
+        packet({ B: 3 });
+        packet({ B: 4 });
+        expect(baseline).toHaveBeenCalledTimes(2);
+        expect(baseline).toHaveBeenLastCalledWith({ B: 3 });
+        expect(posts).toHaveBeenCalledExactlyOnceWith('B', 4);
+    });
+
+    it('coalesces changes made before cancellation completes', () => {
+        const { connection, manager, packet, queuedEventSets } = createManager(true);
+        manager.registerEvent(['A', 'B'], vi.fn());
+        packet({ A: 1, B: 2 });
+
+        let finishCancellation!: (err?: Error) => void;
+        connection.closeEvents.mockImplementationOnce((_id, callback) => { finishCancellation = callback; });
+        const removed = vi.fn();
+        const added = vi.fn();
+        manager.unregisterEvent(['A'], removed);
+        manager.registerEvent(['C'], added);
+        expect(connection.closeEvents).toHaveBeenCalledTimes(1);
+        expect(connection.queEvents).toHaveBeenCalledTimes(2);
+        expect(removed).not.toHaveBeenCalled();
+        expect(added).not.toHaveBeenCalled();
+
+        finishCancellation();
+        expect(connection.closeEvents).toHaveBeenCalledTimes(1);
+        expect(queuedEventSets.at(-1)).toEqual(['B', 'C']);
+        expect(removed).toHaveBeenCalledExactlyOnceWith(null, undefined);
+        expect(added).toHaveBeenCalledExactlyOnceWith(null, undefined);
+        packet({ B: 2, C: 5 });
+        expect(manager.events).toEqual({ B: 2, C: 5 });
+    });
+
+    it('replaces a subscription changed before its queue acknowledgement', () => {
+        const { connection, manager, packet, queuedEventSets } = createManager(true);
+        let acknowledgeFirst!: (err?: Error) => void;
+        connection.queEvents.mockImplementationOnce((_events, _id, callback) => { acknowledgeFirst = callback; });
+        const first = vi.fn();
+        const second = vi.fn();
+        manager.registerEvent(['A'], first);
+        const oldId = manager.eventid;
+        manager.registerEvent(['B'], second);
+        packet({ A: 2 }, oldId);
+        expect(first).not.toHaveBeenCalled();
+        expect(second).not.toHaveBeenCalled();
+
+        acknowledgeFirst();
+        expect(connection.closeEvents).toHaveBeenCalledExactlyOnceWith(oldId, expect.any(Function));
+        expect(manager.eventid).not.toBe(oldId);
+        expect(queuedEventSets.at(-1)).toEqual(['A', 'B']);
+        packet({ A: 2, B: 3 }, oldId);
+        expect(manager.events).toEqual({ A: 0, B: 0 });
+        packet({ A: 2, B: 3 });
+        expect(first).toHaveBeenCalledTimes(1);
+        expect(second).toHaveBeenCalledTimes(1);
+        expect(manager.events).toEqual({ A: 2, B: 3 });
+    });
+
+    it('does not subscribe again when closed during an in-flight cancellation', () => {
+        const { connection, manager, packet } = createManager(true);
+        manager.registerEvent(['A'], vi.fn());
+        packet({ A: 1 });
+        let finishCancellation!: (err?: Error) => void;
+        connection.closeEvents.mockImplementationOnce((_id, callback) => { finishCancellation = callback; });
+
+        const change = vi.fn();
+        const closed = vi.fn();
+        manager.registerEvent(['B'], change);
+        const queuedBeforeClose = connection.queEvents.mock.calls.length;
+        manager.close(closed);
+        finishCancellation();
+
+        expect(connection.queEvents).toHaveBeenCalledTimes(queuedBeforeClose);
+        expect(change).toHaveBeenCalledTimes(1);
+        expect(change.mock.calls[0][0]).toBeInstanceOf(Error);
+        expect(closed).toHaveBeenCalledOnce();
     });
 });

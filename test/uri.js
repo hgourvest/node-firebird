@@ -52,7 +52,7 @@ describe('Connection URI strings (firebird://...)', function () {
             const o = parseConnectionUri(
                 'firebird://localhost/employee?encoding=UTF8&lowercase_keys=true' +
                 '&pageSize=8192&wireCompression=1&role=READONLY&connectTimeout=5000' +
-                '&eventHost=events.example.com');
+                '&eventHost=events.example.com&eventBaseline=true');
             assert.strictEqual(o.encoding, 'UTF8');
             assert.strictEqual(o.lowercase_keys, true);
             assert.strictEqual(o.pageSize, 8192);
@@ -60,6 +60,8 @@ describe('Connection URI strings (firebird://...)', function () {
             assert.strictEqual(o.role, 'READONLY');
             assert.strictEqual(o.connectTimeout, 5000);
             assert.strictEqual(o.eventHost, 'events.example.com');
+            assert.strictEqual(o.eventBaseline, true);
+            assert.strictEqual(parseConnectionUri('firebird://localhost/employee?eventBaseline=false').eventBaseline, false);
         });
 
         it('should accept user/password as query parameters', function () {

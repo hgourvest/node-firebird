@@ -366,6 +366,18 @@ describe('Firebird Database Events (POST_EVENT)', function () {
                 const post = await waitFor(postPromise);
                 assert.equal(post.name, 'TRG_TEST_EVENTS');
                 assert.ok(post.count > baselines[0].TRG_TEST_EVENTS);
+
+                // Reconfiguration uses a new wire event ID. The next packet
+                // must be another baseline, not an apparent new POST_EVENT.
+                const nextBaseline = new Promise(resolve => evtmgr.once('baseline', resolve));
+                await waitFor(Promise.all([
+                    nextBaseline,
+                    fromCallback(cb => evtmgr.registerEvent(['SECOND_EVENT'], cb)),
+                ]));
+                assert.equal(baselines.length, 2);
+                assert.equal(posts.length, 1);
+                assert.ok(Object.hasOwn(baselines[1], 'TRG_TEST_EVENTS'));
+                assert.ok(Object.hasOwn(baselines[1], 'SECOND_EVENT'));
             } finally {
                 clearTimeout(timer);
             }

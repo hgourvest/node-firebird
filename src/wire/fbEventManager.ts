@@ -75,9 +75,16 @@ class FbEventManager extends Events.EventEmitter {
     events: Record<string, number>;
     eventid: number;
     _subscriptionVersion: number;
+    _activeSubscriptionVersion: number;
     _hasActiveSubscription: boolean;
     _baselinePending: boolean;
     _eventBaseline: boolean;
+    _baselineChangeInProgress: boolean;
+    _baselineCallbacks: Array<(err: any, ret?: any) => void>;
+    _hasQueuedBaseline: boolean;
+    _retiredEventIds: Set<number>;
+    _baselineCloseRequested: boolean;
+    _baselineCloseCallbacks: Array<(err?: any) => void>;
     _readySettled: boolean;
     _terminalErrorReported: boolean;
     _readyCallback: (err: any, ret?: any) => void;
@@ -91,12 +98,19 @@ class FbEventManager extends Events.EventEmitter {
         // Guards _hasActiveSubscription against late callbacks from an older
         // register/unregister cycle after a newer subscription change started.
         this._subscriptionVersion = 0;
+        this._activeSubscriptionVersion = 0;
         // True when an op_que_events subscription is currently active on the
         // main connection (so close() and _changeEvent know whether to send
         // op_cancel_events before tearing down or re-subscribing).
         this._hasActiveSubscription = false;
         this._baselinePending = false;
         this._eventBaseline = db.connection.options?.eventBaseline === true;
+        this._baselineChangeInProgress = false;
+        this._baselineCallbacks = [];
+        this._hasQueuedBaseline = false;
+        this._retiredEventIds = new Set();
+        this._baselineCloseRequested = false;
+        this._baselineCloseCallbacks = [];
         this._readySettled = false;
         this._terminalErrorReported = false;
         this._readyCallback = callback;
@@ -219,11 +233,13 @@ class FbEventManager extends Events.EventEmitter {
             // op_event arriving on the event connection after closeEvents can
             // trigger queEvents({}) which Firebird never acknowledges,
             // permanently blocking the main connection queue.
-            if (!self._hasActiveSubscription || Object.keys(self.events).length === 0) {
+            if (!self._hasActiveSubscription || Object.keys(self.events).length === 0 ||
+                (self._eventBaseline && self._activeSubscriptionVersion !== self._subscriptionVersion)) {
                 return;
             }
-            cnx.queEvents(self.events, self.eventid, function (err: any) {
-                if (err) {
+            const eventId = self.eventid;
+            cnx.queEvents(self.events, eventId, function (err: any) {
+                if (err && (!self._eventBaseline || !self._retiredEventIds.has(eventId))) {
                     self._handleAsyncError(err);
                     return;
                 }
@@ -232,13 +248,20 @@ class FbEventManager extends Events.EventEmitter {
         }
 
         this.eventconnection.eventcallback = function (err: any, ret?: any) {
-            if (err || !ret || (self.eventid !== ret.eventid)) {
-                self._handleAsyncError(err || new Error('Bad eventid'));
+            if (err || !ret) {
+                self._handleAsyncError(err || new Error('Missing event packet'));
+                return;
+            }
+            if (self.eventid !== ret.eventid) {
+                if (self._eventBaseline && self._retiredEventIds.has(ret.eventid)) return;
+                self._handleAsyncError(new Error('Bad eventid'));
                 return;
             }
 
             if (self._eventBaseline &&
-                (!self._hasActiveSubscription || Object.keys(ret.counts).some(name =>
+                (self._baselineCloseRequested || !self._hasActiveSubscription ||
+                self._activeSubscriptionVersion !== self._subscriptionVersion ||
+                Object.keys(ret.counts).some(name =>
                     !Object.prototype.hasOwnProperty.call(self.events, name)))) {
                 // Ignore a packet from a cancelled subscription (including
                 // one carrying an event that has since been unregistered).
@@ -268,13 +291,12 @@ class FbEventManager extends Events.EventEmitter {
     }
 
     _changeEvent(callback: (err: any, ret?: any) => void): void {
+        if (this._eventBaseline) {
+            this._changeEventWithBaseline(callback);
+            return;
+        }
         var self = this;
         const changeVersion = ++self._subscriptionVersion;
-        const hadActiveSubscription = self._hasActiveSubscription;
-        if (self._eventBaseline) {
-            self._hasActiveSubscription = false;
-            self._baselinePending = false;
-        }
 
         function subscribe() {
             // If no events remain, mark subscription as inactive and return.
@@ -292,12 +314,6 @@ class FbEventManager extends Events.EventEmitter {
             // matching op_response reaches the main connection. Mark the
             // subscription active before sending queEvents so that this early
             // op_event can re-queue the next one-shot request.
-            if (self._eventBaseline) {
-                // A changed subscription needs a fresh initial snapshot. Zero
-                // counters request one even when a prior generation had fired.
-                for (const name of Object.keys(self.events)) self.events[name] = 0;
-                self._baselinePending = true;
-            }
             self._hasActiveSubscription = true;
             self.db.connection.queEvents(self.events, self.eventid, function (err: any, ret?: any) {
                 if (err) {
@@ -312,7 +328,7 @@ class FbEventManager extends Events.EventEmitter {
             });
         }
 
-        if (hadActiveSubscription) {
+        if (self._hasActiveSubscription) {
             // Cancel the current subscription before setting up a new one.
             self.db.connection.closeEvents(this.eventid, function (err: any) {
                 if (err) {
@@ -329,10 +345,87 @@ class FbEventManager extends Events.EventEmitter {
         }
     }
 
+    _changeEventWithBaseline(callback: (err: any, ret?: any) => void): void {
+        const cnx = this.db.connection;
+        this._subscriptionVersion++;
+        this._baselineCallbacks.push(callback);
+        if (this._baselineChangeInProgress) return;
+        this._baselineChangeInProgress = true;
+
+        const finish = (err: any, ret?: any) => {
+            this._baselineChangeInProgress = false;
+            if (this._baselineCloseRequested && !err) err = new Error('Event Connection is closed.');
+            const callbacks = this._baselineCallbacks.splice(0);
+            for (const done of callbacks) {
+                if (err) doError(err, done);
+                else done(null, ret);
+            }
+            if (this._baselineCloseRequested) {
+                this._baselineCloseRequested = false;
+                const closeCallbacks = this._baselineCloseCallbacks.splice(0);
+                this.close(closeError => {
+                    for (const done of closeCallbacks) done(closeError);
+                });
+            }
+        };
+
+        const subscribe = () => {
+            if (this._baselineCloseRequested) {
+                finish(new Error('Event Connection is closed.'));
+                return;
+            }
+            if (Object.keys(this.events).length === 0) {
+                this._hasActiveSubscription = false;
+                this._baselinePending = false;
+                finish(null);
+                return;
+            }
+
+            // p_event_rid is client-generated. A fresh ID makes a delayed
+            // notification from an older generation distinguishable even
+            // when both generations contain the same event name.
+            if (this._hasQueuedBaseline) this.eventid = this.db.eventid++;
+            this._hasQueuedBaseline = true;
+            const version = this._subscriptionVersion;
+            this._activeSubscriptionVersion = version;
+            for (const name of Object.keys(this.events)) this.events[name] = 0;
+            this._baselinePending = true;
+            this._hasActiveSubscription = true;
+            cnx.queEvents(this.events, this.eventid, (err: any, ret?: any) => {
+                if (err) {
+                    this._hasActiveSubscription = false;
+                    this._baselinePending = false;
+                    finish(err);
+                } else if (version !== this._subscriptionVersion) {
+                    cycle();
+                } else {
+                    finish(null, ret);
+                }
+            });
+        };
+
+        const cycle = () => {
+            if (!this._hasActiveSubscription) {
+                subscribe();
+                return;
+            }
+            const oldId = this.eventid;
+            this._hasActiveSubscription = false;
+            this._baselinePending = false;
+            this._retiredEventIds.add(oldId);
+            cnx.closeEvents(oldId, (err: any) => {
+                if (err) finish(err);
+                else subscribe();
+            });
+        };
+
+        cycle();
+    }
+
     registerEvent(events: string[], callback: (err: any, ret?: any) => void): any {
         var self = this;
 
-        if (self.db.connection._isClosed || self.eventconnection._isClosed)
+        if (self.db.connection._isClosed || self.eventconnection._isClosed || self._baselineCloseRequested)
             return self.eventconnection.throwClosed(callback);
 
         events.forEach((event) => self.events[event] = self.events[event] || 0);
@@ -342,7 +435,7 @@ class FbEventManager extends Events.EventEmitter {
     unregisterEvent(events: string[], callback: (err: any, ret?: any) => void): any {
         var self = this;
 
-        if (self.db.connection._isClosed || self.eventconnection._isClosed)
+        if (self.db.connection._isClosed || self.eventconnection._isClosed || self._baselineCloseRequested)
             return self.eventconnection.throwClosed(callback);
 
         events.forEach(function (event) { delete self.events[event] });
@@ -351,6 +444,12 @@ class FbEventManager extends Events.EventEmitter {
 
     close(callback?: (err?: any) => void): void {
         var self = this;
+
+        if (self._eventBaseline && self._baselineChangeInProgress) {
+            self._baselineCloseRequested = true;
+            if (callback) self._baselineCloseCallbacks.push(callback);
+            return;
+        }
 
         if (process.env.FIREBIRD_DEBUG) {
             console.log('[fb-debug] FbEventManager.close() called, _hasActiveSubscription=%s eventid=%d', self._hasActiveSubscription, self.eventid);
