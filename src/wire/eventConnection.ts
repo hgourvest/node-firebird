@@ -134,17 +134,19 @@ class EventConnection {
                             }
                             xdr.readInt64(); // ignore AST INFO
                             var event_id = xdr.readInt();
-                            // set the new count in global event hash
-                            // Only update events that are still registered; do not
-                            // re-add events that unregisterEvent() has deleted, since
-                            // that would cause subscribe() to re-subscribe for them.
-                            for (var evt in tmp_event) {
-                                if (Object.prototype.hasOwnProperty.call(self.emgr.events, evt)) {
-                                    self.emgr.events[evt] = tmp_event[evt];
+                            // In the default mode, retain the existing parser-side
+                            // counter update. Baseline mode lets the manager apply
+                            // counts only after rejecting cancelled subscriptions.
+                            // Never re-add an event removed by unregisterEvent().
+                            if (!self.emgr._eventBaseline) {
+                                for (var evt in tmp_event) {
+                                    if (Object.prototype.hasOwnProperty.call(self.emgr.events, evt)) {
+                                        self.emgr.events[evt] = tmp_event[evt];
+                                    }
                                 }
                             }
                             if (self.eventcallback)
-                                self.eventcallback(null, { eventid: event_id, events: lst_event });
+                                self.eventcallback(null, { eventid: event_id, events: lst_event, counts: tmp_event });
                             break;
                         default:
                             reportTerminalError(new Error('Unexpected event connection opcode: ' + r));

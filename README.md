@@ -182,6 +182,7 @@ var options = {};
 
 options.host = '127.0.0.1';
 options.eventHost = undefined; // optional; override the server-advertised host for the auxiliary event connection
+options.eventBaseline = false; // optional; emit the first event counter snapshot as 'baseline' instead of 'post_event'
 options.port = 3050;
 options.database = 'database.fdb';
 options.user = 'SYSDBA';
@@ -1396,6 +1397,19 @@ Firebird database events are **asynchronous** notifications triggered by `POST_E
 triggers or stored procedures. They travel over a separate "aux" connection (opened via
 `db.attachEvent()`) and are managed through a `FbEventManager` instance.
 
+By default, the first event notification after registration follows the existing
+`post_event` behavior. Set `options.eventBaseline = true` to emit that initial
+counter snapshot as `baseline` instead, without a `post_event` for that packet.
+Each register/unregister reconfiguration starts a new baseline. A `baseline`
+listener receives a snapshot of the currently registered event counters; install
+it, and any `post_event` listener, **before** calling `registerEvent()` because
+the auxiliary packet can arrive before the registration callback. A real event
+committed during registration can be included in that first snapshot, so an
+application using this option should query its current database state on
+`baseline` rather than assume every individual change will generate a later
+`post_event`. The default remains unchanged for applications that use the first
+`post_event` as a startup refresh signal.
+
 ```js
 Firebird.attach(options, function (err, db) {
   if (err) throw err;
@@ -1410,16 +1424,20 @@ Firebird.attach(options, function (err, db) {
       console.error('event connection failed:', err);
     });
 
+    // With options.eventBaseline = true, initialize from the current DB state.
+    // evtmgr.on('baseline', function (counts) { refreshFromDatabase(); });
+
+    evtmgr.on('post_event', function (name, count) {
+      // name  === event name string (e.g. 'MY_EVENT')
+      // count === cumulative trigger count since last notification
+    });
+
     // 2. Subscribe to one or more named events (names must match POST_EVENT('name') in your
     //    PSQL triggers/procedures). Resolves once op_que_events is acknowledged by the server.
     evtmgr.registerEvent(['MY_EVENT'], function (err) {
       if (err) throw err;
 
-      // 3. Listen for POST_EVENT notifications
-      evtmgr.on('post_event', function (name, count) {
-        // name  === event name string (e.g. 'MY_EVENT')
-        // count === cumulative trigger count since last notification
-      });
+      // 3. Subscription acknowledged. Notifications may already have arrived.
     });
 
     // 4. Unsubscribe from one or more events. Passing all currently registered names cancels

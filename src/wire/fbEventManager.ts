@@ -46,7 +46,8 @@
 //       │  │ IDLE  (or CLOSING if called from close())        │
 //       │  └──────────────────────────────────────────────────┘
 //       │
-//       │ emit('post_event', name, count)
+//       │ eventBaseline: first op_event → emit('baseline', counts)
+//       │ otherwise → emit('post_event', name, count)
 //       └──────────────────────┐
 //                              ▼
 //                  loop() → SUBSCRIBING (re-subscribe)
@@ -75,6 +76,8 @@ class FbEventManager extends Events.EventEmitter {
     eventid: number;
     _subscriptionVersion: number;
     _hasActiveSubscription: boolean;
+    _baselinePending: boolean;
+    _eventBaseline: boolean;
     _readySettled: boolean;
     _terminalErrorReported: boolean;
     _readyCallback: (err: any, ret?: any) => void;
@@ -92,6 +95,8 @@ class FbEventManager extends Events.EventEmitter {
         // main connection (so close() and _changeEvent know whether to send
         // op_cancel_events before tearing down or re-subscribing).
         this._hasActiveSubscription = false;
+        this._baselinePending = false;
+        this._eventBaseline = db.connection.options?.eventBaseline === true;
         this._readySettled = false;
         this._terminalErrorReported = false;
         this._readyCallback = callback;
@@ -99,12 +104,14 @@ class FbEventManager extends Events.EventEmitter {
         process.nextTick(() => this._finishReady());
     }
 
+    on(event: 'baseline', listener: (counts: Readonly<Record<string, number>>) => void): this;
     on(event: 'post_event', listener: (name: string, count: number) => void): this;
     on(event: 'error', listener: (error: Error) => void): this;
     on(event: string | symbol, listener: (...args: any[]) => void): this {
         return super.on(event, listener);
     }
 
+    once(event: 'baseline', listener: (counts: Readonly<Record<string, number>>) => void): this;
     once(event: 'post_event', listener: (name: string, count: number) => void): this;
     once(event: 'error', listener: (error: Error) => void): this;
     once(event: string | symbol, listener: (...args: any[]) => void): this {
@@ -123,6 +130,7 @@ class FbEventManager extends Events.EventEmitter {
         this._terminalErrorReported = true;
         const error = err instanceof Error ? err : new Error(String(err));
         this._hasActiveSubscription = false;
+        this._baselinePending = false;
         this._subscriptionVersion++;
         this.eventconnection._isClosed = true;
         this.eventconnection._isOpened = false;
@@ -229,9 +237,30 @@ class FbEventManager extends Events.EventEmitter {
                 return;
             }
 
-            ret.events.forEach(function (event: { name: string; count: number }) {
-                self.emit('post_event', event.name, event.count);
-            });
+            if (self._eventBaseline &&
+                (!self._hasActiveSubscription || Object.keys(ret.counts).some(name =>
+                    !Object.prototype.hasOwnProperty.call(self.events, name)))) {
+                // Ignore a packet from a cancelled subscription (including
+                // one carrying an event that has since been unregistered).
+                return;
+            }
+
+            if (self._eventBaseline) {
+                for (const [name, count] of Object.entries(ret.counts as Record<string, number>)) {
+                    self.events[name] = count;
+                }
+            }
+
+            if (self._eventBaseline && self._baselinePending && self._hasActiveSubscription) {
+                self._baselinePending = false;
+                // Give callers their own snapshot, never the mutable
+                // subscription object.
+                self.emit('baseline', Object.freeze({ ...self.events }));
+            } else {
+                ret.events.forEach(function (event: { name: string; count: number }) {
+                    self.emit('post_event', event.name, event.count);
+                });
+            }
 
             loop();
         };
@@ -241,6 +270,11 @@ class FbEventManager extends Events.EventEmitter {
     _changeEvent(callback: (err: any, ret?: any) => void): void {
         var self = this;
         const changeVersion = ++self._subscriptionVersion;
+        const hadActiveSubscription = self._hasActiveSubscription;
+        if (self._eventBaseline) {
+            self._hasActiveSubscription = false;
+            self._baselinePending = false;
+        }
 
         function subscribe() {
             // If no events remain, mark subscription as inactive and return.
@@ -249,6 +283,7 @@ class FbEventManager extends Events.EventEmitter {
             // permanently block the main connection queue.
             if (Object.keys(self.events).length === 0) {
                 self._hasActiveSubscription = false;
+                self._baselinePending = false;
                 callback(null);
                 return;
             }
@@ -257,11 +292,18 @@ class FbEventManager extends Events.EventEmitter {
             // matching op_response reaches the main connection. Mark the
             // subscription active before sending queEvents so that this early
             // op_event can re-queue the next one-shot request.
+            if (self._eventBaseline) {
+                // A changed subscription needs a fresh initial snapshot. Zero
+                // counters request one even when a prior generation had fired.
+                for (const name of Object.keys(self.events)) self.events[name] = 0;
+                self._baselinePending = true;
+            }
             self._hasActiveSubscription = true;
             self.db.connection.queEvents(self.events, self.eventid, function (err: any, ret?: any) {
                 if (err) {
                     if (self._subscriptionVersion === changeVersion) {
                         self._hasActiveSubscription = false;
+                        self._baselinePending = false;
                     }
                     doError(err, callback);
                     return;
@@ -270,7 +312,7 @@ class FbEventManager extends Events.EventEmitter {
             });
         }
 
-        if (self._hasActiveSubscription) {
+        if (hadActiveSubscription) {
             // Cancel the current subscription before setting up a new one.
             self.db.connection.closeEvents(this.eventid, function (err: any) {
                 if (err) {
@@ -318,6 +360,7 @@ class FbEventManager extends Events.EventEmitter {
         // that may arrive between closeEvents and socket.end()
         self.eventconnection._intentionalClose = true;
         self.eventconnection.eventcallback = null;
+        self._baselinePending = false;
 
         // Gracefully close the event socket using a FIN (end()) rather than a RST
         // (destroy()), then wait for the 'close' event which confirms both sides have

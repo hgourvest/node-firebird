@@ -209,3 +209,115 @@ describe('FbEventManager post-attachment failures', () => {
         expect(socket.end).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('FbEventManager optional baseline', () => {
+    function createManager(eventBaseline: boolean) {
+        const queuedEventSets: string[][] = [];
+        const connection = {
+            options: { eventBaseline },
+            _isClosed: false,
+            queEvents: vi.fn((events, _id, callback) => {
+                queuedEventSets.push(Object.keys(events));
+                callback(null);
+            }),
+            closeEvents: vi.fn((_id, callback) => callback(null)),
+        };
+        const eventconnection: any = {
+            _isClosed: false,
+            _isOpened: true,
+            eventcallback: null,
+            emgr: null,
+        };
+        const manager = new FbEventManager({ connection }, eventconnection, 7, vi.fn());
+        function packet(counts: Record<string, number>) {
+            const events = Object.entries(counts).filter(([name, count]) =>
+                Object.prototype.hasOwnProperty.call(manager.events, name) && manager.events[name] !== count
+            ).map(([name, count]) => ({ name, count }));
+            if (!eventBaseline) {
+                for (const [name, count] of Object.entries(counts)) {
+                    if (Object.prototype.hasOwnProperty.call(manager.events, name)) manager.events[name] = count;
+                }
+            }
+            eventconnection.eventcallback(null, { eventid: 7, events, counts });
+        }
+        return { connection, manager, packet, queuedEventSets };
+    }
+
+    it('preserves the existing first post_event when the option is off', () => {
+        const { manager, packet } = createManager(false);
+        const posts: Array<[string, number]> = [];
+        const baselines: Record<string, number>[] = [];
+        manager.on('post_event', (name, count) => posts.push([name, count]));
+        manager.on('baseline', counts => baselines.push(counts));
+
+        manager.registerEvent(['EXISTING'], vi.fn());
+        packet({ EXISTING: 4 });
+
+        expect(posts).toEqual([['EXISTING', 4]]);
+        expect(baselines).toEqual([]);
+    });
+
+    it('emits a defensive baseline, then delivers the first real change', () => {
+        const { connection, manager, packet } = createManager(true);
+        const posts: Array<[string, number]> = [];
+        const baselines: Readonly<Record<string, number>>[] = [];
+        manager.on('post_event', (name, count) => posts.push([name, count]));
+        manager.on('baseline', counts => baselines.push(counts));
+
+        manager.registerEvent(['EXISTING'], vi.fn());
+        packet({ EXISTING: 4 });
+        expect(posts).toEqual([]);
+        expect(baselines).toEqual([{ EXISTING: 4 }]);
+        expect(Object.isFrozen(baselines[0])).toBe(true);
+        packet({ EXISTING: 5 });
+        expect(posts).toEqual([['EXISTING', 5]]);
+        expect(baselines).toHaveLength(1);
+        expect(connection.queEvents).toHaveBeenCalledTimes(3);
+    });
+
+    it('starts a new baseline on reconfiguration and never queues an empty event set', () => {
+        const { manager, packet, queuedEventSets } = createManager(true);
+        const posts: Array<[string, number]> = [];
+        const baselines: Readonly<Record<string, number>>[] = [];
+        manager.on('post_event', (name, count) => posts.push([name, count]));
+        manager.on('baseline', counts => baselines.push(counts));
+
+        manager.registerEvent(['A'], vi.fn());
+        packet({ A: 2 });
+        manager.registerEvent(['B'], vi.fn());
+        packet({ A: 2, B: 7 });
+        manager.unregisterEvent(['A'], vi.fn());
+        packet({ B: 7 });
+        packet({ B: 8 });
+        manager.unregisterEvent(['B'], vi.fn());
+
+        expect(baselines).toEqual([{ A: 2 }, { A: 2, B: 7 }, { B: 7 }]);
+        expect(posts).toEqual([['B', 8]]);
+        expect(queuedEventSets.every(events => events.length > 0)).toBe(true);
+    });
+
+    it('ignores a late packet after the last event is removed', () => {
+        const { connection, manager, packet } = createManager(true);
+        const posts = vi.fn();
+        const baseline = vi.fn();
+        manager.on('post_event', posts);
+        manager.on('baseline', baseline);
+        manager.registerEvent(['A'], vi.fn());
+        packet({ A: 3 });
+
+        let finishCancellation!: (err?: Error) => void;
+        connection.closeEvents.mockImplementationOnce((_id, callback) => { finishCancellation = callback; });
+        const callback = vi.fn();
+        manager.unregisterEvent(['A'], callback);
+        const queuedBeforeLatePacket = connection.queEvents.mock.calls.length;
+        packet({ A: 4 });
+
+        expect(posts).not.toHaveBeenCalled();
+        expect(baseline).toHaveBeenCalledTimes(1);
+        expect(manager.events).toEqual({});
+        expect(connection.queEvents).toHaveBeenCalledTimes(queuedBeforeLatePacket);
+        finishCancellation();
+        expect(callback).toHaveBeenCalledTimes(1);
+        expect(connection.queEvents).toHaveBeenCalledTimes(queuedBeforeLatePacket);
+    });
+});

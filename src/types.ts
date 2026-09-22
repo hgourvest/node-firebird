@@ -33,8 +33,10 @@ export interface FbEventManager extends EventEmitter {
     unregisterEvent(events: string[], callback: SimpleCallback): void;
     close(callback?: SimpleCallback): void;
     getState(): FbEventState;
+    on(event: 'baseline', listener: (counts: Readonly<Record<string, number>>) => void): this;
     on(event: 'post_event', listener: (name: string, count: number) => void): this;
     on(event: 'error', listener: (error: Error) => void): this;
+    once(event: 'baseline', listener: (counts: Readonly<Record<string, number>>) => void): this;
     once(event: 'post_event', listener: (name: string, count: number) => void): this;
     once(event: 'error', listener: (error: Error) => void): this;
 }
@@ -440,6 +442,8 @@ export interface Options {
     host?: string;
     /** Override the server-advertised auxiliary event host (for NAT, tunnels and load balancers). */
     eventHost?: string;
+    /** Emit the first counter snapshot of each event subscription as 'baseline' instead of 'post_event'. Off by default. */
+    eventBaseline?: boolean;
     port?: number;
     database?: string;
     user?: string;
