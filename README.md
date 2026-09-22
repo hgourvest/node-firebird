@@ -1404,6 +1404,12 @@ Firebird.attach(options, function (err, db) {
   db.attachEvent(function (err, evtmgr) {
     if (err) throw err;
 
+    // Auxiliary socket/protocol failures after attachment are reported here.
+    // Install this listener before registering events.
+    evtmgr.on('error', function (err) {
+      console.error('event connection failed:', err);
+    });
+
     // 2. Subscribe to one or more named events (names must match POST_EVENT('name') in your
     //    PSQL triggers/procedures). Resolves once op_que_events is acknowledged by the server.
     evtmgr.registerEvent(['MY_EVENT'], function (err) {
@@ -1479,9 +1485,20 @@ db.attachEvent(function (err, evtmgr) {
 });
 ```
 
-Errors on the aux socket *after* it connects are not delivered to this callback. Poll
-`evtmgr.getState().isEventConnectionOpen` if you need to detect an aux connection that dies
-mid-subscription.
+Errors on the aux socket *after* it connects are delivered through the manager's `error`
+event. Install the listener before calling `registerEvent()`:
+
+```js
+evtmgr.on('error', function (err) {
+  // The manager is now CLOSED. Reattach explicitly if the application wants
+  // to resume event delivery; the driver does not reconnect automatically.
+  console.error('event connection failed:', err);
+});
+```
+
+When no manager error listener is installed, the driver forwards the failure to guarded
+database `error` listeners when present. It never emits an unhandled EventEmitter `error`.
+The primary database attachment remains available for ordinary queries.
 
 ### Escaping Query values
 

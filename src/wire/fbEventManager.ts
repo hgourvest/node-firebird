@@ -63,6 +63,7 @@
 // Asynchronous notifications on the AUX (EventConnection) socket
 // ───────────────────────────────────────────────────────────────
 //   Server → Client : op_event  (fired by Firebird POST_EVENT trigger)
+//   Error / unexpected close → CLOSED; emit manager 'error' once
 
 import Events from 'events';
 import { doError } from '../callback';
@@ -74,6 +75,9 @@ class FbEventManager extends Events.EventEmitter {
     eventid: number;
     _subscriptionVersion: number;
     _hasActiveSubscription: boolean;
+    _readySettled: boolean;
+    _terminalErrorReported: boolean;
+    _readyCallback: (err: any, ret?: any) => void;
 
     constructor(db: any, eventconnection: any, eventid: number, callback: (err: any, ret?: any) => void) {
         super();
@@ -88,7 +92,53 @@ class FbEventManager extends Events.EventEmitter {
         // main connection (so close() and _changeEvent know whether to send
         // op_cancel_events before tearing down or re-subscribing).
         this._hasActiveSubscription = false;
-        this._createEventLoop(callback);
+        this._readySettled = false;
+        this._terminalErrorReported = false;
+        this._readyCallback = callback;
+        this._createEventLoop();
+        process.nextTick(() => this._finishReady());
+    }
+
+    on(event: 'post_event', listener: (name: string, count: number) => void): this;
+    on(event: 'error', listener: (error: Error) => void): this;
+    on(event: string | symbol, listener: (...args: any[]) => void): this {
+        return super.on(event, listener);
+    }
+
+    once(event: 'post_event', listener: (name: string, count: number) => void): this;
+    once(event: 'error', listener: (error: Error) => void): this;
+    once(event: string | symbol, listener: (...args: any[]) => void): this {
+        return super.once(event, listener);
+    }
+
+    _finishReady(err?: Error): void {
+        if (this._readySettled) return;
+        this._readySettled = true;
+        if (err) doError(err, this._readyCallback);
+        else this._readyCallback(null);
+    }
+
+    _handleAsyncError(err: any): void {
+        if (this._terminalErrorReported) return;
+        this._terminalErrorReported = true;
+        const error = err instanceof Error ? err : new Error(String(err));
+        this._hasActiveSubscription = false;
+        this._subscriptionVersion++;
+        this.eventconnection._isClosed = true;
+        this.eventconnection._isOpened = false;
+        this.eventconnection.eventcallback = null;
+        if (this.eventconnection._socket && !this.eventconnection._socket.destroyed &&
+            typeof this.eventconnection._socket.destroy === 'function') {
+            this.eventconnection._socket.destroy();
+        }
+
+        if (!this._readySettled) {
+            this._finishReady(error);
+        } else if (this.listenerCount('error') > 0) {
+            this.emit('error', error);
+        } else if (this.db.connection && typeof this.db.connection._emitError === 'function') {
+            this.db.connection._emitError(error);
+        }
     }
 
     /**
@@ -143,7 +193,7 @@ class FbEventManager extends Events.EventEmitter {
         };
     }
 
-    _createEventLoop(callback: (err: any, ret?: any) => void): void {
+    _createEventLoop(): void {
         var self = this;
         var cnx = this.db.connection;
         this.eventconnection.emgr = this;
@@ -166,7 +216,7 @@ class FbEventManager extends Events.EventEmitter {
             }
             cnx.queEvents(self.events, self.eventid, function (err: any) {
                 if (err) {
-                    doError(err, callback);
+                    self._handleAsyncError(err);
                     return;
                 }
                 // subscription renewed, nothing else to do
@@ -174,8 +224,8 @@ class FbEventManager extends Events.EventEmitter {
         }
 
         this.eventconnection.eventcallback = function (err: any, ret?: any) {
-            if (err || (self.eventid !== ret.eventid)) {
-                doError(err || new Error('Bad eventid'), callback);
+            if (err || !ret || (self.eventid !== ret.eventid)) {
+                self._handleAsyncError(err || new Error('Bad eventid'));
                 return;
             }
 
@@ -186,11 +236,6 @@ class FbEventManager extends Events.EventEmitter {
             loop();
         };
 
-        // Resolve attachEvent on the next tick – no subscription is needed
-        // until the caller registers at least one event name via registerEvent().
-        // process.nextTick ensures the outer `const evt = new FbEventManager(...)`
-        // assignment in database.js completes before this callback fires.
-        process.nextTick(function() { callback(null); });
     }
 
     _changeEvent(callback: (err: any, ret?: any) => void): void {
@@ -271,6 +316,7 @@ class FbEventManager extends Events.EventEmitter {
 
         // Prevent the event loop from re-queuing on stale op_event notifications
         // that may arrive between closeEvents and socket.end()
+        self.eventconnection._intentionalClose = true;
         self.eventconnection.eventcallback = null;
 
         // Gracefully close the event socket using a FIN (end()) rather than a RST

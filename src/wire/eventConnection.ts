@@ -14,6 +14,8 @@ class EventConnection {
     error: any;
     eventcallback: ((err: any, ret?: any) => void) | null;
     _connectSettled: boolean;
+    _terminalErrorReported: boolean;
+    _intentionalClose: boolean;
 
     constructor(host: string, port: number, callback: ((err?: Error) => void) | undefined, db: any) {
         var self = this;
@@ -22,6 +24,8 @@ class EventConnection {
         this._isClosed = false;
         this._isOpened = false;
         this._connectSettled = false;
+        this._terminalErrorReported = false;
+        this._intentionalClose = false;
         this._socket = net.createConnection(port, host);
         this._bind_events(host, port, callback);
         this.error = null;
@@ -37,19 +41,40 @@ class EventConnection {
             if (callback) callback(err);
         }
 
+        function reportTerminalError(err: Error) {
+            if (self._terminalErrorReported) return;
+            self._terminalErrorReported = true;
+            const wasOpened = self._isOpened;
+            self.error = err;
+            self._isClosed = true;
+            self._isOpened = false;
+
+            // An error during a caller-initiated shutdown is part of tearing
+            // down the auxiliary socket, not a database error.
+            if (!self._intentionalClose && !wasOpened) {
+                finishConnect(err);
+            } else if (!self._intentionalClose && self.eventcallback) {
+                self.eventcallback(err);
+            } else if (!self._intentionalClose && self.db && self.db.connection &&
+                typeof self.db.connection._emitError === 'function') {
+                self.db.connection._emitError(err);
+            }
+
+            if (!self._socket.destroyed) self._socket.destroy();
+        }
+
         self._socket.on('close', function () {
             self._isClosed = true;
             if (!self._isOpened) {
                 finishConnect(self.error || new Error(`Event connection to ${host}:${port} closed before connecting.`));
+            } else if (!self._intentionalClose && self.eventcallback && !self._terminalErrorReported) {
+                reportTerminalError(new Error(`Event connection to ${host}:${port} closed unexpectedly.`));
             }
+            self._isOpened = false;
         })
 
         self._socket.on('error', function (e) {
-            self.error = e;
-            if (!self._isOpened) {
-                if (!self._socket.destroyed) self._socket.destroy();
-                finishConnect(e);
-            }
+            reportTerminalError(e);
         })
 
         self._socket.on('connect', function () {
@@ -78,6 +103,7 @@ class EventConnection {
 
                 var tmp_event: Record<string, number>;
                 while (xdr.pos < xdr.buffer.length) {
+                    op_pos = xdr.pos;
                     do {
                         var r = xdr.readInt();
                     } while (r === Const.op_dummy);
@@ -95,7 +121,8 @@ class EventConnection {
                             var eventcount = 0;
                             var pos = 1;
                             while (pos < buf.length) {
-                                var len = buf.readInt8(pos++);
+                                var len = buf.readUInt8(pos++);
+                                if (pos + len + 4 > buf.length) throw new RangeError('Incomplete event payload');
                                 eventname = buf.toString(DEFAULT_ENCODING, pos, pos + len);
                                 var prevcount = self.emgr.events[eventname] || 0;
                                 pos += len;
@@ -120,7 +147,7 @@ class EventConnection {
                                 self.eventcallback(null, { eventid: event_id, events: lst_event });
                             break;
                         default:
-                            // Unknown opcode on the event connection – stop processing.
+                            reportTerminalError(new Error('Unexpected event connection opcode: ' + r));
                             return;
                     }
                 }
@@ -130,7 +157,7 @@ class EventConnection {
                     xdr.pos = 0;
                     self._xdr = xdr;
                 } else {
-                    throw err;
+                    reportTerminalError(err instanceof Error ? err : new Error(String(err)));
                 }
             }
         })
@@ -138,7 +165,6 @@ class EventConnection {
 
     throwClosed(callback?: (err: any) => void): this {
         var err = new Error('Event Connection is closed.');
-        this.db.emit('error', err);
         if (callback)
             callback(err);
         return this;
