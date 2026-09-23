@@ -2933,18 +2933,21 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                             }
 
                             // Check buffer contains key
-                            var keyLen = d.buffer.readUInt16LE(saltLen + 2);
                             if (d.buffer.length < saltLen + 4) {
                                 var errBuf = new Error('Invalid buffer size for ' + accept.pluginName + ' login');
                                 doError(errBuf, callback);
                                 return cb(errBuf);
                             }
-                            var keyStart = (saltLen + 2 + 3) & ~3;
+                            // Layout is [u16 saltLen][salt][u16 keyLen][B], unpadded:
+                            // Firebird strips leading zeros from the salt, so it is
+                            // not always 64 chars and B must not be 4-byte aligned.
+                            var keyLen = d.buffer.readUInt16LE(saltLen + 2);
+                            var keyStart = saltLen + 4;
 
                             // Server keys
                             cnx.serverKeys = {
                                 salt: d.buffer.slice(2, saltLen + 2).toString('utf8'),
-                                public: BigInt('0x' + d.buffer.slice(keyStart, d.buffer.length).toString('utf8')),
+                                public: BigInt('0x' + d.buffer.slice(keyStart, keyStart + keyLen).toString('utf8')),
                                 pluginName: accept.pluginName
                             };
 
@@ -3046,25 +3049,54 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                     // as the server's M2 proof, otherwise the client silently waits
                     // forever for an op_accept the server will never send (#254).
                     if (!cnx.serverKeys || cnx.serverKeys!.pluginName !== pluginName) {
+                        // An empty op_cont_auth naming an SRP plugin means the
+                        // server has moved on to that plugin in its AuthServer
+                        // chain (e.g. `Legacy_Auth, Srp256, Srp` after Legacy_Auth
+                        // failed) and asks the client to start it: answer with our
+                        // public key A, then the server replies with salt + B (#438).
+                        if (!d.buffer || d.buffer.length === 0) {
+                            if (!cnx.clientKeys) {
+                                cnx.clientKeys = srp.clientSeed();
+                            }
+                            cnx.serverKeys = undefined;
+                            if (process.env.FIREBIRD_DEBUG) {
+                                console.log('[fb-debug] auth: server switched to %s, sending client public key t=%dms',
+                                    pluginName,
+                                    cnx._authStartTime ? Date.now() - cnx._authStartTime : -1);
+                            }
+                            cnx.sendOpContAuth(
+                                cnx.clientKeys!.public.toString(16),
+                                Const.DEFAULT_ENCODING,
+                                pluginName
+                            );
+                            return; // wait for op_cont_auth carrying salt + B
+                        }
+
                         // Check buffer contains salt
+                        if (d.buffer.length < 4) {
+                            var errShort = new Error('Invalid buffer size for ' + pluginName + ' login');
+                            doError(errShort, callback);
+                            return cb(errShort);
+                        }
                         var saltLen = d.buffer.readUInt16LE(0);
                         if (saltLen > 32 * 2) {
                             console.log('salt to long'); // TODO : Throw error
                         }
 
                         // Check buffer contains key
-                        var keyLen = d.buffer.readUInt16LE(saltLen + 2);
                         if (d.buffer.length < saltLen + 4) {
                             var errBuf = new Error('Invalid buffer size for ' + pluginName + ' login');
                             doError(errBuf, callback);
                             return cb(errBuf);
                         }
-                        var keyStart = (saltLen + 2 + 3) & ~3;
+                        // Unpadded [u16 saltLen][salt][u16 keyLen][B], see op_cond_accept
+                        var keyLen = d.buffer.readUInt16LE(saltLen + 2);
+                        var keyStart = saltLen + 4;
 
                         // Server keys
                         cnx.serverKeys = {
                             salt: d.buffer.slice(2, saltLen + 2).toString('utf8'),
-                            public: BigInt('0x' + d.buffer.slice(keyStart, d.buffer.length).toString('utf8')),
+                            public: BigInt('0x' + d.buffer.slice(keyStart, keyStart + keyLen).toString('utf8')),
                             pluginName: pluginName
                         };
 

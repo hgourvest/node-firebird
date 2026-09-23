@@ -212,6 +212,48 @@ function buildOpContAuthServer(m2Data, pluginName) {
 }
 
 /**
+ * Build an op_cond_accept frame (opcode 98) with no auth data, naming a plugin
+ * the client must start (e.g. Legacy_Auth when it is first in AuthServer).
+ */
+function buildOpCondAcceptEmpty(protocolVersion, pluginName) {
+    const w = new XdrWriter(128);
+    w.addInt(Const.op_cond_accept);
+    w.addInt(protocolVersion);
+    w.addInt(Const.ARCHITECTURE_GENERIC);
+    w.addInt(Const.ptype_lazy_send);
+    w.addInt(0);                    // auth data array len=0
+    w.addString(pluginName, 'utf8');
+    w.addInt(0);                    // is_authenticated = 0
+    w.addString('', 'utf8');        // keys = ""
+    return w.getData();
+}
+
+/**
+ * Build a server op_cont_auth frame (opcode 92) carrying an SRP challenge
+ * (salt + B), sent after the client started the plugin with its key A.
+ */
+function buildOpContAuthSrpChallenge(salt, serverB, pluginName) {
+    const bHex = srp.hexPad(serverB.toString(16));
+    const authBlr = new BlrWriter(4 + salt.length + 4 + bHex.length);
+    authBlr.addWord(salt.length);
+    authBlr.ensure(salt.length);
+    authBlr.buffer.write(salt, authBlr.pos, 'utf8');
+    authBlr.pos += salt.length;
+    authBlr.addWord(bHex.length);
+    authBlr.ensure(bHex.length);
+    authBlr.buffer.write(bHex, authBlr.pos, 'utf8');
+    authBlr.pos += bHex.length;
+
+    const w = new XdrWriter(256 + authBlr.pos);
+    w.addInt(Const.op_cont_auth);
+    w.addBlr(authBlr);
+    w.addString(pluginName, 'utf8');
+    w.addString('', 'utf8');        // plist
+    w.addString('', 'utf8');        // pkey
+    return w.getData();
+}
+
+/**
  * Build an op_accept frame (opcode 3) – sent after SRP mutual auth completes.
  *
  * Wire format:
@@ -799,6 +841,162 @@ describe('Firebird SRP Authentication – offline protocol tests', function () {
             assert.ok(legacyAuthReceived, 'client should have sent Legacy_Auth credentials after SRP M1');
             await new Promise((resolve, reject) =>
                 db.detach(e => (e ? reject(e) : resolve())));
+        } finally {
+            await stopMockServer(server);
+        }
+    });
+
+    /**
+     * Firebird strips leading zeros from the hex salt, so it is not always 64
+     * chars. The auth data is [u16 saltLen][salt][u16 keyLen][B] with no
+     * padding; B used to be read at a 4-byte aligned offset, which corrupted
+     * it whenever saltLen % 4 !== 0 and made SRP logins fail intermittently.
+     */
+    for (const saltLen of [61, 62, 63]) {
+        it(`should read server key B after a ${saltLen}-char salt`, async function () {
+            const salt = SRP_TEST_SALT.slice(64 - saltLen);
+            const serverKeys = srp.serverSeed(SRP_TEST_USER, SRP_TEST_PASSWORD, salt);
+            const challengeFrame = buildOpCondAcceptSRP(Const.PROTOCOL_VERSION16, salt, serverKeys.public);
+
+            const { server, port } = await startMockServer(socket => {
+                makeFullDispatcher(socket, (s, opcode, buf) => {
+                    if (opcode === Const.op_connect) {
+                        s.write(challengeFrame);
+                    } else if (opcode === Const.op_cont_auth) {
+                        s.write(Buffer.concat([
+                            buildOpContAuthServer(),
+                            buildOpAccept(Const.PROTOCOL_VERSION16),
+                        ]));
+                    } else if (opcode === Const.op_attach || opcode === Const.op_create) {
+                        s.write(buildOpResponse(42));
+                    } else if (opcode === Const.op_detach) {
+                        s.write(buildOpResponse(0));
+                        s.end();
+                    }
+                    return buf.length;
+                });
+            });
+
+            try {
+                const db = await withMockSrpAttach(port);
+                assert.strictEqual(db.connection.serverKeys.salt, salt);
+                assert.strictEqual(db.connection.serverKeys.public, serverKeys.public);
+                await new Promise((resolve, reject) =>
+                    db.detach(e => (e ? reject(e) : resolve())));
+            } finally {
+                await stopMockServer(server);
+            }
+        });
+    }
+
+    /**
+     * Server configured with `AuthServer = Legacy_Auth, Srp256, Srp` and an
+     * SRP-only account (#438): the server starts with Legacy_Auth, rejects it,
+     * then sends an EMPTY op_cont_auth naming Srp256, asking the client to
+     * start that plugin. The client must answer with its public key A, then
+     * complete the SRP exchange from the salt + B that follows.
+     */
+    it('should follow a Legacy_Auth -> Srp256 AuthServer chain (#438) - protocol 16', async function () {
+        const protocolVersion = Const.PROTOCOL_VERSION16;
+        const serverKeys = srp.serverSeed(SRP_TEST_USER, SRP_TEST_PASSWORD, SRP_TEST_SALT, undefined, 'sha256');
+        const steps = [];
+        let clientA = null;
+        let m1 = null;
+
+        const { server, port } = await startMockServer(socket => {
+            let state = 'init';
+            makeFullDispatcher(socket, (s, opcode, buf) => {
+                if (opcode === Const.op_connect) {
+                    state = 'legacy_offered';
+                    s.write(buildOpCondAcceptEmpty(protocolVersion, 'Legacy_Auth'));
+                    return buf.length;
+
+                } else if (opcode === Const.op_cont_auth && state === 'legacy_offered') {
+                    // Legacy_Auth credentials rejected - move to Srp256 with no data
+                    steps.push(parseOpContAuth(buf).pluginName);
+                    state = 'srp_offered';
+                    s.write(buildOpContAuthServer(null, 'Srp256'));
+                    return buf.length;
+
+                } else if (opcode === Const.op_cont_auth && state === 'srp_offered') {
+                    const parsed = parseOpContAuth(buf);
+                    steps.push(parsed.pluginName);
+                    clientA = parsed.m1Hex;
+                    state = 'challenge_sent';
+                    s.write(buildOpContAuthSrpChallenge(SRP_TEST_SALT, serverKeys.public, 'Srp256'));
+                    return buf.length;
+
+                } else if (opcode === Const.op_cont_auth && state === 'challenge_sent') {
+                    const parsed = parseOpContAuth(buf);
+                    steps.push(parsed.pluginName);
+                    m1 = parsed.m1Hex;
+                    state = 'auth_complete';
+                    s.write(Buffer.concat([
+                        buildOpContAuthServer(null, 'Srp256'),
+                        buildOpAccept(protocolVersion),
+                    ]));
+                    return buf.length;
+
+                } else if (opcode === Const.op_attach || opcode === Const.op_create) {
+                    s.write(buildOpResponse(42));
+                    return buf.length;
+
+                } else if (opcode === Const.op_detach) {
+                    s.write(buildOpResponse(0));
+                    s.end();
+                    return buf.length;
+                }
+                return buf.length;
+            });
+        });
+
+        try {
+            const db = await new Promise((resolve, reject) => {
+                Firebird.attach({
+                    host:      '127.0.0.1',
+                    port,
+                    database:  '/mock/test.fdb',
+                    user:      SRP_TEST_USER,
+                    password:  SRP_TEST_PASSWORD,
+                    wireCrypt: Const.WIRE_CRYPT_DISABLE,
+                }, (err, d) => (err ? reject(err) : resolve(d)));
+            });
+            assert.ok(db, 'db should be returned after Legacy_Auth -> Srp256 chain');
+            assert.deepStrictEqual(steps, ['Legacy_Auth', 'Srp256', 'Srp256']);
+            assert.ok(/^[0-9a-f]+$/i.test(clientA), 'client should send its public key A for Srp256');
+            assert.ok(m1 && m1.length > 0, 'client should send M1 proof for Srp256');
+            await new Promise((resolve, reject) =>
+                db.detach(e => (e ? reject(e) : resolve())));
+        } finally {
+            await stopMockServer(server);
+        }
+    });
+
+    it('should reject a truncated SRP op_cont_auth challenge without throwing', async function () {
+        const { server, port } = await startMockServer(socket => {
+            let state = 'init';
+            makeFullDispatcher(socket, (s, opcode, buf) => {
+                if (opcode === Const.op_connect) {
+                    state = 'legacy_offered';
+                    s.write(buildOpCondAcceptEmpty(Const.PROTOCOL_VERSION16, 'Legacy_Auth'));
+                } else if (opcode === Const.op_cont_auth && state === 'legacy_offered') {
+                    state = 'bad_sent';
+                    s.write(buildOpContAuthServer('x', 'Srp256')); // 1-byte buffer
+                    s.end(); // let stopMockServer() close once the client gave up
+                }
+                return buf.length;
+            });
+        });
+
+        try {
+            await assert.rejects(new Promise((resolve, reject) => {
+                Firebird.attach({
+                    host: '127.0.0.1', port,
+                    database: '/mock/test.fdb',
+                    user: SRP_TEST_USER, password: SRP_TEST_PASSWORD,
+                    wireCrypt: Const.WIRE_CRYPT_DISABLE,
+                }, (err, d) => (err ? reject(err) : resolve(d)));
+            }), /Invalid buffer size for Srp256 login/);
         } finally {
             await stopMockServer(server);
         }
