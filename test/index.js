@@ -322,6 +322,71 @@ describe('Firebird Database Events (POST_EVENT)', function () {
             }
         }
     });
+
+    it('can opt in to an initial baseline without a phantom post_event', { timeout: 15000 }, async function () {
+        const baselineDb = await fromCallback(cb => Firebird.attach(Config.extends(config, { eventBaseline: true }), cb));
+        const fireDb = await fromCallback(cb => Firebird.attach(config, cb));
+        let evtmgr;
+        try {
+            // Ensure the server already has a non-zero counter when we queue.
+            await fromCallback(cb => fireDb.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [nextTestEventId++, 'before'], cb));
+            evtmgr = await fromCallback(cb => baselineDb.attachEvent(cb));
+            const posts = [];
+            const baselines = [];
+            let resolveBaseline;
+            let resolvePost;
+            let rejectEvent;
+            const baselinePromise = new Promise(resolve => { resolveBaseline = resolve; });
+            const postPromise = new Promise(resolve => { resolvePost = resolve; });
+            const eventError = new Promise((_, reject) => { rejectEvent = reject; });
+            evtmgr.on('error', rejectEvent);
+            evtmgr.on('baseline', counts => {
+                baselines.push(counts);
+                resolveBaseline(counts);
+            });
+            evtmgr.on('post_event', (name, count) => {
+                posts.push({ name, count });
+                resolvePost({ name, count });
+            });
+            let timer;
+            const timeout = new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('Timed out waiting for baseline or post_event')), 5000);
+            });
+            const waitFor = promise => Promise.race([promise, eventError, timeout]);
+            try {
+                await waitFor(Promise.all([
+                    baselinePromise,
+                    fromCallback(cb => evtmgr.registerEvent(['TRG_TEST_EVENTS'], cb)),
+                ]));
+                assert.equal(baselines.length, 1);
+                assert.equal(posts.length, 0);
+                assert.ok(baselines[0].TRG_TEST_EVENTS > 0);
+
+                await fromCallback(cb => fireDb.query('INSERT INTO TEST_EVENTS (ID, NAME) VALUES (?, ?)', [nextTestEventId++, 'after'], cb));
+                const post = await waitFor(postPromise);
+                assert.equal(post.name, 'TRG_TEST_EVENTS');
+                assert.ok(post.count > baselines[0].TRG_TEST_EVENTS);
+
+                // Reconfiguration uses a new wire event ID. The next packet
+                // must be another baseline, not an apparent new POST_EVENT.
+                const nextBaseline = new Promise(resolve => evtmgr.once('baseline', resolve));
+                await waitFor(Promise.all([
+                    nextBaseline,
+                    fromCallback(cb => evtmgr.registerEvent(['SECOND_EVENT'], cb)),
+                ]));
+                assert.equal(baselines.length, 2);
+                assert.equal(posts.length, 1);
+                assert.ok(Object.hasOwn(baselines[1], 'TRG_TEST_EVENTS'));
+                assert.ok(Object.hasOwn(baselines[1], 'SECOND_EVENT'));
+            } finally {
+                clearTimeout(timer);
+            }
+        } finally {
+            if (evtmgr) await fromCallback(cb => evtmgr.close(cb));
+            await fromCallback(cb => fireDb.detach(cb));
+            await fromCallback(cb => baselineDb.detach(cb));
+        }
+    });
 });
 
 describe('Auth plugin connection', function () {
