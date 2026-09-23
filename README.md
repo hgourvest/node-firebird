@@ -1397,6 +1397,11 @@ Firebird database events are **asynchronous** notifications triggered by `POST_E
 triggers or stored procedures. They travel over a separate "aux" connection (opened via
 `db.attachEvent()`) and are managed through a `FbEventManager` instance.
 
+Event names must be 1–127 bytes when UTF-8 encoded, matching Firebird's
+[`POST_EVENT` limit](https://www.firebirdsql.org/file/documentation/chunk/en/refdocs/fblangref50/fblangref50-psql-coding.html#fblangref50-psql-postevent).
+`registerEvent()` rejects an invalid name through its callback without changing
+the current subscription.
+
 By default, the first event notification after registration follows the existing
 `post_event` behavior. Set `options.eventBaseline = true` to emit that initial
 counter snapshot as `baseline` instead, without a `post_event` for that packet.

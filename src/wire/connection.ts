@@ -2540,6 +2540,10 @@ class Connection {
         blr.addByte(1) // epb_version
         for (var event in events) {
             var event_buffer = Buffer.from(event, 'utf8');
+            if (event_buffer.length < 1 || event_buffer.length > 127) {
+                doError(new Error('Firebird event names must be between 1 and 127 UTF-8 bytes.'), callback);
+                return;
+            }
             blr.addByte(event_buffer.length);
             blr.addBytes(event_buffer);
             blr.addInt32(events[event]);

@@ -436,6 +436,13 @@ class FbEventManager extends Events.EventEmitter {
         if (self.db.connection._isClosed || self.eventconnection._isClosed || self._baselineCloseRequested)
             return self.eventconnection.throwClosed(callback);
 
+        // Reject the entire change before mutating the registered event set.
+        for (const event of events) {
+            const byteLength = typeof event === 'string' ? Buffer.byteLength(event, 'utf8') : 0;
+            if (byteLength < 1 || byteLength > 127)
+                return doError(new Error('Firebird event names must be between 1 and 127 UTF-8 bytes.'), callback);
+        }
+
         events.forEach((event) => self.events[event] = self.events[event] || 0);
         self._changeEvent(callback);
     }
