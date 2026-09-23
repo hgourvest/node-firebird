@@ -82,7 +82,7 @@ class FbEventManager extends Events.EventEmitter {
     _baselineChangeInProgress: boolean;
     _baselineCallbacks: Array<(err: any, ret?: any) => void>;
     _hasQueuedBaseline: boolean;
-    _retiredEventIds: Set<number>;
+    _retiredEventIdLimit: number;
     _baselineCloseRequested: boolean;
     _baselineCloseCallbacks: Array<(err?: any) => void>;
     _readySettled: boolean;
@@ -108,7 +108,11 @@ class FbEventManager extends Events.EventEmitter {
         this._baselineChangeInProgress = false;
         this._baselineCallbacks = [];
         this._hasQueuedBaseline = false;
-        this._retiredEventIds = new Set();
+        // Highest event ID retired by a baseline reconfiguration. IDs come
+        // from db.eventid++ and the current one is always retired before a
+        // new one is allocated, so every ID <= this value is stale. A single
+        // watermark avoids keeping one entry per reconfiguration forever.
+        this._retiredEventIdLimit = 0;
         this._baselineCloseRequested = false;
         this._baselineCloseCallbacks = [];
         this._readySettled = false;
@@ -239,7 +243,7 @@ class FbEventManager extends Events.EventEmitter {
             }
             const eventId = self.eventid;
             cnx.queEvents(self.events, eventId, function (err: any) {
-                if (err && (!self._eventBaseline || !self._retiredEventIds.has(eventId))) {
+                if (err && (!self._eventBaseline || !self._isRetiredEventId(eventId))) {
                     self._handleAsyncError(err);
                     return;
                 }
@@ -253,7 +257,7 @@ class FbEventManager extends Events.EventEmitter {
                 return;
             }
             if (self.eventid !== ret.eventid) {
-                if (self._eventBaseline && self._retiredEventIds.has(ret.eventid)) return;
+                if (self._eventBaseline && self._isRetiredEventId(ret.eventid)) return;
                 self._handleAsyncError(new Error('Bad eventid'));
                 return;
             }
@@ -345,6 +349,10 @@ class FbEventManager extends Events.EventEmitter {
         }
     }
 
+    _isRetiredEventId(eventId: number): boolean {
+        return eventId <= this._retiredEventIdLimit;
+    }
+
     _changeEventWithBaseline(callback: (err: any, ret?: any) => void): void {
         const cnx = this.db.connection;
         this._subscriptionVersion++;
@@ -412,7 +420,7 @@ class FbEventManager extends Events.EventEmitter {
             const oldId = this.eventid;
             this._hasActiveSubscription = false;
             this._baselinePending = false;
-            this._retiredEventIds.add(oldId);
+            this._retiredEventIdLimit = Math.max(this._retiredEventIdLimit, oldId);
             cnx.closeEvents(oldId, (err: any) => {
                 if (err) finish(err);
                 else subscribe();
