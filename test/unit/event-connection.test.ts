@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import net from 'net';
+import Connection from '../../src/wire/connection';
 import EventConnection from '../../src/wire/eventConnection';
 import FbEventManager from '../../src/wire/fbEventManager';
+import { BlrWriter, XdrWriter } from '../../src/wire/serialize';
 
 const servers: net.Server[] = [];
 
@@ -243,6 +245,38 @@ describe('FbEventManager optional baseline', () => {
         return { connection, manager, packet, queuedEventSets };
     }
 
+    it.each([false, true])('rejects invalid names before changing a subscription (baseline=%s)', eventBaseline => {
+        const { connection, manager } = createManager(eventBaseline);
+        for (const invalid of ['', 'a'.repeat(128), '€'.repeat(42) + 'ab', 42 as any]) {
+            const callback = vi.fn();
+            manager.registerEvent(['VALID', invalid], callback);
+            expect(callback).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+                message: 'Firebird event names must be between 1 and 127 UTF-8 bytes.',
+            }));
+            expect(manager.events).toEqual({});
+        }
+        expect(connection.queEvents).not.toHaveBeenCalled();
+
+        manager.registerEvent(['EXISTING'], vi.fn());
+        const queued = connection.queEvents.mock.calls.length;
+        const callback = vi.fn();
+        manager.registerEvent(['ANOTHER', ''], callback);
+        expect(callback).toHaveBeenCalledOnce();
+        expect(manager.events).toEqual({ EXISTING: 0 });
+        expect(connection.queEvents).toHaveBeenCalledTimes(queued);
+        expect(connection.closeEvents).not.toHaveBeenCalled();
+    });
+
+    it('accepts names of exactly 127 UTF-8 bytes', () => {
+        const { connection, manager } = createManager(false);
+        const names = ['a'.repeat(127), '€'.repeat(42) + 'a'];
+        const callback = vi.fn();
+        manager.registerEvent(names, callback);
+        expect(callback).toHaveBeenCalledExactlyOnceWith(null, undefined);
+        expect(Object.keys(manager.events)).toEqual(names);
+        expect(connection.queEvents).toHaveBeenCalledOnce();
+    });
+
     it('preserves the existing first post_event when the option is off', () => {
         const { manager, packet } = createManager(false);
         const posts: Array<[string, number]> = [];
@@ -442,5 +476,36 @@ describe('FbEventManager optional baseline', () => {
         expect(change).toHaveBeenCalledTimes(1);
         expect(change.mock.calls[0][0]).toBeInstanceOf(Error);
         expect(closed).toHaveBeenCalledOnce();
+    });
+});
+
+describe('op_que_events name validation', () => {
+    function createWireConnection() {
+        const connection: any = Object.create(Connection.prototype);
+        connection._isClosed = false;
+        connection._msg = new XdrWriter();
+        connection._blr = new BlrWriter();
+        connection.dbhandle = 1;
+        connection._queueEvent = vi.fn();
+        return connection;
+    }
+
+    it.each(['', 'a'.repeat(128), '€'.repeat(42) + 'ab'])('rejects an invalid event name without queuing', name => {
+        const connection = createWireConnection();
+        const callback = vi.fn();
+        connection.queEvents({ [name]: 0 }, 7, callback);
+        expect(callback).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            message: 'Firebird event names must be between 1 and 127 UTF-8 bytes.',
+        }));
+        expect(connection._queueEvent).not.toHaveBeenCalled();
+    });
+
+    it.each(['a'.repeat(127), '€'.repeat(42) + 'a'])('encodes the 127-byte boundary without truncating the name length', name => {
+        const connection = createWireConnection();
+        const callback = vi.fn();
+        connection.queEvents({ [name]: 0 }, 7, callback);
+        expect(connection._queueEvent).toHaveBeenCalledOnce();
+        expect(callback).not.toHaveBeenCalled();
+        expect(connection._blr.buffer.readUInt8(1)).toBe(127);
     });
 });
