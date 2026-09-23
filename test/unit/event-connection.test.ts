@@ -345,6 +345,35 @@ describe('FbEventManager optional baseline', () => {
         expect(posts).toHaveBeenCalledExactlyOnceWith('B', 4);
     });
 
+    it('keeps constant retired-ID state across many reconfigurations', async () => {
+        const { manager, packet } = createManager(true);
+        const baseline = vi.fn();
+        const posts = vi.fn();
+        const errors = vi.fn();
+        manager.on('baseline', baseline);
+        manager.on('post_event', posts);
+        manager.on('error', errors);
+        manager.registerEvent(['A'], vi.fn());
+
+        const retiredIds: number[] = [];
+        for (let i = 0; i < 50; i++) {
+            retiredIds.push(manager.eventid);
+            manager.registerEvent(['B' + i], vi.fn());
+        }
+        expect(manager._retiredEventIdLimit).toBe(retiredIds[retiredIds.length - 1]);
+
+        // Every older generation is still recognised and silently dropped.
+        for (const id of retiredIds) packet({ A: 9 }, id);
+        expect(baseline).not.toHaveBeenCalled();
+        expect(posts).not.toHaveBeenCalled();
+        expect(errors).not.toHaveBeenCalled();
+
+        // An ID that was never allocated is still reported once ready.
+        await new Promise(resolve => process.nextTick(resolve));
+        packet({ A: 9 }, manager.eventid + 1);
+        expect(errors).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'Bad eventid' }));
+    });
+
     it('coalesces changes made before cancellation completes', () => {
         const { connection, manager, packet, queuedEventSets } = createManager(true);
         manager.registerEvent(['A', 'B'], vi.fn());
