@@ -847,6 +847,49 @@ describe('Firebird SRP Authentication – offline protocol tests', function () {
     });
 
     /**
+     * Firebird strips leading zeros from the hex salt, so it is not always 64
+     * chars. The auth data is [u16 saltLen][salt][u16 keyLen][B] with no
+     * padding; B used to be read at a 4-byte aligned offset, which corrupted
+     * it whenever saltLen % 4 !== 0 and made SRP logins fail intermittently.
+     */
+    for (const saltLen of [61, 62, 63]) {
+        it(`should read server key B after a ${saltLen}-char salt`, async function () {
+            const salt = SRP_TEST_SALT.slice(64 - saltLen);
+            const serverKeys = srp.serverSeed(SRP_TEST_USER, SRP_TEST_PASSWORD, salt);
+            const challengeFrame = buildOpCondAcceptSRP(Const.PROTOCOL_VERSION16, salt, serverKeys.public);
+
+            const { server, port } = await startMockServer(socket => {
+                makeFullDispatcher(socket, (s, opcode, buf) => {
+                    if (opcode === Const.op_connect) {
+                        s.write(challengeFrame);
+                    } else if (opcode === Const.op_cont_auth) {
+                        s.write(Buffer.concat([
+                            buildOpContAuthServer(),
+                            buildOpAccept(Const.PROTOCOL_VERSION16),
+                        ]));
+                    } else if (opcode === Const.op_attach || opcode === Const.op_create) {
+                        s.write(buildOpResponse(42));
+                    } else if (opcode === Const.op_detach) {
+                        s.write(buildOpResponse(0));
+                        s.end();
+                    }
+                    return buf.length;
+                });
+            });
+
+            try {
+                const db = await withMockSrpAttach(port);
+                assert.strictEqual(db.connection.serverKeys.salt, salt);
+                assert.strictEqual(db.connection.serverKeys.public, serverKeys.public);
+                await new Promise((resolve, reject) =>
+                    db.detach(e => (e ? reject(e) : resolve())));
+            } finally {
+                await stopMockServer(server);
+            }
+        });
+    }
+
+    /**
      * Server configured with `AuthServer = Legacy_Auth, Srp256, Srp` and an
      * SRP-only account (#438): the server starts with Legacy_Auth, rejects it,
      * then sends an EMPTY op_cont_auth naming Srp256, asking the client to

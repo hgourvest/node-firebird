@@ -2933,18 +2933,21 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                             }
 
                             // Check buffer contains key
-                            var keyLen = d.buffer.readUInt16LE(saltLen + 2);
                             if (d.buffer.length < saltLen + 4) {
                                 var errBuf = new Error('Invalid buffer size for ' + accept.pluginName + ' login');
                                 doError(errBuf, callback);
                                 return cb(errBuf);
                             }
-                            var keyStart = (saltLen + 2 + 3) & ~3;
+                            // Layout is [u16 saltLen][salt][u16 keyLen][B], unpadded:
+                            // Firebird strips leading zeros from the salt, so it is
+                            // not always 64 chars and B must not be 4-byte aligned.
+                            var keyLen = d.buffer.readUInt16LE(saltLen + 2);
+                            var keyStart = saltLen + 4;
 
                             // Server keys
                             cnx.serverKeys = {
                                 salt: d.buffer.slice(2, saltLen + 2).toString('utf8'),
-                                public: BigInt('0x' + d.buffer.slice(keyStart, d.buffer.length).toString('utf8')),
+                                public: BigInt('0x' + d.buffer.slice(keyStart, keyStart + keyLen).toString('utf8')),
                                 pluginName: accept.pluginName
                             };
 
@@ -3086,12 +3089,14 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                             doError(errBuf, callback);
                             return cb(errBuf);
                         }
-                        var keyStart = (saltLen + 2 + 3) & ~3;
+                        // Unpadded [u16 saltLen][salt][u16 keyLen][B], see op_cond_accept
+                        var keyLen = d.buffer.readUInt16LE(saltLen + 2);
+                        var keyStart = saltLen + 4;
 
                         // Server keys
                         cnx.serverKeys = {
                             salt: d.buffer.slice(2, saltLen + 2).toString('utf8'),
-                            public: BigInt('0x' + d.buffer.slice(keyStart, d.buffer.length).toString('utf8')),
+                            public: BigInt('0x' + d.buffer.slice(keyStart, keyStart + keyLen).toString('utf8')),
                             pluginName: pluginName
                         };
 
