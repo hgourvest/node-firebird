@@ -499,9 +499,21 @@ class Connection {
 
                     if (obj && obj.status) {
                         obj.message = lookupMessages(obj.status);
+                    }
+
+                    // The response is fully consumed and dequeued at this
+                    // point, so an exception from the result callback chain
+                    // (user code) must not reach the packet handling: a
+                    // RangeError would be taken for an incomplete packet
+                    // (hanging the connection), anything else would abandon
+                    // the rest of this buffer. Keep decoding and rethrow it
+                    // asynchronously instead.
+                    try {
                         doCallback(obj, cb);
-                    } else {
-                        doCallback(obj, cb);
+                    } catch (callbackErr) {
+                        process.nextTick(function () {
+                            throw callbackErr;
+                        });
                     }
 
                 });
@@ -2597,6 +2609,16 @@ const opcodeNames = Object.fromEntries(
 );
 
 function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cnx: Connection, lowercase_keys: boolean | undefined, cb: (err?: any, obj?: any) => void) {
+    // Once the response has been handed to cb, a RangeError reaching the
+    // catch below was thrown by the callback chain, not by reading a
+    // truncated packet, and must not be reported as an incomplete packet.
+    let delivered = false;
+    const deliver = cb;
+    cb = function (err?: any, obj?: any) {
+        delivered = true;
+        return deliver(err, obj);
+    };
+
     try {
         do {
             var r = data.r || data.readInt();
@@ -2845,6 +2867,10 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                             }
                         }
                     } catch (e) {
+                        if (delivered) {
+                            // thrown by cb above (trailing op_response), not a short read
+                            throw e;
+                        }
                         if (_xdrpos === data.pos) {
                             data.fop = true;
                         }
@@ -3272,7 +3298,7 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
             console.warn('[fb-debug] decodeResponse exception: %s (RangeError=%s) pos=%d buflen=%d',
                 err.message, err instanceof RangeError, data.pos, data.buffer.length);
         }
-        if (err instanceof RangeError) {
+        if (err instanceof RangeError && !delivered) {
             return cb(err);
         }
         throw err;
