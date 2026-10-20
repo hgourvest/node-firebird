@@ -133,6 +133,7 @@ class Connection {
     static fetch_blob_async: typeof fetch_blob_async;
     static parseValueIfJson: typeof parseValueIfJson;
     static describe: typeof describe;
+    static doSynchronousLoop: typeof doSynchronousLoop;
 
     db: Database;
     svc: ServiceManager | undefined;
@@ -4035,29 +4036,64 @@ function fetch_blob_async(statement: Statement, id: Quad, name: string | number,
     };
 }
 
+/**
+ * Run processData(row, index, next) over every row in order, then done().
+ * Iterative rather than recursive: a next() called synchronously from
+ * processData only flags the row as handled and the while loop moves on,
+ * so a large batch of synchronous rows no longer grows the stack by a few
+ * frames per row (RangeError: Maximum call stack size exceeded). A next()
+ * called later (asynchronous consumer) resumes the loop. Each row gets its
+ * own next(); only its first call counts.
+ */
 function doSynchronousLoop(data: any[], processData: (row: any, index: number, next: (err?: any) => void) => void, done: (err?: any) => void) {
     if (!data || !data.length) {
         done();
         return;
     }
 
-    const loop = (index: any) => {
-        processData(data[index], index, (err) => {
-            if (err) {
-                done(err);
+    let index = 0;
+    let finished = false;
+
+    const run = () => {
+        while (index < data.length) {
+            let called = false;
+            let inCall = true;
+            let advanced = false;
+
+            const next = (err?: any) => {
+                if (called || finished) {
+                    return;
+                }
+                called = true;
+                if (err) {
+                    finished = true;
+                    done(err);
+                    return;
+                }
+                index++;
+                if (inCall) {
+                    // synchronous next(): let the while loop continue
+                    advanced = true;
+                    return;
+                }
+                run();
+            };
+
+            try {
+                processData(data[index], index, next);
+            } finally {
+                inCall = false;
+            }
+            if (!advanced) {
+                // failed, or next() will be called asynchronously
                 return;
             }
-
-            const nextIndex = index + 1;
-            if (nextIndex < data.length) {
-                loop(nextIndex);
-            } else {
-                done();
-            }
-        });
+        }
+        finished = true;
+        done();
     };
 
-    loop(0);
+    run();
 }
 
 function executeStreamRow(custom: any, row: any, index: number, output: any, next: (err?: any) => void) {
@@ -4142,4 +4178,5 @@ Connection.fetch_blob_async_transaction = fetch_blob_async_transaction;
 Connection.fetch_blob_async = fetch_blob_async;
 Connection.parseValueIfJson = parseValueIfJson;
 Connection.describe = describe;
+Connection.doSynchronousLoop = doSynchronousLoop;
 export = Connection;
