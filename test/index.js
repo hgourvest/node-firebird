@@ -972,6 +972,83 @@ describe('Database', function() {
                 assert.ok(err.message.match(/arithmetic exception, numeric overflow, or string truncation, Integer divide by zero./gi));
             }
         });
+
+        describe('fetchSize', () => {
+            const ROWS = 20000;
+            const BIG_SELECT = `SELECT FIRST ${ROWS} a.RDB$RELATION_ID AS ID ` +
+                'FROM RDB$RELATIONS a, RDB$RELATIONS b, RDB$RELATIONS c';
+            let counts;
+            let originalFetch;
+
+            // record the row count of every op_fetch sent on this connection
+            beforeEach(() => {
+                counts = [];
+                originalFetch = db.connection.fetch;
+                db.connection.fetch = function (statement, transaction, count, callback) {
+                    const ret = originalFetch.call(this, statement, transaction, count, callback);
+                    counts.push(this._msg.buffer.readInt32BE(this._msg.pos - 4));
+                    return ret;
+                };
+            });
+
+            afterEach(() => {
+                db.connection.fetch = originalFetch;
+            });
+
+            it('should fetch 200 rows per round-trip by default', async () => {
+                const rows = await fromCallback(cb => db.query('SELECT FIRST 450 a.RDB$RELATION_ID AS ID FROM RDB$RELATIONS a, RDB$RELATIONS b', cb));
+                assert.strictEqual(rows.length, 450);
+                assert.deepStrictEqual(counts, [200, 200, 200]);
+            });
+
+            it('should fetch a large result in fetchSize batches via query', async () => {
+                const rows = await fromCallback(cb => db.query(BIG_SELECT, [], cb, { fetchSize: 5000 }));
+                assert.strictEqual(rows.length, ROWS);
+                assert.ok(counts.every(c => c === 5000));
+                // the default would need 100 round-trips; the server may still
+                // end a batch early (it caps each batch at 16 packets)
+                assert.ok(counts.length < 20, `expected fewer round-trips, got ${counts.length}`);
+            });
+
+            it('should stream a large result in fetchSize batches via sequentially', async () => {
+                let seen = 0;
+                let lastIndex = -1;
+                await new Promise((resolve, reject) => {
+                    db.sequentially(BIG_SELECT, [], function (row, index) {
+                        seen++;
+                        lastIndex = index;
+                    }, function (err) {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+                        resolve();
+                    }, { fetchSize: 5000 });
+                });
+                assert.strictEqual(seen, ROWS);
+                assert.strictEqual(lastIndex, ROWS - 1);
+                assert.ok(counts.every(c => c === 5000));
+            });
+
+            it('should use the connection fetchSize, clamp it and ignore invalid values', async () => {
+                const saved = db.connection.options.fetchSize;
+                try {
+                    db.connection.options.fetchSize = 3000;
+                    await fromCallback(cb => db.query(BIG_SELECT, cb));
+                    assert.ok(counts.every(c => c === 3000));
+
+                    counts = [];
+                    await fromCallback(cb => db.query(BIG_SELECT, [], cb, { fetchSize: 100000 }));
+                    assert.ok(counts.length && counts.every(c => c === 65535));
+
+                    counts = [];
+                    await fromCallback(cb => db.query(BIG_SELECT, [], cb, { fetchSize: 0 }));
+                    assert.ok(counts.every(c => c === 200));
+                } finally {
+                    db.connection.options.fetchSize = saved;
+                }
+            });
+        });
     });
 
     describe('Transaction', function() {

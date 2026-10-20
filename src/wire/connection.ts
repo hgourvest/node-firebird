@@ -2092,7 +2092,7 @@ class Connection {
     
         if (count instanceof Function) {
             callback = count;
-            count = Const.DEFAULT_FETCHSIZE;
+            count = undefined;
         }
     
         msg.addInt(Const.op_fetch);
@@ -2100,7 +2100,7 @@ class Connection {
         CalcBlr(blr, statement.output);
         msg.addBlr(blr);
         msg.addInt(0); // message number
-        msg.addInt(count || Const.DEFAULT_FETCHSIZE); // fetch count
+        msg.addInt(count || resolveFetchSize(statement, this.options)); // fetch count
     
         callback!.statement = statement;
         this._queueEvent(callback);
@@ -2221,6 +2221,7 @@ class Connection {
         const self = this;
         const custom = statement.options || {};
         const asStream = custom.asStream && custom.on;
+        const fetchSize = resolveFetchSize(statement, this.options);
         const data: any[] | null = asStream ? null : [];
         let streamIndex = 0;
         const loop = (err: any, ret: any) => {
@@ -2252,7 +2253,7 @@ class Connection {
                         if (ret.fetched) {
                             callback(undefined, data || []);
                         } else {
-                            self.fetch(statement, transaction, Const.DEFAULT_FETCHSIZE, loop);
+                            self.fetch(statement, transaction, fetchSize, loop);
                         }
                     });
                 });
@@ -2262,11 +2263,11 @@ class Connection {
             if (ret && ret.fetched) {
                 callback(undefined, data || []);
             } else {
-                self.fetch(statement, transaction, Const.DEFAULT_FETCHSIZE, loop);
+                self.fetch(statement, transaction, fetchSize, loop);
             }
         };
 
-        this.fetch(statement, transaction, Const.DEFAULT_FETCHSIZE, loop);
+        this.fetch(statement, transaction, fetchSize, loop);
     }
 
 
@@ -4060,6 +4061,20 @@ function fetch_blob_async(statement: Statement, id: Quad, name: string | number,
             cbTransaction(transaction, singleTransaction, callback);
         }
     };
+}
+
+/**
+ * Rows requested per op_fetch: the per-query `fetchSize` option, else the
+ * connection one, else DEFAULT_FETCHSIZE. Anything but a positive integer
+ * falls back to the default; values above MAX_FETCHSIZE are clamped (the
+ * wire field is 16-bit).
+ */
+function resolveFetchSize(statement: Statement, options: any): number {
+    const size = Number(statement.options?.fetchSize ?? options?.fetchSize);
+    if (Number.isInteger(size) && size > 0) {
+        return Math.min(size, Const.MAX_FETCHSIZE);
+    }
+    return Const.DEFAULT_FETCHSIZE;
 }
 
 /**

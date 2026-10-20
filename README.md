@@ -206,6 +206,7 @@ options.ipFamily = 4; // optional; force IPv4 (4) or IPv6 (6) when resolving hos
 options.parallelWorkers = undefined; // optional; request multiple thread workers for maintenance/index tasks (FB >= 5)
 options.maxInlineBlobSize = undefined; // optional; threshold size in bytes for inline blob transmission (default 65535, FB >= 5.0.3)
 options.maxNegotiatedProtocols = undefined; // optional; cap how many protocol versions are offered, oldest first (default: all, up to Protocol 20; set to 10 to stop at Protocol 19)
+options.fetchSize = 200; // rows requested per fetch round-trip when reading results (default 200, max 65535); overridable per query
 options.defaultSchema = undefined; // optional; sets session CURRENT_SCHEMA at connect time by putting the schema first in the search path (FB >= 6.0)
 options.searchPath = undefined; // optional; ordered list/array of schemas to resolve unqualified object references (FB >= 6.0)
 options.owner = undefined; // optional; owner of a newly created database — lets a superuser create a database for another user (create only, FB >= 6.0)
@@ -513,6 +514,7 @@ const options = {
 ```js
 const options = {
   timeout: 1000, // Statement timeout in ms, default is 0 (no timeout)
+  fetchSize: 5000, // Rows per fetch round-trip, overrides the connection option (default 200, max 65535)
 }
 ```
 
@@ -1224,7 +1226,7 @@ Firebird.attach(options, function (err, db) {
 
 #### Backpressure
 
-Rows are still fetched from the server in batches (200 rows per round-trip) as fast as your `on` callback returns. If you're forwarding each row to something that can fall behind (an HTTP response, a file write stream, a rate-limited API), declare `on` with a third `next` parameter — or return a `Promise` — and node-firebird will wait for you to call it (or for the promise to resolve) before fetching or processing the next row:
+Rows are still fetched from the server in batches (200 rows per round-trip by default, see `fetchSize` below) as fast as your `on` callback returns. If you're forwarding each row to something that can fall behind (an HTTP response, a file write stream, a rate-limited API), declare `on` with a third `next` parameter — or return a `Promise` — and node-firebird will wait for you to call it (or for the promise to resolve) before fetching or processing the next row:
 
 ```js
 db.sequentially(
@@ -1249,6 +1251,19 @@ db.sequentially(
 - **Do** use the 3-arg `on(row, index, next)` form (or return a `Promise` from `on`) when writing rows to something that applies its own backpressure, so unprocessed rows can't pile up faster than they're consumed.
 - **Don't** use `db.query` / `db.execute` for big or unbounded result sets — both build the full array in memory before your callback ever runs.
 - **Don't** assume the 2-arg `on(row, index)` form throttles you — it only guarantees node-firebird itself won't buffer rows; if your handler does async work without waiting on it (e.g. fire-and-forget writes), buffering can still build up on the *consumer* side.
+
+#### Fetch size
+
+Every batch of rows is a separate network round-trip, so on a high-latency link a large result set spends most of its time waiting for the next batch. `fetchSize` (connection option, overridable per query, default `200`, maximum `65535`) sets how many rows are requested per round-trip; it applies to `query`, `execute`, `sequentially` and `queryStream`:
+
+```js
+// 20 round-trips instead of 500 for 100k rows
+db.query('SELECT * FROM BIGTABLE', [], function (err, rows) {
+  // ...
+}, { fetchSize: 5000 });
+```
+
+Larger batches use more memory per batch and delay the first row of a stream slightly; with backpressure (`next` / `queryStream`) a whole batch is buffered before fetching pauses. The server may return fewer rows than requested: Firebird ends a batch after 16 network packets, so for wide rows the effective batch size is lower.
 
 ### Transactions
 

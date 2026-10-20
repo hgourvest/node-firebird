@@ -14,6 +14,8 @@ const defaultOptions = {
     DEFAULT_SVC_NAME : 'service_mgr',
     DEFAULT_ENCODING : 'utf8' as BufferEncoding,
     DEFAULT_FETCHSIZE : 200,
+    // op_fetch row count (p_sqldata_messages) is an unsigned 16-bit wire field
+    MAX_FETCHSIZE : 65535,
 };
 
 const buffer= {
