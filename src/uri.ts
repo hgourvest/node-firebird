@@ -21,6 +21,7 @@ const NUMBER_KEYS = new Set([
     'blobChunkSize', 'blobReadChunkSize', 'wireCrypt', 'parallelWorkers',
     'maxInlineBlobSize', 'maxNegotiatedProtocols', 'connectTimeout',
     'min', 'idleTimeoutMillis', 'keepAliveInitialDelay', 'ipFamily',
+    'fetchSize',
 ]);
 
 function coerce(key: string, value: string): any {

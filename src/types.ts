@@ -146,6 +146,11 @@ export type QueryOptions = {
     timeout?: number;
     scrollable?: boolean;
     /**
+     * Per-query override of the `fetchSize` connection option: rows
+     * requested per fetch round-trip (default 200, maximum 65535).
+     */
+    fetchSize?: number;
+    /**
      * Per-query override of the `namedPlaceholders` connection option
      * (e.g. disable it for one EXECUTE BLOCK statement whose body uses
      * `:variable` PSQL references).
@@ -534,6 +539,14 @@ export interface Options {
     parallelWorkers?: number;
     maxInlineBlobSize?: number;
     maxNegotiatedProtocols?: number;
+    /**
+     * Rows requested per fetch round-trip when reading a result set
+     * (query/execute/sequentially/queryStream). Default 200, maximum 65535.
+     * Larger values mean fewer round-trips (much faster on high-latency
+     * links) at the cost of buffering more rows per batch. Overridable per
+     * query.
+     */
+    fetchSize?: number;
     dbCryptConfig?: string; // Database encryption key callback config (base64: prefix for base64, or plain string)
     /**
      * Timeout in milliseconds for a single pool.get() attach operation.

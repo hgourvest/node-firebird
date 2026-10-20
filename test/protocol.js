@@ -206,6 +206,73 @@ describe('Test Firebird 3.0, 4.0, 5.0, and 6.0 protocol support', function () {
             });
         });
 
+        it('should not report a RangeError thrown by the delivery callback as an incomplete packet', function () {
+            const { XdrWriter, XdrReader } = require('../lib/wire/serialize');
+            const Connection = require('../lib/wire/connection');
+
+            const writer = new XdrWriter();
+            writer.addInt(Const.op_response);
+            writer.addInt(0); // handle
+            writer.addQuad({ high: 0, low: 0 }); // oid
+            writer.addInt(0); // buffer (empty array)
+            writer.addInt(Const.isc_arg_end); // end status list
+
+            const reader = new XdrReader(writer.buffer.slice(0, writer.pos));
+            const calls = [];
+            assert.throws(function () {
+                Connection.decodeResponse(reader, {}, {}, false, function (err) {
+                    calls.push(err);
+                    if (!err) {
+                        new Date(NaN).toISOString(); // consumer bug: RangeError
+                    }
+                });
+            }, RangeError);
+            // delivered once, never re-delivered as a "wait for more data" error
+            assert.deepStrictEqual(calls, [null]);
+        });
+
+        it('should not re-deliver a fetch error response whose callback throws', function () {
+            const { XdrWriter, XdrReader } = require('../lib/wire/serialize');
+            const { SQLVarInt } = require('../lib/wire/xsqlvar');
+            const Connection = require('../lib/wire/connection');
+
+            // one row, then the op_response a failing fetch ends with
+            const writer = new XdrWriter();
+            writer.addInt(Const.op_fetch_response);
+            writer.addInt(0); // status
+            writer.addInt(1); // count
+            writer.addInt(0); // null bitmap (1 byte) + padding
+            writer.addInt(42); // INTEGER column
+            writer.addInt(Const.op_response);
+            writer.addInt(0); // handle
+            writer.addQuad({ high: 0, low: 0 }); // oid
+            writer.addInt(0); // buffer (empty array)
+            writer.addInt(Const.isc_arg_end); // end status list
+
+            const column = new SQLVarInt();
+            column.scale = 0;
+            const statement = {
+                output: [column],
+                options: {},
+                connection: {
+                    accept: { protocolVersion: Const.PROTOCOL_VERSION13 },
+                    db: { emit: function () {} },
+                },
+            };
+            const reader = new XdrReader(writer.buffer.slice(0, writer.pos));
+            const calls = [];
+            assert.throws(function () {
+                Connection.decodeResponse(reader, { statement: statement }, { options: {} }, false, function (err) {
+                    calls.push(err);
+                    if (!err) {
+                        new Date(NaN).toISOString(); // consumer bug: RangeError
+                    }
+                });
+            }, RangeError);
+            assert.strictEqual(calls.length, 1);
+            assert.ok(!calls[0]);
+        });
+
         it('should bypass network calls in fetch_blob_async_transaction on cache hit', async function () {
             const Connection = require('../lib/wire/connection');
             const inlineBlobs = new Map();

@@ -650,6 +650,99 @@ describe('Firebird Wire Protocol – offline mock-server tests', function () {
         }
     });
 
+
+    // -----------------------------------------------------------------------
+    // 5. An exception thrown by a result callback is user code, not an
+    //    incomplete packet
+    // -----------------------------------------------------------------------
+
+    it('should surface a RangeError thrown by a result callback and keep decoding', async function () {
+        let serverSocket;
+        const { server, port } = await startMockServer(socket => {
+            serverSocket = socket;
+            let answered = false;
+            makeDispatcher(socket, (s, opcode) => {
+                if (opcode === Const.op_connect) {
+                    s.write(buildOpAcceptData('Legacy_Auth'));
+                } else if (opcode === Const.op_attach || opcode === Const.op_create) {
+                    s.write(buildOpResponse(42));
+                } else if (opcode === Const.op_transaction && !answered) {
+                    // answer both queued requests in a single write, so they
+                    // are decoded from the same 'data' event
+                    answered = true;
+                    s.write(Buffer.concat([buildOpResponse(7), buildOpResponse(8)]));
+                } else if (opcode === Const.op_detach) {
+                    s.write(buildOpResponse(0));
+                    s.end();
+                }
+            });
+        });
+
+        // the error is rethrown asynchronously as an uncaught exception;
+        // take over the handlers so the test runner does not see it
+        const saved = process.listeners('uncaughtException');
+        try {
+            const db = await new Promise((resolve, reject) => {
+                Firebird.attach({
+                    host: '127.0.0.1',
+                    port,
+                    database: '/mock/test.fdb',
+                    user: 'SYSDBA',
+                    password: 'masterkey',
+                }, (err, d) => (err ? reject(err) : resolve(d)));
+            });
+
+            process.removeAllListeners('uncaughtException');
+            let thrown;
+            let second;
+            try {
+                await new Promise((resolve, reject) => {
+                    const timer = setTimeout(() => reject(new Error('timed out')), 2000);
+                    const check = () => {
+                        if (thrown && second) {
+                            clearTimeout(timer);
+                            resolve();
+                        }
+                    };
+                    process.once('uncaughtException', err => {
+                        thrown = err;
+                        check();
+                    });
+                    db.transaction(() => {
+                        new Date(NaN).toISOString(); // RangeError: Invalid time value
+                    });
+                    db.transaction((err, tr) => {
+                        if (err) {
+                            clearTimeout(timer);
+                            reject(err);
+                            return;
+                        }
+                        second = tr;
+                        check();
+                    });
+                });
+            } finally {
+                process.removeAllListeners('uncaughtException');
+                for (const l of saved) {
+                    process.on('uncaughtException', l);
+                }
+            }
+
+            assert.ok(thrown instanceof RangeError, 'the callback RangeError should propagate');
+            assert.strictEqual(thrown.message, 'Invalid time value');
+            // the response after it in the same buffer was still delivered
+            assert.ok(second, 'second transaction should be delivered');
+
+            await new Promise((resolve, reject) => db.detach(e => (e ? reject(e) : resolve()), true));
+        } finally {
+            // server.close() waits for open connections, e.g. after a failure
+            if (serverSocket) {
+                serverSocket.destroy();
+            }
+            await stopMockServer(server);
+        }
+    });
+
 });
 
 // ---------------------------------------------------------------------------

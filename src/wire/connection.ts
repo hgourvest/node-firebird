@@ -133,6 +133,7 @@ class Connection {
     static fetch_blob_async: typeof fetch_blob_async;
     static parseValueIfJson: typeof parseValueIfJson;
     static describe: typeof describe;
+    static doSynchronousLoop: typeof doSynchronousLoop;
 
     db: Database;
     svc: ServiceManager | undefined;
@@ -498,9 +499,21 @@ class Connection {
 
                     if (obj && obj.status) {
                         obj.message = lookupMessages(obj.status);
+                    }
+
+                    // The response is fully consumed and dequeued at this
+                    // point, so an exception from the result callback chain
+                    // (user code) must not reach the packet handling: a
+                    // RangeError would be taken for an incomplete packet
+                    // (hanging the connection), anything else would abandon
+                    // the rest of this buffer. Keep decoding and rethrow it
+                    // asynchronously instead.
+                    try {
                         doCallback(obj, cb);
-                    } else {
-                        doCallback(obj, cb);
+                    } catch (callbackErr) {
+                        process.nextTick(function () {
+                            throw callbackErr;
+                        });
                     }
 
                 });
@@ -2079,7 +2092,7 @@ class Connection {
     
         if (count instanceof Function) {
             callback = count;
-            count = Const.DEFAULT_FETCHSIZE;
+            count = undefined;
         }
     
         msg.addInt(Const.op_fetch);
@@ -2087,7 +2100,7 @@ class Connection {
         CalcBlr(blr, statement.output);
         msg.addBlr(blr);
         msg.addInt(0); // message number
-        msg.addInt(count || Const.DEFAULT_FETCHSIZE); // fetch count
+        msg.addInt(count || resolveFetchSize(statement, this.options)); // fetch count
     
         callback!.statement = statement;
         this._queueEvent(callback);
@@ -2208,6 +2221,7 @@ class Connection {
         const self = this;
         const custom = statement.options || {};
         const asStream = custom.asStream && custom.on;
+        const fetchSize = resolveFetchSize(statement, this.options);
         const data: any[] | null = asStream ? null : [];
         let streamIndex = 0;
         const loop = (err: any, ret: any) => {
@@ -2239,7 +2253,7 @@ class Connection {
                         if (ret.fetched) {
                             callback(undefined, data || []);
                         } else {
-                            self.fetch(statement, transaction, Const.DEFAULT_FETCHSIZE, loop);
+                            self.fetch(statement, transaction, fetchSize, loop);
                         }
                     });
                 });
@@ -2249,11 +2263,11 @@ class Connection {
             if (ret && ret.fetched) {
                 callback(undefined, data || []);
             } else {
-                self.fetch(statement, transaction, Const.DEFAULT_FETCHSIZE, loop);
+                self.fetch(statement, transaction, fetchSize, loop);
             }
         };
 
-        this.fetch(statement, transaction, Const.DEFAULT_FETCHSIZE, loop);
+        this.fetch(statement, transaction, fetchSize, loop);
     }
 
 
@@ -2596,6 +2610,16 @@ const opcodeNames = Object.fromEntries(
 );
 
 function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cnx: Connection, lowercase_keys: boolean | undefined, cb: (err?: any, obj?: any) => void) {
+    // Once the response has been handed to cb, a RangeError reaching the
+    // catch below was thrown by the callback chain, not by reading a
+    // truncated packet, and must not be reported as an incomplete packet.
+    let delivered = false;
+    const deliver = cb;
+    cb = function (err?: any, obj?: any) {
+        delivered = true;
+        return deliver(err, obj);
+    };
+
     try {
         do {
             var r = data.r || data.readInt();
@@ -2844,6 +2868,10 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                             }
                         }
                     } catch (e) {
+                        if (delivered) {
+                            // thrown by cb above (trailing op_response), not a short read
+                            throw e;
+                        }
                         if (_xdrpos === data.pos) {
                             data.fop = true;
                         }
@@ -3271,7 +3299,7 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
             console.warn('[fb-debug] decodeResponse exception: %s (RangeError=%s) pos=%d buflen=%d',
                 err.message, err instanceof RangeError, data.pos, data.buffer.length);
         }
-        if (err instanceof RangeError) {
+        if (err instanceof RangeError && !delivered) {
             return cb(err);
         }
         throw err;
@@ -4035,29 +4063,78 @@ function fetch_blob_async(statement: Statement, id: Quad, name: string | number,
     };
 }
 
+/**
+ * Rows requested per op_fetch: the per-query `fetchSize` option, else the
+ * connection one, else DEFAULT_FETCHSIZE. Anything but a positive integer
+ * falls back to the default; values above MAX_FETCHSIZE are clamped (the
+ * wire field is 16-bit).
+ */
+function resolveFetchSize(statement: Statement, options: any): number {
+    const size = Number(statement.options?.fetchSize ?? options?.fetchSize);
+    if (Number.isInteger(size) && size > 0) {
+        return Math.min(size, Const.MAX_FETCHSIZE);
+    }
+    return Const.DEFAULT_FETCHSIZE;
+}
+
+/**
+ * Run processData(row, index, next) over every row in order, then done().
+ * Iterative rather than recursive: a next() called synchronously from
+ * processData only flags the row as handled and the while loop moves on,
+ * so a large batch of synchronous rows no longer grows the stack by a few
+ * frames per row (RangeError: Maximum call stack size exceeded). A next()
+ * called later (asynchronous consumer) resumes the loop. Each row gets its
+ * own next(); only its first call counts.
+ */
 function doSynchronousLoop(data: any[], processData: (row: any, index: number, next: (err?: any) => void) => void, done: (err?: any) => void) {
     if (!data || !data.length) {
         done();
         return;
     }
 
-    const loop = (index: any) => {
-        processData(data[index], index, (err) => {
-            if (err) {
-                done(err);
+    let index = 0;
+    let finished = false;
+
+    const run = () => {
+        while (index < data.length) {
+            let called = false;
+            let inCall = true;
+            let advanced = false;
+
+            const next = (err?: any) => {
+                if (called || finished) {
+                    return;
+                }
+                called = true;
+                if (err) {
+                    finished = true;
+                    done(err);
+                    return;
+                }
+                index++;
+                if (inCall) {
+                    // synchronous next(): let the while loop continue
+                    advanced = true;
+                    return;
+                }
+                run();
+            };
+
+            try {
+                processData(data[index], index, next);
+            } finally {
+                inCall = false;
+            }
+            if (!advanced) {
+                // failed, or next() will be called asynchronously
                 return;
             }
-
-            const nextIndex = index + 1;
-            if (nextIndex < data.length) {
-                loop(nextIndex);
-            } else {
-                done();
-            }
-        });
+        }
+        finished = true;
+        done();
     };
 
-    loop(0);
+    run();
 }
 
 function executeStreamRow(custom: any, row: any, index: number, output: any, next: (err?: any) => void) {
@@ -4142,4 +4219,5 @@ Connection.fetch_blob_async_transaction = fetch_blob_async_transaction;
 Connection.fetch_blob_async = fetch_blob_async;
 Connection.parseValueIfJson = parseValueIfJson;
 Connection.describe = describe;
+Connection.doSynchronousLoop = doSynchronousLoop;
 export = Connection;
