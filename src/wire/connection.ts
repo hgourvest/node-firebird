@@ -1288,16 +1288,13 @@ class Connection {
     allocateAndPrepareStatement(transaction: Transaction, query: string, plan: boolean, callback: Callback<Statement>) {
         var self = this;
         var mainCallback: QueueCallback = function(err: any, ret: any) {
-            if (!err) {
-                mainCallback.response.handle = ret.handle;
-                describe(ret.buffer, mainCallback.response);
-                mainCallback.response.query = query;
-                self.db.emit('query', query);
-                ret = mainCallback.response;
+            if (err) {
+                if (callback)
+                    callback(err);
+                return;
             }
-    
-            if (callback)
-                callback(err, ret);
+            mainCallback.response.handle = ret.handle;
+            self._finishPrepare(mainCallback.response, ret.buffer, query, callback);
         };
     
         // for auto detach
@@ -1400,18 +1397,71 @@ class Connection {
     
         var self = this;
         this._queueEvent(function(err: any, ret: any) {
-    
-            if (!err) {
-                describe(ret.buffer, statement);
-                statement.query = query;
-                self.db.emit('query', query);
-                ret = statement;
+            if (err) {
+                if (callback)
+                    callback(err);
+                return;
             }
-    
-            if (callback)
-                callback(err, ret);
+            self._finishPrepare(statement, ret.buffer, query, callback);
         });
     
+    }
+
+    /**
+     * Parse the describe buffer of a freshly-prepared statement, paging any
+     * truncated select/bind variable descriptions via op_info_sql with
+     * isc_info_sql_sqlda_start before delivering the Statement (issue #446).
+     */
+    _finishPrepare(statement: Statement, buffer: Buffer, query: string, callback?: Callback<Statement>) {
+        var self = this;
+        var withSchema = Boolean(this.accept && this.accept.protocolVersion >= Const.PROTOCOL_VERSION20);
+        var prevSection = -1;
+        var prevIndex = -1;
+
+        function fail(err: any) {
+            self.dropStatement(statement, undefined);
+            if (callback)
+                callback(err);
+        }
+
+        function step(buf: Buffer) {
+            var truncated: ReturnType<typeof describe>;
+            try {
+                truncated = describe(buf, statement);
+            } catch (err) {
+                fail(err);
+                return;
+            }
+            if (!truncated) {
+                statement.query = query;
+                self.db.emit('query', query);
+                if (callback)
+                    callback(undefined, statement);
+                return;
+            }
+            // Guard against non-advancing truncation (e.g. a single variable
+            // whose metadata somehow exceeds the 65535-byte info buffer).
+            if (truncated.section === prevSection && truncated.nextIndex <= prevIndex) {
+                fail(new Error('Statement metadata description was truncated'));
+                return;
+            }
+            prevSection = truncated.section;
+            prevIndex = truncated.nextIndex;
+            var items = buildTruncatedDescribeRequest(truncated.section, truncated.nextIndex, withSchema);
+            self.statementInfo(statement, items, function(err: any, info: any) {
+                if (err) {
+                    fail(err);
+                    return;
+                }
+                if (!info || !info.buffer || !info.buffer.length) {
+                    fail(new Error('Statement metadata description was truncated'));
+                    return;
+                }
+                step(info.buffer);
+            });
+        }
+
+        step(buffer);
     }
 
 
@@ -3445,9 +3495,55 @@ function parseOpResponse(data: XdrReader, response: WireResponse, cb?: (err?: an
     }
 }
 
-function describe(buff: Buffer, statement: Statement) {
+/**
+ * Build the op_info_sql request items to resume a truncated statement
+ * metadata description from 1-based variable index `startIndex` (issue #446).
+ */
+function buildTruncatedDescribeRequest(section: number, startIndex: number, withSchema: boolean): number[] {
+    const startLo = startIndex & 0xFF;
+    const startHi = (startIndex >> 8) & 0xFF;
+    const bindBlock = [
+        Const.isc_info_sql_bind,
+        Const.isc_info_sql_describe_vars,
+        Const.isc_info_sql_sqlda_seq,
+        Const.isc_info_sql_type,
+        Const.isc_info_sql_sub_type,
+        Const.isc_info_sql_scale,
+        Const.isc_info_sql_length,
+        Const.isc_info_sql_describe_end,
+    ];
+    if (section === Const.isc_info_sql_select) {
+        const selectBlock = [
+            Const.isc_info_sql_sqlda_start, 2, startLo, startHi,
+            Const.isc_info_sql_select,
+            Const.isc_info_sql_describe_vars,
+            Const.isc_info_sql_sqlda_seq,
+            Const.isc_info_sql_type,
+            Const.isc_info_sql_sub_type,
+            Const.isc_info_sql_scale,
+            Const.isc_info_sql_length,
+            Const.isc_info_sql_field,
+            Const.isc_info_sql_relation,
+        ];
+        if (withSchema) {
+            selectBlock.push(Const.isc_info_sql_relation_schema);
+        }
+        selectBlock.push(
+            Const.isc_info_sql_relation_alias,
+            Const.isc_info_sql_alias,
+            Const.isc_info_sql_describe_end
+        );
+        return selectBlock.concat(bindBlock);
+    }
+    return [
+        Const.isc_info_sql_sqlda_start, 2, startLo, startHi,
+    ].concat(bindBlock);
+}
+
+function describe(buff: Buffer, statement: Statement): { section: number; nextIndex: number } | null {
     var br = new BlrReader(buff);
     var parameters: any = null;
+    var currentSection = 0;
     var type: any, param: any;
 
     while (br.pos < br.buffer.length) {
@@ -3459,27 +3555,34 @@ function describe(buff: Buffer, statement: Statement) {
                 statement.plan = br.readString(Const.DEFAULT_ENCODING);
                 break;
             case Const.isc_info_sql_select:
-                statement.output = parameters = [];
+                currentSection = Const.isc_info_sql_select;
+                parameters = statement.output = statement.output || [];
                 break;
             case Const.isc_info_sql_bind:
-                statement.input = parameters = [];
+                currentSection = Const.isc_info_sql_bind;
+                parameters = statement.input = statement.input || [];
                 break;
             case Const.isc_info_sql_num_variables:
                 br.readInt(); // eat int
                 break;
             case Const.isc_info_sql_describe_vars:
-                if (!parameters) {return}
+                if (!parameters) {return null;}
                 br.readInt(); // eat int ?
                 var finishDescribe = false;
+                var num = 0;
+                var inVar = false;
                 param = null;
-                while (!finishDescribe){
+                while (!finishDescribe && br.pos < br.buffer.length){
                     switch (br.readByteCode()) {
                         case Const.isc_info_sql_describe_end:
+                            inVar = false;
+                            param = null;
                             break;
                         case Const.isc_info_sql_sqlda_seq:
                             // describe output always encodes the sequence as a
                             // 1/2/4-byte int, so readInt cannot return undefined
-                            var num = br.readInt()!;
+                            num = br.readInt()!;
+                            inVar = true;
                             break;
                         case Const.isc_info_sql_type:
                             type = br.readInt();
@@ -3512,7 +3615,7 @@ function describe(buff: Buffer, statement: Statement) {
                             }
                             // isc_info_sql_sqlda_seq always precedes the type
                             // item in the describe stream, so num is set here
-                            parameters[num!-1] = param;
+                            parameters[num-1] = param;
                             param.type = type;
                             param.nullable = Boolean(param.type & 1);
                             param.type &= ~1;
@@ -3551,12 +3654,29 @@ function describe(buff: Buffer, statement: Statement) {
                             param.relationAlias = br.readString(Const.DEFAULT_ENCODING);
                             break;
                         case Const.isc_info_truncated:
-                            throw new Error('Truncated');
+                            // If truncation happened before any variable in this
+                            // section was completed (or mid-variable before
+                            // isc_info_sql_describe_end), re-request that
+                            // variable; if it happened right after describe_end,
+                            // resume at the next variable (num + 1).
+                            if (inVar && param !== null && num > 0) {
+                                parameters.length = num - 1;
+                            }
+                            return {
+                                section: currentSection || Const.isc_info_sql_select,
+                                nextIndex: inVar ? (num || 1) : (num ? num + 1 : parameters.length + 1),
+                            };
                         default:
                             finishDescribe = true;
                             br.pos--;
                     }
                 }
+                break;
+            case Const.isc_info_truncated:
+                return {
+                    section: currentSection || Const.isc_info_sql_select,
+                    nextIndex: (parameters ? parameters.length : 0) + 1,
+                };
         }
     }
 
@@ -3575,6 +3695,7 @@ function describe(buff: Buffer, statement: Statement) {
     unpackCharSetCollation(statement.input);
     unpackCharSetCollation(statement.output);
     scaleOutputLengths(statement.output, statement.connection && statement.connection.options);
+    return null;
 }
 
 /**
@@ -3600,6 +3721,8 @@ function scaleOutputLengths(output: any[], options: any) {
         if (!p || (p.type !== Const.SQL_TEXT && p.type !== Const.SQL_VARYING)) continue;
         // OCTETS (id 1) is binary and never transliterated
         if (p.charSetId === undefined || p.charSetId === 1) continue;
+        // Guard against scaling twice if describe() is called more than once
+        if (p.nativeLength !== undefined) continue;
         const colWidth = charsetWidthById(p.charSetId);
         if (colWidth >= connWidth) continue;
 
