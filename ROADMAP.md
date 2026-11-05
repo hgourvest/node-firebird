@@ -35,19 +35,27 @@ These items come directly from current open issues and should be tracked as road
   - Better handling of server disconnects + reconnect backoff.
   - Ensure `db.detach()` always returns connection to pool in all code paths.
 
-- **[Issue #343](https://github.com/hgourvest/node-firebird/issues/343) — Pool connection errors**
+- **[Issue #343](https://github.com/hgourvest/node-firebird/issues/343) — Pool connection errors** ✅ Resolved
   Goal: pool should provide reliable acquisition and clear error messages.
   Deliverables:
   - Clarify pool error semantics and add a retry strategy option.
   - Add tests for pool exhaustion and stale idle connections.
 
-- **[Issue #313](https://github.com/hgourvest/node-firebird/issues/313) — Sequential heap limit / allocation failed**
+- **[Issue #313](https://github.com/hgourvest/node-firebird/issues/313) — Sequential heap limit / allocation failed** ✅ Resolved
   Goal: reduce memory pressure and document safe usage patterns.
   Deliverables:
   - Validate that `sequentially` does not retain rows unintentionally. ✅ Covered by existing regression test (`test/index.js` — "should not buffer all streamed rows in sequentially callback result").
   - Provide streaming patterns and "do/don't" guidance in docs. ✅ Added — see [README.md § Streaming a big data](README.md#streaming-a-big-data), including a backpressure example using the `on(row, index, next)` / Promise form.
 
 ### P1 — Behavior fixes / sharp edges
+
+- **[Issue #446](https://github.com/hgourvest/node-firebird/issues/446) — `Error: Truncated` thrown from a socket event when a statement has > ~1800 parameters** ✅ Resolved
+  Root cause: `op_prepare_statement` requests `DESCRIBE` metadata with `buffer_length = 65535` (the 16-bit DSQL limit); above ~1,810 bind parameters (or fewer with a wide `SELECT` list), Firebird terminates the info buffer with `isc_info_truncated` (`2`), which made `describe()` throw `new Error('Truncated')` synchronously inside the socket `data` handler.
+  Deliverables:
+  - `describe()` now returns `{ section, nextIndex }` on `isc_info_truncated` instead of throwing, discarding any incomplete variable entry.
+  - `_finishPrepare()` iteratively pages the remaining `select` and/or `bind` variable descriptions via `op_info_sql` using `isc_info_sql_sqlda_start` (`[20, 2, lo, hi]`) until all variables are described.
+  - Guarded `describe()` in `try / catch` so any malformed metadata cleans up the statement handle and rejects via the caller's callback/promise rather than crashing the process.
+  - Regression tests added in `test/collations.js`.
 
 - **[Issue #341](https://github.com/hgourvest/node-firebird/issues/341) — RETURNING failure leads to uncaught error** ✅ Resolved
   Goal: isolate statement failures and reset connection state correctly after errors.
@@ -59,7 +67,7 @@ These items come directly from current open issues and should be tracked as road
 - **[Issue #312](https://github.com/hgourvest/node-firebird/issues/312) — Hang when preparing a statement with too many parameters on Firebird 2.5** ✅ Resolved
   Root cause (diagnosed by the reporter): Firebird 2.5 sign-extends XDR opaque lengths above 32767 (a 32768-byte describe response arrives with length `0xFFFF8000`), which corrupted the read position and left the prepare callback hanging. `XdrReader.readArray` now recovers the real length from the low 16 bits when the length is negative — valid positive lengths (including > 65535 on newer servers) are untouched, so the recovery only triggers on the 2.5 bug pattern. Unit test in `test/unit/serialize.test.ts`.
 
-- **[Issue #329](https://github.com/hgourvest/node-firebird/issues/329) — Pool idle connection deletion**
+- **[Issue #329](https://github.com/hgourvest/node-firebird/issues/329) — Pool idle connection deletion** ✅ Resolved
   Goal: make pool idle cleanup safe and observable.
   Deliverables:
   - Document and/or fix idle cleanup behavior.
@@ -286,7 +294,62 @@ ESM/CJS dual exports (pg ships both since 8.15) and callback-API generics stay u
 | Shipped in 2.11.0 | `nestTables` (mysql2-style nested / table-qualified object rows); `relationAlias` describe metadata actually requested; `sequentially` blob/key alignment fix |
 | Shipped in 2.12.0 | Result metadata + affected rows (`withMeta`, #13); server `warning` events (#15); tagged-template query API (`db.sql`/`tx.sql`, #14); savepoint helpers (#16); env-var config defaults (#17); pool recycling (`maxUses`/`maxLifetimeMillis`, #18); row-key transforms (`transformKeys`, #19); SRP CI flake diagnosed (socket RST, not auth) |
 | Shipped in 2.13.0 | Bulk-insert stream + BLOB batch params (#20 — Round 2 complete); ESM/CJS dual exports (no major bump needed); callback-API generics (Phase C); single-byte codepage support (WIN125x/ISO8859_x/KOI8/DOS866 — closed #319/#301/#422); wire-buffer aliasing fix; guarded background 'error' events; issue-tracker triage fixes (#122 booleans, #156 escape, #305 EXECUTE PROCEDURE blobs) — **issue tracker emptied: 47 → 0** |
-| Shipped in 2.14.0 | Multi-host pooling (`poolCluster`, #12) — **the roadmap is complete** |
+| Shipped in 2.14.0 | Multi-host pooling (`poolCluster`, #12) — **Rounds 1 & 2 complete** |
+| Shipped in 2.15.0–2.19.1 | Exact fixed-point numerics (`numericMode`: `lossy` / `safe` / `string`); Firebird 6.0 enhanced collation metadata (`charSetId` / `collationId`); IPv4/IPv6 `ipFamily` option; iterative `doSynchronousLoop` (prevents call-stack overflow on large synchronous fetches); SRP auth-chain switching fix (#438); deferred socket write accumulation fix (#411) |
+| Next release | Truncated statement `describe()` pagination via `isc_info_sql_sqlda_start` for > ~1,800 parameters (#446, ✅ done) |
+
+---
+
+## 7. Round 3: Performance, Speed & Next-Generation Ergonomics
+
+With Rounds 1 & 2 complete and the issue tracker at **0 open issues and 0 open PRs**, Round 3 focuses on **wire-protocol throughput**, **reducing GC/allocation pressure in hot paths**, and **modern JavaScript/TypeScript ergonomics**.
+
+### A. Speed & Wire-Protocol Performance
+
+1. **Zero-Copy / Incremental Packet Reassembly in Socket `data` Handler**
+   - **Bottleneck:** When a large server response (`op_fetch_response` or `op_get_segment`) spans multiple TCP segments, `src/wire/connection.ts` currently runs `Buffer.concat([self._xdr.buffer, data])` and re-decodes the packet from the beginning on every arriving TCP chunk ($O(N^2)$ copying and re-parsing for large result sets).
+   - **Deliverables:** Preserve decoded row state across TCP chunk boundaries or accumulate chunk lists and flatten once, eliminating repeated buffer concatenation and redundant row re-decoding.
+
+2. **Buffer-Backed Null Bitmaps (Eliminate Per-Row `BitSet` Allocations)**
+   - **Bottleneck:** `new BitSet(buffer)` (`src/wire/serialize.ts`) allocates a JS array and runs a nested bit-unpacking loop for every single row decoded in `op_fetch_response` and every row encoded in `executeBatch` / `sendExecute`.
+   - **Deliverables:** Read and write null indicator bits directly on a `Buffer` / `Uint8Array` (`(buf[col >>> 3] & (1 << (col & 7))) !== 0`), removing thousands of temporary objects and array allocations per fetch batch.
+
+3. **Precomputed Statement Output BLR & Column Keys**
+   - **Bottleneck:** `CalcBlr(blr, statement.output)` is rebuilt on every `op_fetch` call even though `statement.output` is immutable after `prepare()`, and `computeColumnKeys()` / `resolveNestTables()` / `resolveKeyTransform()` are recomputed on every `op_fetch_response` packet.
+   - **Deliverables:** Precompute and cache the output BLR buffer on the `Statement` during `describe()`, and cache the resolved column keys per statement execution.
+
+4. **O(N) BLOB Segment Assembly & `Buffer.allocUnsafe` in Hot Writers**
+   - **Bottleneck:** `BlrReader.readSegment()` reallocates and copies `Buffer.alloc(tmp.length + len)` inside a `while` loop ($O(S^2)$ for multi-segment BLOB chunks), and `XdrWriter.ensure()` / `Arc4.transform()` zero-fill freshly allocated buffers immediately before overwriting every byte.
+   - **Deliverables:** Collect segments and concatenate once (or pre-calculate total segment bytes in a first pass), and use `Buffer.allocUnsafe()` where all bytes are unconditionally written before exposure.
+
+5. **Pipelined Multi-BLOB Uploads in `executeStatement`**
+   - **Bottleneck:** `PrepareParams` in `executeStatement` uploads BLOB parameters strictly sequentially (`createBlob2` → `batchSegments` → `closeBlob` for parameter 1 before starting parameter 2), paying 3 network round-trips per BLOB parameter.
+   - **Deliverables:** Pipeline BLOB parameter uploads back-to-back (matching `executeBatch`'s `uploadBlob` pre-pass) so multiple BLOB parameters in a single `query`/`execute` share a single network round-trip.
+
+6. **Benchmark Suite (`benchmarks/`)**
+   - **Deliverables:** Add a reproducible benchmark suite measuring row decode throughput (1k / 100k rows), `executeBatch` throughput (rows/sec), BLOB read/write bandwidth (MB/sec), prepared-statement cache speedup, and SRP handshake latency.
+
+### B. Developer Experience, Observability & Remaining Polish
+
+7. **Explicit Resource Management (`using` / `await using` — `Symbol.asyncDispose`)**
+   - **Deliverables:** Implement `[Symbol.asyncDispose]()` on `Database` (pooled release / detach), `Transaction` (auto-rollback if uncommitted), `Statement` (`releaseAsync()`), and `Pool` / `PoolCluster` (`destroyAsync()`), enabling TypeScript 5.2+ / Node.js `await using db = await pool.getAsync()`.
+
+8. **Batched `AsyncIterable` Cursor (`db.cursor` / `tx.cursor`)**
+   - **Deliverables:** Lightweight `AsyncIterable` cursor yielding rows or fixed-size row batches (`for await (const row of db.cursor(sql, params))`) directly over `fetch()` without Node `Readable` stream wrapper overhead.
+
+9. **Tagged-Template Object Builders (`db.sql` Insert / Update Helpers)**
+   - **Deliverables:** Complete the deferred item from #14 — allow `db.sql(obj, 'col1', 'col2')` and `db.sql(rowsArray, 'col1', 'col2')` inside `db.sql` templates to generate parameterized `("COL1", "COL2") VALUES (?, ?)` and `SET "COL1" = ?, "COL2" = ?` fragments safely.
+
+10. **Zero-Overhead Diagnostics Channel (`node:diagnostics_channel`)**
+    - **Deliverables:** Publish structured events on Node's built-in `diagnostics_channel` (`firebird:query:start`, `firebird:query:end`, `firebird:query:error`, `firebird:pool:checkout`, `firebird:transaction`) so OpenTelemetry and APM tools can instrument `node-firebird` without monkey-patching.
+
+11. **Connection `ping()` API & Client-Side Request Watchdog**
+    - **Deliverables:**
+      - Expose `db.ping()` / `db.pingAsync()` using `op_ping` (Protocol 13+) / `op_dummy`, with optional pool checkout health verification after prolonged idle periods.
+      - Add an opt-in client-side `socketTimeout` / pending-request watchdog so requests on dead/blackholed TCP connections settle deterministically even on pre-Firebird 4 servers.
+
+12. **TypeScript Phase A.2 — Wire-Core Strict Typing**
+    - **Deliverables:** Replace the remaining explicit `: any` annotations in `src/wire/connection.ts`, `src/wire/xsqlvar.ts`, and `src/wire/service.ts` with concrete internal interfaces.
 
 ---
 
