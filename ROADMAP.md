@@ -296,7 +296,7 @@ ESM/CJS dual exports (pg ships both since 8.15) and callback-API generics stay u
 | Shipped in 2.13.0 | Bulk-insert stream + BLOB batch params (#20 — Round 2 complete); ESM/CJS dual exports (no major bump needed); callback-API generics (Phase C); single-byte codepage support (WIN125x/ISO8859_x/KOI8/DOS866 — closed #319/#301/#422); wire-buffer aliasing fix; guarded background 'error' events; issue-tracker triage fixes (#122 booleans, #156 escape, #305 EXECUTE PROCEDURE blobs) — **issue tracker emptied: 47 → 0** |
 | Shipped in 2.14.0 | Multi-host pooling (`poolCluster`, #12) — **Rounds 1 & 2 complete** |
 | Shipped in 2.15.0–2.19.1 | Exact fixed-point numerics (`numericMode`: `lossy` / `safe` / `string`); Firebird 6.0 enhanced collation metadata (`charSetId` / `collationId`); IPv4/IPv6 `ipFamily` option; iterative `doSynchronousLoop` (prevents call-stack overflow on large synchronous fetches); SRP auth-chain switching fix (#438); deferred socket write accumulation fix (#411) |
-| Next release | Truncated statement `describe()` pagination via `isc_info_sql_sqlda_start` for > ~1,800 parameters (#446, ✅ done) |
+| Next release | Truncated statement `describe()` pagination via `isc_info_sql_sqlda_start` for > ~1,800 parameters (#446, ✅ done); Benchmark Suite (`benchmarks/`, ✅ done) |
 
 ---
 
@@ -326,8 +326,8 @@ With Rounds 1 & 2 complete and the issue tracker at **0 open issues and 0 open P
    - **Bottleneck:** `PrepareParams` in `executeStatement` uploads BLOB parameters strictly sequentially (`createBlob2` → `batchSegments` → `closeBlob` for parameter 1 before starting parameter 2), paying 3 network round-trips per BLOB parameter.
    - **Deliverables:** Pipeline BLOB parameter uploads back-to-back (matching `executeBatch`'s `uploadBlob` pre-pass) so multiple BLOB parameters in a single `query`/`execute` share a single network round-trip.
 
-6. **Benchmark Suite (`benchmarks/`)**
-   - **Deliverables:** Add a reproducible benchmark suite measuring row decode throughput (1k / 100k rows), `executeBatch` throughput (rows/sec), BLOB read/write bandwidth (MB/sec), prepared-statement cache speedup, and SRP handshake latency.
+6. **Benchmark Suite (`benchmarks/`)** ✅ Implemented
+   - **Deliverables:** Zero-dependency benchmark suite (`npm run bench` / `npm run bench:live` / `--json`) measuring offline wire serialization (`XdrWriter`/`XdrReader`, `BitSet`, `BlrReader.readSegment`, `DECFLOAT`), `decodeResponse` row decode throughput across modes (`asObject`, array, `lowercase_keys` + `camel`, `nestTables`), large `describe()` parsing (1,500 bind params), `Srp256` handshake proof & `Arc4` cipher throughput, plus optional live Firebird server benchmarks (`statementCacheSize` speedup, 1k-row `SELECT`, `executeBatchAsync`, 64 KB `BLOB` round-trip).
 
 ### B. Developer Experience, Observability & Remaining Polish
 

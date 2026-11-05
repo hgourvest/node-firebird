@@ -52,7 +52,9 @@
         "pretest": "npm run build",
         "typecheck": "tsc -p tsconfig.test.json",
         "test": "vitest run",
-        "lint": "oxlint"
+        "lint": "oxlint",
+        "bench": "node benchmarks/index.js",
+        "bench:live": "node benchmarks/index.js --all"
     },
     "devDependencies": {
         "@types/node": "^26.1.1",

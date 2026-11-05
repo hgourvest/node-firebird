@@ -96,6 +96,8 @@ docker run -d --name firebird -p 3050:3050 \
   gitignored — never edit it by hand
 - `test/` — vitest suite (integration tests at the top level, server-free
   tests in `test/unit/`)
+- `benchmarks/` — zero-dependency wire-protocol & live server benchmark suite
+  (see [`benchmarks/README.md`](benchmarks/README.md))
 
 **Workflow**
 
@@ -105,6 +107,8 @@ npm run build      # compile src/ -> lib/
 npm run typecheck  # type-check sources and tests without emitting
 npm run lint       # oxlint
 npm test           # build + run the vitest suite (unit + integration)
+npm run bench      # run offline wire-protocol & CPU micro-benchmarks
+npm run bench:live # run offline + live Firebird server benchmarks
 ```
 
 ### Methods
