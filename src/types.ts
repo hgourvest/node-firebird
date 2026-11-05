@@ -336,6 +336,16 @@ export interface Database {
     cancel(callback?: SimpleCallback): Database;
     cancel(kind: number, callback?: SimpleCallback): Database;
     cancelAsync(kind?: number): Promise<void>;
+    /**
+     * Send a lightweight wire round-trip probe (`op_ping` on Firebird 3.0+ /
+     * protocol 13+, `op_info_database` on older servers) to verify that the
+     * connection is still alive and responsive. Optional `timeout` (ms)
+     * bounds how long to wait for the server response before failing the
+     * connection with an `ETIMEDOUT` error.
+     */
+    ping(callback?: SimpleCallback): Database;
+    ping(timeout: number, callback?: SimpleCallback): Database;
+    pingAsync(timeout?: number): Promise<void>;
 }
 
 export interface Transaction {
@@ -558,6 +568,29 @@ export interface Options {
      * expected Firebird server response time under load.
      */
     connectTimeout?: number;
+    /**
+     * Client-side pending-request watchdog timeout in milliseconds.
+     * When a wire request is in flight and no socket data arrives from the
+     * server within `socketTimeout` ms (e.g. a blackholed TCP connection or
+     * unresponsive server on pre-Firebird 4), the pending request is
+     * rejected with an `ETIMEDOUT` error and the dead socket is destroyed.
+     * Each arriving TCP data chunk resets the timer. Default 0 (disabled).
+     */
+    socketTimeout?: number;
+    /**
+     * Pool only: before handing out an idle connection that has been sitting
+     * idle in the pool for at least `pingIntervalMillis` milliseconds, verify
+     * it with a lightweight `db.ping()` round-trip (`op_ping`). If the ping
+     * fails or times out, the dead connection is evicted and replaced
+     * transparently. Default 0 (disabled).
+     */
+    pingIntervalMillis?: number;
+    /**
+     * Pool only: timeout in milliseconds for the checkout `db.ping()` probe
+     * triggered by `pingIntervalMillis`. Defaults to `socketTimeout` if set,
+     * otherwise `connectTimeout` or 5000 ms.
+     */
+    pingTimeoutMillis?: number;
     /**
      * Pool only: minimum number of physical connections the idle reaper
      * keeps alive. Only meaningful together with `idleTimeoutMillis`.

@@ -44,6 +44,8 @@ class Pool extends Events.EventEmitter {
     idleTimeoutMillis: number;
     maxUses: number;
     maxLifetimeMillis: number;
+    pingIntervalMillis: number;
+    pingTimeoutMillis: number;
     pending: Callback[];
     options: any;
     _destroyed: boolean;
@@ -61,6 +63,10 @@ class Pool extends Events.EventEmitter {
         this.idleTimeoutMillis = (options && options.idleTimeoutMillis > 0) ? options.idleTimeoutMillis : 0;
         this.maxUses = (options && options.maxUses > 0) ? options.maxUses : 0;
         this.maxLifetimeMillis = (options && options.maxLifetimeMillis > 0) ? options.maxLifetimeMillis : 0;
+        this.pingIntervalMillis = (options && options.pingIntervalMillis > 0) ? options.pingIntervalMillis : 0;
+        this.pingTimeoutMillis = (options && options.pingTimeoutMillis > 0)
+            ? options.pingTimeoutMillis
+            : ((options && options.socketTimeout > 0) ? options.socketTimeout : ((options && options.connectTimeout > 0) ? options.connectTimeout : 5000));
         this.pending   = []; // callbacks waiting for a free slot
         this.options   = options;
         this._destroyed = false; // true after destroy() — prevents further use
@@ -205,6 +211,37 @@ class Pool extends Events.EventEmitter {
                 self._forget(db);
                 self.pending.unshift(cb);
                 setImmediate(function () { self.check(); });
+                return self;
+            }
+            var idleMs = typeof db.__poolIdleSince === 'number' ? (Date.now() - db.__poolIdleSince) : 0;
+            if (self.pingIntervalMillis > 0 && idleMs >= self.pingIntervalMillis && typeof db.ping === 'function') {
+                self.dbinuse++;
+                db.ping(self.pingTimeoutMillis, function (pingErr?: any) {
+                    if (self._destroyed) {
+                        self.dbinuse--;
+                        self._retire(db);
+                        cb(new Error('Pool has been destroyed'), null);
+                        return;
+                    }
+                    if (pingErr || self._isDead(db)) {
+                        self.dbinuse--;
+                        self._emitError(pingErr || new Error('Connection failed checkout ping'), db);
+                        if (self._isDead(db)) {
+                            self._forget(db);
+                        } else {
+                            self._retire(db);
+                        }
+                        self.pending.unshift(cb);
+                        setImmediate(function () { self.check(); });
+                        return;
+                    }
+                    db.__poolUseCount = (db.__poolUseCount || 0) + 1;
+                    self.emit('acquire', db);
+                    cb(null, db);
+                });
+                if (self.pending.length > 0 && (self.dbinuse + self._creating) < self.max) {
+                    setImmediate(function () { self.check(); });
+                }
                 return self;
             }
             // Idle connection available — hand it out immediately.

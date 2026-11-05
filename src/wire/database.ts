@@ -461,6 +461,22 @@ class Database extends Events.EventEmitter {
         return this;
     }
 
+    /**
+     * Send a lightweight wire round-trip probe (`op_ping` on Firebird 3.0+ /
+     * protocol 13+, `op_info_database` on older servers) to verify that the
+     * connection is still alive and responsive. Optional `timeout` (ms)
+     * bounds how long to wait for the server response before failing the
+     * connection with an `ETIMEDOUT` error.
+     */
+    ping(timeout?: number | SimpleCallback, callback?: SimpleCallback): this {
+        if (typeof timeout === 'function') {
+            callback = timeout;
+            timeout = undefined;
+        }
+        this.connection.ping(timeout, callback);
+        return this;
+    }
+
     attachEvent(callback: Callback<FbEventManager>): this {
         var self = this;
         const eventid = self.eventid++;
@@ -650,6 +666,11 @@ class Database extends Events.EventEmitter {
     cancelAsync(kind?: number): Promise<void> {
         var self = this;
         return fromCallback(function(cb) { self.cancel(kind, cb); });
+    }
+
+    pingAsync(timeout?: number): Promise<void> {
+        var self = this;
+        return fromCallback(function(cb) { self.ping(timeout, cb); });
     }
 
     /**

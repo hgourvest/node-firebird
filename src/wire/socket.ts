@@ -96,6 +96,7 @@ class Socket {
     // reimplemented here. Declare the ones the driver relies on (type-only,
     // nothing is emitted).
     declare end: net.Socket['end'];
+    declare destroy: net.Socket['destroy'];
     declare removeAllListeners: net.Socket['removeAllListeners'];
 
     _socket: net.Socket;

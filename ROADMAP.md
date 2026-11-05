@@ -296,7 +296,7 @@ ESM/CJS dual exports (pg ships both since 8.15) and callback-API generics stay u
 | Shipped in 2.13.0 | Bulk-insert stream + BLOB batch params (#20 — Round 2 complete); ESM/CJS dual exports (no major bump needed); callback-API generics (Phase C); single-byte codepage support (WIN125x/ISO8859_x/KOI8/DOS866 — closed #319/#301/#422); wire-buffer aliasing fix; guarded background 'error' events; issue-tracker triage fixes (#122 booleans, #156 escape, #305 EXECUTE PROCEDURE blobs) — **issue tracker emptied: 47 → 0** |
 | Shipped in 2.14.0 | Multi-host pooling (`poolCluster`, #12) — **Rounds 1 & 2 complete** |
 | Shipped in 2.15.0–2.19.1 | Exact fixed-point numerics (`numericMode`: `lossy` / `safe` / `string`); Firebird 6.0 enhanced collation metadata (`charSetId` / `collationId`); IPv4/IPv6 `ipFamily` option; iterative `doSynchronousLoop` (prevents call-stack overflow on large synchronous fetches); SRP auth-chain switching fix (#438); deferred socket write accumulation fix (#411) |
-| Next release | Truncated statement `describe()` pagination via `isc_info_sql_sqlda_start` for > ~1,800 parameters (#446, ✅ done); Benchmark Suite (`benchmarks/`, ✅ done) |
+| Shipped in 2.20.0 | Truncated statement `describe()` pagination via `isc_info_sql_sqlda_start` for > ~1,800 parameters (#446, ✅ done); Benchmark Suite (`benchmarks/`, ✅ done); Connection `ping()` API (`op_ping`), pool `pingIntervalMillis`, & client-side `socketTimeout` request watchdog (#11, ✅ done) |
 
 ---
 
@@ -343,10 +343,10 @@ With Rounds 1 & 2 complete and the issue tracker at **0 open issues and 0 open P
 10. **Zero-Overhead Diagnostics Channel (`node:diagnostics_channel`)**
     - **Deliverables:** Publish structured events on Node's built-in `diagnostics_channel` (`firebird:query:start`, `firebird:query:end`, `firebird:query:error`, `firebird:pool:checkout`, `firebird:transaction`) so OpenTelemetry and APM tools can instrument `node-firebird` without monkey-patching.
 
-11. **Connection `ping()` API & Client-Side Request Watchdog**
+11. **Connection `ping()` API & Client-Side Request Watchdog** ✅ Implemented
     - **Deliverables:**
-      - Expose `db.ping()` / `db.pingAsync()` using `op_ping` (Protocol 13+) / `op_dummy`, with optional pool checkout health verification after prolonged idle periods.
-      - Add an opt-in client-side `socketTimeout` / pending-request watchdog so requests on dead/blackholed TCP connections settle deterministically even on pre-Firebird 4 servers.
+      - `db.ping([timeout], [callback])` / `db.pingAsync([timeout])` using `op_ping` (Protocol 13+ / Firebird 3.0+) with automatic fallback to `op_info_database` on Protocol 10–12, plus optional pool checkout health verification after idle periods (`pingIntervalMillis` / `pingTimeoutMillis`).
+      - Opt-in client-side `socketTimeout` pending-request watchdog so requests on dead/blackholed TCP connections settle deterministically with `ETIMEDOUT` and destroy the dead socket (each arriving TCP data chunk resets the timer).
 
 12. **TypeScript Phase A.2 — Wire-Core Strict Typing**
     - **Deliverables:** Replace the remaining explicit `: any` annotations in `src/wire/connection.ts`, `src/wire/xsqlvar.ts`, and `src/wire/service.ts` with concrete internal interfaces.

@@ -31,6 +31,8 @@ export interface QueueCallback {
     response?: any;
     statement?: Statement;
     lazy_count?: number;
+    /** Optional per-request watchdog timeout in ms (e.g. from db.ping(timeout)). */
+    _timeoutMs?: number;
 }
 
 /** A queue entry: a callback, or a placeholder for a deferred op. */

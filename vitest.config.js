@@ -49,7 +49,8 @@ module.exports = defineConfig({
             'test/tablespaces.js',
             'test/json.js',
             'test/row-type.js',
-            'test/collations.js'
+            'test/collations.js',
+            'test/ping-watchdog.js'
         ],
     },
 });

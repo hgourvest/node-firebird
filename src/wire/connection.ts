@@ -172,6 +172,8 @@ class Connection {
     _authStartTime: number | undefined;
     _pendingAccept: any;
     _inlineBlobs: Map<string, Buffer> | undefined;
+    _socketTimeout: number;
+    _watchdogTimer: NodeJS.Timeout | null;
 
     constructor(host: string, port: number, callback: SimpleCallback | undefined, options: InternalOptions, db?: Database, svc?: ServiceManager) {
         var self = this;
@@ -204,6 +206,8 @@ class Connection {
         if (options && options.blobChunkSize && options.blobChunkSize > 65535) options.blobChunkSize = 65535;
         if (options && options.blobReadChunkSize && options.blobReadChunkSize > 65535) options.blobReadChunkSize = 65535;
         this.options = options;
+        this._socketTimeout = (options && options.socketTimeout && options.socketTimeout > 0) ? Math.floor(options.socketTimeout) : 0;
+        this._watchdogTimer = null;
         this._bind_events(host, port, callback);
         this.error;
         this._retry_connection_id;
@@ -264,6 +268,67 @@ class Connection {
     }
 
 
+    _clearWatchdog() {
+        if (this._watchdogTimer) {
+            clearTimeout(this._watchdogTimer);
+            this._watchdogTimer = null;
+        }
+    }
+
+    /**
+     * Effective watchdog timeout (in ms) for the oldest non-deferred request
+     * currently awaiting a server response, or 0 when no request is in flight
+     * or no timeout is configured.
+     */
+    _activeTimeoutMs(): number {
+        for (var i = 0; i < this._queue.length; i++) {
+            var entry = this._queue[i];
+            if (entry !== undefined) {
+                if (entry._timeoutMs && entry._timeoutMs > 0) {
+                    return this._socketTimeout > 0
+                        ? Math.min(this._socketTimeout, entry._timeoutMs)
+                        : entry._timeoutMs;
+                }
+                return this._socketTimeout;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Arm, reset, or clear the client-side request watchdog timer. Called
+     * when a non-deferred request is queued and whenever socket bytes arrive.
+     */
+    _refreshWatchdog() {
+        this._clearWatchdog();
+        if (this._isClosed) {
+            return;
+        }
+        var timeoutMs = this._activeTimeoutMs();
+        if (!timeoutMs || timeoutMs <= 0) {
+            return;
+        }
+        var self = this;
+        this._watchdogTimer = setTimeout(function () {
+            self._watchdogTimer = null;
+            if (self._isClosed || self._activeTimeoutMs() <= 0) {
+                return;
+            }
+            var err: any = new Error('Socket timeout after ' + timeoutMs + 'ms');
+            err.code = 'ETIMEDOUT';
+            self.error = err;
+            self._isClosed = true;
+            self._emitError(err);
+            self._rejectPending(err);
+            if (self._socket) {
+                self._socket.destroy();
+            }
+        }, timeoutMs);
+        if (this._watchdogTimer && typeof this._watchdogTimer.unref === 'function') {
+            this._watchdogTimer.unref();
+        }
+    }
+
     // Reject every request that is still awaiting a server response (e.g. a
     // transaction.commit() sent right before the server went away) instead of
     // leaving its callback to hang forever. Requests already in flight cannot
@@ -271,6 +336,7 @@ class Connection {
     // transaction/statement handles, so nothing the server sends back could
     // ever match a callback queued against the old connection.
     _rejectPending(err: any) {
+        this._clearWatchdog();
         var queue = this._queue;
         this._queue = [];
         this._pending = [];
@@ -303,6 +369,13 @@ class Connection {
     _bind_events(host: string, port: number, callback: SimpleCallback | undefined) {
 
         var self = this;
+        var connectCallback = callback;
+        function invokeConnectCallback(err?: any) {
+            if (!connectCallback) return;
+            var cb = connectCallback;
+            connectCallback = undefined;
+            cb(err);
+        }
 
         self._socket.on('close', function() {
 
@@ -317,8 +390,7 @@ class Connection {
 
             if (!self.db) {
                 self._rejectPending(lostError);
-                if (callback)
-                    callback(self.error);
+                invokeConnectCallback(self.error);
                 return;
             }
 
@@ -375,16 +447,14 @@ class Connection {
             // socket error must not become an uncaught exception
             self._emitError(e);
     
-            if (callback)
-                callback(e);
+            invokeConnectCallback(e);
     
         });
     
         self._socket.on('connect', function() {
             self._isClosed = false;
             self._isOpened = true;
-            if (callback)
-                callback();
+            invokeConnectCallback();
         });
     
         self._socket.on('data', function (data: any) {
@@ -522,6 +592,8 @@ class Connection {
                     break;
                 }
             }
+
+            self._refreshWatchdog();
     
             if (!self._detachAuto || self._pending.length !== 0) {
                 return;
@@ -538,7 +610,54 @@ class Connection {
 
 
     disconnect() {
+        this._clearWatchdog();
         this._socket.end();
+    }
+
+
+    /**
+     * Round-trip liveness probe (`op_ping` on Protocol 13+ / Firebird 3.0+,
+     * falling back to a 1-byte `op_info_database` on Protocol 10–12).
+     * Optional `timeout` (ms) bounds how long this ping waits for a reply
+     * even when connection-level `socketTimeout` is not set.
+     */
+    ping(timeout?: number | SimpleCallback, callback?: SimpleCallback) {
+        if (typeof timeout === 'function') {
+            callback = timeout;
+            timeout = undefined;
+        }
+
+        if (this._isClosed)
+            return this.throwClosed(callback);
+
+        this._pending.push('ping');
+
+        var msg = this._msg;
+        msg.pos = 0;
+
+        if (this.accept && this.accept.protocolVersion >= Const.PROTOCOL_VERSION13) {
+            msg.addInt(Const.op_ping);
+        } else {
+            var blr = this._blr;
+            blr.pos = 0;
+            blr.addBytes([Const.isc_info_end]);
+
+            msg.addInt(Const.op_info_database);
+            msg.addInt(this.dbhandle || 0);
+            msg.addInt(0); // incarnation
+            msg.addBlr(blr);
+            msg.addInt(64); // buffer_length
+        }
+
+        var qcb: QueueCallback = function (err: any) {
+            if (callback)
+                callback(err);
+        };
+        if (typeof timeout === 'number' && timeout > 0) {
+            qcb._timeoutMs = Math.floor(timeout);
+        }
+
+        this._queueEvent(qcb);
     }
 
 
@@ -625,6 +744,7 @@ class Connection {
 
         this._socket.write(buffer);
         this._queue.push(callback);
+        this._refreshWatchdog();
     }
 
 
@@ -653,6 +773,7 @@ class Connection {
                 callback();
         } else {
             self._queue.push(callback);
+            self._refreshWatchdog();
         }
     }
 
@@ -793,6 +914,7 @@ class Connection {
                     if (callback)
                         callback(undefined, ret);
                 });
+                self._refreshWatchdog();
                 return;
             }
 

@@ -204,6 +204,9 @@ options.wireCrypt = Firebird.WIRE_CRYPT_ENABLE; // default; set to Firebird.WIRE
 options.pluginName = undefined; // optional, auto-negotiated; can be set to Firebird.AUTH_PLUGIN_SRP256, Firebird.AUTH_PLUGIN_SRP, or Firebird.AUTH_PLUGIN_LEGACY
 options.dbCryptConfig = undefined; // optional; database encryption key for encrypted databases. Use 'base64:<value>' for base64-encoded keys or plain text
 options.connectTimeout = 10000; // optional; timeout in ms for a single pool.get() attach operation (default: no timeout)
+options.socketTimeout = 0; // optional; client-side pending-request watchdog in ms (0 = disabled; rejects stalled requests with ETIMEDOUT and destroys the dead socket)
+options.pingIntervalMillis = 0; // optional (pool only); verify idle pooled connections with db.ping() on checkout after sitting idle for this many ms (0 = disabled)
+options.pingTimeoutMillis = 5000; // optional (pool only); timeout in ms for the checkout db.ping() probe
 options.enableKeepAlive = true; // TCP keepalive probing to detect dead/stale connections (same option names as mysql2); set to false to disable
 options.keepAliveInitialDelay = 60000; // ms a socket must be idle before the first keepalive probe (ignored when enableKeepAlive is false)
 options.ipFamily = 4; // optional; force IPv4 (4) or IPv6 (6) when resolving host — also set by inet4:// / inet6:// URIs
@@ -345,6 +348,8 @@ const pool = Firebird.pool(10, {
     connectTimeout: 5000,
     maxUses: 7500,              // retire a connection after 7500 checkouts (pg's maxUses)
     maxLifetimeMillis: 3600000, // …or 1h after creation (Postgres.js's max_lifetime)
+    pingIntervalMillis: 15000,  // verify connections idle >= 15s with op_ping on checkout
+    pingTimeoutMillis: 2000,    // bound the checkout ping round-trip to 2s
 });
 
 pool.on('connect', (db) => console.log('new server connection'));
@@ -373,6 +378,11 @@ console.log({
   below `min`) and a replacement is created on demand. Recycling bounds
   server-side resource drift on long-lived connections. Both default to 0
   (off).
+- `pingIntervalMillis` verifies connections that have sat idle for at least
+  that many milliseconds by issuing a lightweight wire `db.ping()` (`op_ping`)
+  before handing them out. If the ping fails or exceeds `pingTimeoutMillis`,
+  the dead/blackholed connection is evicted (`remove` + `error` events) and a
+  healthy replacement is acquired transparently.
 - `error` is a background-error channel (idle eviction failures and the
   like); unlike a plain `EventEmitter`, it is only emitted when a listener
   is attached, so existing applications keep working unchanged.
