@@ -2,9 +2,10 @@
 
 Zero-dependency performance benchmark suite for `node-firebird`, built on `process.hrtime.bigint()`.
 
-The suite is split into two parts:
+The suite is split into three parts:
 1. **Offline CPU & Wire-Protocol Micro-Benchmarks (`benchmarks/micro.js`)** — runs anywhere with zero external services required. Exercises XDR/BLR serialization, `BitSet` null bitmaps, `DECFLOAT(16/34)` IEEE 754-2008 DPD math, `op_fetch_response` row-batch decoding across all output modes, large SQLDA `describe()` metadata parsing, `Srp256` handshake proofs, and `Arc4` wire encryption.
 2. **Live Firebird Server Benchmarks (`benchmarks/live.js`)** — opt-in end-to-end benchmarks against a running Firebird instance. Measures prepared-statement cache speedup (`statementCacheSize`), 1,000-row `SELECT` throughput (`queryAsync` objects vs `executeAsync` arrays), bulk `INSERT` throughput via `executeBatchAsync` (`op_batch_create` / `op_batch_msg` / `op_batch_exec`), and 64 KB `BLOB` write bandwidth.
+3. **Head-to-Head Driver Comparison (`benchmarks/compare.js` — see [`COMPARISON.md`](./COMPARISON.md))** — compares `node-firebird (wire)`, `node-firebird ({ native: true })`, `node-firebird-driver-native` (`libfbclient`), and `node-firebird-driver-wire` across identical SQL workloads.
 
 ---
 
@@ -19,6 +20,9 @@ npm run bench
 
 # Run both offline micro-benchmarks and live Firebird server benchmarks
 npm run bench:live
+
+# Run head-to-head comparison across node-firebird, node-firebird-driver-native, and node-firebird-driver-wire
+npm run bench:compare
 
 # Run only the live Firebird server benchmarks
 node benchmarks/index.js --live
@@ -37,7 +41,8 @@ node benchmarks/index.js --json
 | :--- | :--- |
 | *(none)* / `--micro` | Run offline wire-protocol and CPU micro-benchmarks (default). |
 | `--live` | Run only the live Firebird server benchmarks (gracefully skips if unreachable). |
-| `--all` | Run both offline micro-benchmarks and live Firebird server benchmarks (`npm run bench:live`). |
+| `--compare` | Run head-to-head driver comparison (`npm run bench:compare`). See [`COMPARISON.md`](./COMPARISON.md). |
+| `--all` | Run offline micro-benchmarks, live server benchmarks, and driver comparison. |
 | `--json` | Suppress ASCII tables and emit structured JSON with `opsPerSec`, `throughput`, `meanNs`, `p50Ns`, `p95Ns`, `minNs`, and `maxNs`. |
 
 ### Environment Variables (Live Server Benchmarks)

@@ -695,6 +695,24 @@ export interface Options {
      * statement (extra preparations are simply not cached).
      */
     statementCacheSize?: number;
+    /**
+     * When `true`, delegate connection attachment and query execution to the
+     * optional `node-firebird-driver-native` (`libfbclient`) package if
+     * installed, while keeping the standard `node-firebird` `Database` /
+     * `Transaction` API. Throws an actionable error if the native driver is
+     * not available. Default `false` (pure JS wire protocol).
+     */
+    native?: boolean;
+    /**
+     * Optional custom path to `libfbclient.so` / `fbclient.dll` /
+     * `libfbclient.dylib` when `native: true` is used.
+     */
+    nativeLibrary?: string;
+    /**
+     * When `native: true` is set, connect directly to the database file path
+     * in embedded mode (omitting `host/port:`) via `libfbclient`.
+     */
+    embedded?: boolean;
 }
 
 /** Column metadata passed to the {@link Options.typeCast} hook. */
@@ -967,3 +985,14 @@ export interface ServiceManager {
     readusersAsync(options?: ReadableOptions): Promise<any>;
     readlimboAsync(options?: ReadableOptions): Promise<any>;
 }
+
+export type {
+    DiagnosticsChannelName,
+    TransactionLifecycleAction,
+    QueryStartEvent,
+    QueryEndEvent,
+    QueryErrorEvent,
+    PoolCheckoutEvent,
+    TransactionEvent,
+} from './diagnostics';
+

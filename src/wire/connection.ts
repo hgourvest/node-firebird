@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 
 import { XdrWriter, BlrWriter, XdrReader, BitSet, BlrReader } from './serialize';
-import { doCallback, doError, type Callback, type SimpleCallback } from '../callback';
+import { doCallback, doError, type Callback, type SimpleCallback, type FbStatusItem, type FbError } from '../callback';
 import * as srp from '../srp';
 import * as crypt from '../unix-crypt';
 import Const from './const';
@@ -15,10 +15,45 @@ import Statement from './statement';
 import Transaction from './transaction';
 import { lookupMessages, noop, parseDate } from '../utils';
 import Socket from './socket';
-import type { QueueCallback, QueueEntry, WireResponse, InternalOptions, InternalQueryOptions, BatchCb, Quad, AcceptPacket } from './wire-types';
-import type { BatchOptions, BatchResult, QueryParams } from '../types';
+import {
+    hasTransactionSubscribers,
+    nowMs,
+    publishTransaction,
+    type TransactionLifecycleAction,
+} from '../diagnostics';
+import type { QueueCallback, QueueEntry, WireResponse, FetchResult, InternalOptions, InternalQueryOptions, BatchCb, Quad, AcceptPacket } from './wire-types';
+import type { BatchOptions, BatchResult, QueryParams, TransactionOptions, Isolation } from '../types';
 
-function parseValueIfJson(value: any, options: any) {
+export interface BlobHandle extends WireResponse {
+    handle: number;
+    oid: Quad;
+}
+
+export interface BatchCompletionState {
+    statementHandle: number;
+    recordCount: number;
+    updateCounts: number[];
+    detailedErrors: Array<{ recordNumber: number; error: Error }>;
+    errorRecordNumbers: number[];
+}
+
+export interface ResolvedTextBlobInfo {
+    row: number;
+    column: string | number;
+    value: string;
+    meta?: Xsql.SQLVarBase;
+    table?: string;
+}
+
+export type PendingTextBlobResolver = (transaction?: Transaction) => Promise<ResolvedTextBlobInfo>;
+
+export interface AuxSocketInfo {
+    family: number;
+    port: number;
+    host: string;
+}
+
+function parseValueIfJson(value: unknown, options: InternalOptions | null | undefined): unknown {
     if (options && options.jsonAsObject && typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
         try {
             return JSON.parse(value);
@@ -102,7 +137,7 @@ function textParam(options: InternalOptions, value: string) {
  * more than once when a response spans TCP packets, so the hook must be
  * a pure function of its inputs.
  */
-function applyTypeCast(options: InternalOptions, meta: Partial<Xsql.SQLVarBase>, defaultValue: any) {
+function applyTypeCast(options: InternalOptions, meta: Partial<Xsql.SQLVarBase>, defaultValue: unknown): unknown {
     const typeCast = options && options.typeCast;
     if (typeof typeCast !== 'function') {
         return defaultValue;
@@ -114,9 +149,9 @@ function applyTypeCast(options: InternalOptions, meta: Partial<Xsql.SQLVarBase>,
     // value instead and tell the user.
     try {
         return typeCast(column, function () { return defaultValue; });
-    } catch (err: any) {
+    } catch (err) {
         console.warn('[node-firebird] typeCast hook threw for column "%s" (%s): %s — using default value',
-            column.alias || column.field, column.typeName, err && err.message);
+            column.alias || column.field, column.typeName, (err as Error) && (err as Error).message);
         return defaultValue;
     }
 }
@@ -141,7 +176,7 @@ class Connection {
     /** protocol negotiation result (op_accept / op_cond_accept / op_accept_data);
      *  populated during the connect/attach handshake */
     accept!: AcceptPacket;
-    error: any;
+    error: (Error & { code?: string }) | undefined;
     dbhandle: number | undefined;
     svchandle: number | undefined;
     clientKeys: srp.KeyPair | undefined;
@@ -161,16 +196,16 @@ class Connection {
     _isUsed: boolean;
     _pooled: boolean;
     _lowercase_keys: boolean | undefined;
-    _detachTimeout: any;
-    _detachCallback: any;
-    _detachAuto: any;
-    _retry_connection_id: any;
+    _detachTimeout: NodeJS.Timeout | undefined;
+    _detachCallback: Callback<WireResponse> | SimpleCallback | undefined;
+    _detachAuto: boolean | undefined;
+    _retry_connection_id: NodeJS.Timeout | undefined;
     _retry_connection_interval: number;
     _statementCacheSize: number;
     _statementCache: Map<string, Statement> | null;
     _messageFile: string;
     _authStartTime: number | undefined;
-    _pendingAccept: any;
+    _pendingAccept: AcceptPacket | undefined;
     _inlineBlobs: Map<string, Buffer> | undefined;
     _socketTimeout: number;
     _watchdogTimer: NodeJS.Timeout | null;
@@ -314,7 +349,7 @@ class Connection {
             if (self._isClosed || self._activeTimeoutMs() <= 0) {
                 return;
             }
-            var err: any = new Error('Socket timeout after ' + timeoutMs + 'ms');
+            var err: Error & { code?: string } = new Error('Socket timeout after ' + timeoutMs + 'ms');
             err.code = 'ETIMEDOUT';
             self.error = err;
             self._isClosed = true;
@@ -335,7 +370,7 @@ class Connection {
     // be transparently resumed on a reconnect: a fresh attach() hands out new
     // transaction/statement handles, so nothing the server sends back could
     // ever match a callback queued against the old connection.
-    _rejectPending(err: any) {
+    _rejectPending(err: Error) {
         this._clearWatchdog();
         var queue = this._queue;
         this._queue = [];
@@ -357,7 +392,7 @@ class Connection {
      * happens to be running. The failing operations themselves always
      * still receive their error through their own callbacks.
      */
-    _emitError(err: any) {
+    _emitError(err: Error) {
         if (this.db && typeof this.db.listenerCount === 'function' && this.db.listenerCount('error') > 0) {
             this.db.emit('error', err);
         } else if (process.env.FIREBIRD_DEBUG) {
@@ -370,7 +405,7 @@ class Connection {
 
         var self = this;
         var connectCallback = callback;
-        function invokeConnectCallback(err?: any) {
+        function invokeConnectCallback(err?: Error | null) {
             if (!connectCallback) return;
             var cb = connectCallback;
             connectCallback = undefined;
@@ -411,15 +446,15 @@ class Connection {
                 // (restored by the Object.assign(self, ctx) below)
                 self._socket = null!;
 
-                var ctx = new Connection(host, port, function(err: any) {
-                    ctx.connect(self.options, function(err: any) {
+                var ctx = new Connection(host, port, function(_err?: Error | null) {
+                    ctx.connect(self.options, function(err?: Error | null) {
 
                         if (err) {
                             self._emitError(err);
                             return;
                         }
 
-                        ctx.attach(self.options, function(err: any) {
+                        ctx.attach(self.options, function(err?: Error | null) {
 
                             if (err) {
                                 self._emitError(err);
@@ -438,7 +473,7 @@ class Connection {
 
         });
     
-        self._socket.on('error', function(e: any) {
+        self._socket.on('error', function(e: Error) {
 
             self.error = e;
 
@@ -457,8 +492,8 @@ class Connection {
             invokeConnectCallback();
         });
     
-        self._socket.on('data', function (data: any) {
-            var xdr: any;
+        self._socket.on('data', function (data: Buffer) {
+            var xdr: XdrReader;
             var hadSavedBuffer = Boolean(self._xdr);
     
             if (!self._xdr) {
@@ -649,7 +684,7 @@ class Connection {
             msg.addInt(64); // buffer_length
         }
 
-        var qcb: QueueCallback = function (err: any) {
+        var qcb: QueueCallback = function (err?: Error | null) {
             if (callback)
                 callback(err);
         };
@@ -848,7 +883,7 @@ class Connection {
         }
     
         var self = this;
-        function cb(err: any, ret: any) {
+        function cb(err?: Error | null, ret?: AcceptPacket) {
             if (err) {
                 doError(err, callback);
                 return;
@@ -860,17 +895,17 @@ class Connection {
                 delete self._pendingAccept;
             }
 
-            self.accept = ret;
+            self.accept = ret!;
 
             // Wire encryption: send op_crypt if SRP session key is available
-            if (ret.sessionKey && ret.protocolVersion >= Const.PROTOCOL_VERSION13 &&
+            if (ret && ret.sessionKey && ret.protocolVersion >= Const.PROTOCOL_VERSION13 &&
                 options.wireCrypt !== Const.WIRE_CRYPT_DISABLE) {
                 var padLen = 40;
                 var keyBuf = Buffer.from(ret.sessionKey.toString(16).padStart(padLen, '0'), 'hex');
 
                 var selectedPlugin = 'Arc4';
                 if (ret.keys) {
-                    var serverPlugins = ret.keys.split(',').map(function(s: any) { return s.trim().toLowerCase(); });
+                    var serverPlugins = String(ret.keys).split(',').map(function(s: string) { return s.trim().toLowerCase(); });
                     var preferred = ['chacha64', 'chacha', 'arc4'];
                     for (var i = 0; i < preferred.length; i++) {
                         if (serverPlugins.indexOf(preferred[i]) !== -1) {
@@ -895,7 +930,7 @@ class Connection {
                 }
 
                 self._pending.push('crypt');
-                self._queue.push(function(cryptErr: any, response: any) {
+                self._queue.push(function(cryptErr?: Error | null, response?: WireResponse) {
                     if (cryptErr) {
                         doError(cryptErr, callback);
                         return;
@@ -1008,18 +1043,18 @@ class Connection {
         msg.addString(database, Const.DEFAULT_ENCODING);
         msg.addBlr(this._blr);
     
-        function cb(err: any, ret: any) {
+        var cb: QueueCallback = function (err?: Error | null, ret?: Database & WireResponse) {
             if (err) {
                 doError(err, callback);
                 return;
             }
     
-            self.dbhandle = ret.handle;
+            self.dbhandle = ret!.handle;
             if (callback)
                 callback(undefined, ret);
-            if (!db)
+            if (!db && ret)
                 ret.emit('attach', ret);
-        }
+        };
     
         // For reconnect
         if (db) {
@@ -1035,7 +1070,7 @@ class Connection {
     }
 
 
-    detach(callback: Callback | undefined) {
+    detach(callback: Callback<WireResponse> | undefined) {
 
         var self = this;
 
@@ -1051,7 +1086,7 @@ class Connection {
         msg.addInt(Const.op_detach);
         msg.addInt(0); // Database Object ID
     
-        self._queueEvent(function(err: any, ret: any) {
+        self._queueEvent(function(err?: Error | null, ret?: WireResponse) {
             clearTimeout(self._retry_connection_id);
             delete(self.dbhandle);
             if (callback)
@@ -1157,7 +1192,7 @@ class Connection {
     
         var self = this;
     
-        function cb(err: any, ret: any) {
+        var cb: QueueCallback = function (err?: Error | null, ret?: Database & WireResponse) {
     
             if (ret)
                 self.dbhandle = ret.handle;
@@ -1167,7 +1202,7 @@ class Connection {
 
             if (!err && ret)
                 ret.emit('attach', ret);
-        }
+        };
     
         cb.response = new Database(this);
         this._queueEvent(cb);
@@ -1182,7 +1217,7 @@ class Connection {
         msg.addInt(this.dbhandle!);
     
         var self = this;
-        this._queueEvent(function(err: any) {
+        this._queueEvent(function(err?: Error | null) {
             self.detach(function() {
                 self.disconnect();
     
@@ -1193,24 +1228,24 @@ class Connection {
     }
 
 
-    throwClosed(callback: ((err: Error, ...args: any[]) => void) | undefined) {
+    throwClosed(callback: ((err: Error) => void) | BatchCb | undefined) {
         var err = new Error('Connection is closed.');
         // listeners only: the caller receives the error through its own
         // callback below either way
         this._emitError(err);
         if (callback)
-            callback(err);
+            (callback as (err: Error) => void)(err);
         return this;
     }
 
 
     /** `options` is a resolved options object, a bare isolation array, or
      *  the callback itself when no options are given. */
-    startTransaction(options: any, callback?: any) {
+    startTransaction(options: TransactionOptions | Isolation | QueueCallback | undefined, callback?: QueueCallback) {
     
         if (typeof(options) === 'function') {
             var tmp = options;
-            options = callback;
+            options = callback as undefined;
             callback = tmp;
         }
     
@@ -1223,7 +1258,7 @@ class Connection {
         }
     
         // Default options
-        options = Object.assign({
+        var resolvedOptions: Required<TransactionOptions> = Object.assign({
             autoCommit: false,
             autoUndo: true,
             isolation: Const.ISOLATION_READ_COMMITTED,
@@ -1233,6 +1268,19 @@ class Connection {
             wait: true,
             waitTimeout: 0,
         }, options);
+    
+        if (hasTransactionSubscribers()) {
+            const rawCallback = callback;
+            const diagStart = nowMs();
+            const endpointOpts = this.options;
+            const wrapped: QueueCallback = function (err?: Error | null, tx?: Transaction) {
+                publishTransaction('start', diagStart, endpointOpts, tx || wrapped.response, resolvedOptions, err || undefined);
+                if (rawCallback) {
+                    rawCallback(err, tx);
+                }
+            };
+            callback = wrapped;
+        }
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1247,24 +1295,24 @@ class Connection {
         msg.pos = 0;
     
         blr.addByte(Const.isc_tpb_version3);
-        blr.addBytes(options.isolation);
-        blr.addByte(options.readOnly ? Const.isc_tpb_read : Const.isc_tpb_write);
-        if (options.wait) {
+        blr.addBytes(resolvedOptions.isolation);
+        blr.addByte(resolvedOptions.readOnly ? Const.isc_tpb_read : Const.isc_tpb_write);
+        if (resolvedOptions.wait) {
             blr.addByte(Const.isc_tpb_wait);
     
-            if (options.waitTimeout) {
-                blr.addNumeric(Const.isc_tpb_lock_timeout, options.waitTimeout);
+            if (resolvedOptions.waitTimeout) {
+                blr.addNumeric(Const.isc_tpb_lock_timeout, resolvedOptions.waitTimeout);
             }
         } else {
             blr.addByte(Const.isc_tpb_nowait);
         }
-        if (!options.autoUndo) {
+        if (!resolvedOptions.autoUndo) {
             blr.addByte(Const.isc_tpb_no_auto_undo);
         }
-        if (options.autoCommit) {
+        if (resolvedOptions.autoCommit) {
             blr.addByte(Const.isc_tpb_autocommit);
         }
-        if (options.ignoreLimbo) {
+        if (resolvedOptions.ignoreLimbo) {
             blr.addByte(Const.isc_tpb_ignore_limbo);
         }
         // TODO
@@ -1281,14 +1329,37 @@ class Connection {
         msg.addInt(Const.op_transaction);
         msg.addInt(this.dbhandle!);
         msg.addBlr(blr);
-        callback.response = new Transaction(this);
+        callback!.response = new Transaction(this);
     
-        this.db.emit('transaction', options);
+        this.db.emit('transaction', resolvedOptions);
         this._queueEvent(callback);
     }
 
 
+    _wrapTransactionDiag(action: TransactionLifecycleAction, transaction: Transaction, callback: QueueCallback | undefined): QueueCallback | undefined {
+        if (!hasTransactionSubscribers()) {
+            return callback;
+        }
+        const rawCallback = callback;
+        const diagStart = nowMs();
+        const endpointOpts = this.options;
+        const wrapped: QueueCallback = function (err?: Error | null, obj?: unknown) {
+            publishTransaction(action, diagStart, endpointOpts, transaction, undefined, err || undefined);
+            if (rawCallback) {
+                rawCallback(err, obj);
+            }
+        };
+        if (rawCallback) {
+            if (rawCallback.response !== undefined) wrapped.response = rawCallback.response;
+            if (rawCallback.statement !== undefined) wrapped.statement = rawCallback.statement;
+            if (rawCallback.lazy_count !== undefined) wrapped.lazy_count = rawCallback.lazy_count;
+            if (rawCallback._timeoutMs !== undefined) wrapped._timeoutMs = rawCallback._timeoutMs;
+        }
+        return wrapped;
+    }
+
     commit(transaction: Transaction, callback: QueueCallback | undefined) {
+        callback = this._wrapTransactionDiag('commit', transaction, callback);
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1306,6 +1377,7 @@ class Connection {
 
 
     rollback(transaction: Transaction, callback: QueueCallback | undefined) {
+        callback = this._wrapTransactionDiag('rollback', transaction, callback);
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1323,6 +1395,7 @@ class Connection {
 
 
     commitRetaining(transaction: Transaction, callback: QueueCallback | undefined) {
+        callback = this._wrapTransactionDiag('commitRetaining', transaction, callback);
 
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1339,6 +1412,7 @@ class Connection {
 
 
     rollbackRetaining(transaction: Transaction, callback: QueueCallback | undefined) {
+        callback = this._wrapTransactionDiag('rollbackRetaining', transaction, callback);
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1409,14 +1483,14 @@ class Connection {
 
     allocateAndPrepareStatement(transaction: Transaction, query: string, plan: boolean, callback: Callback<Statement>) {
         var self = this;
-        var mainCallback: QueueCallback = function(err: any, ret: any) {
+        var mainCallback: QueueCallback = function(err?: Error | null, ret?: WireResponse) {
             if (err) {
                 if (callback)
                     callback(err);
                 return;
             }
-            mainCallback.response.handle = ret.handle;
-            self._finishPrepare(mainCallback.response, ret.buffer, query, callback);
+            mainCallback.response.handle = ret!.handle;
+            self._finishPrepare(mainCallback.response, ret!.buffer!, query, callback);
         };
     
         // for auto detach
@@ -1468,13 +1542,13 @@ class Connection {
         if (this.accept.protocolMinimumType === Const.ptype_lazy_send) { // V11 Statement or higher
             self.allocateAndPrepareStatement(transaction, query, plan, callback);
         } else { // V10 Statement
-            self.allocateStatement(function (err: any, statement: Statement) {
+            self.allocateStatement(function (err?: Error | null, statement?: Statement) {
                 if (err) {
                     doError(err, callback);
                     return;
                 }
     
-                self.prepareStatement(transaction, statement, query, plan, callback);
+                self.prepareStatement(transaction, statement!, query, plan, callback);
             });
         }
     }
@@ -1518,13 +1592,13 @@ class Connection {
         }
     
         var self = this;
-        this._queueEvent(function(err: any, ret: any) {
+        this._queueEvent(function(err?: Error | null, ret?: WireResponse) {
             if (err) {
                 if (callback)
                     callback(err);
                 return;
             }
-            self._finishPrepare(statement, ret.buffer, query, callback);
+            self._finishPrepare(statement, ret!.buffer!, query, callback);
         });
     
     }
@@ -1540,7 +1614,7 @@ class Connection {
         var prevSection = -1;
         var prevIndex = -1;
 
-        function fail(err: any) {
+        function fail(err: Error) {
             self.dropStatement(statement, undefined);
             if (callback)
                 callback(err);
@@ -1551,7 +1625,7 @@ class Connection {
             try {
                 truncated = describe(buf, statement);
             } catch (err) {
-                fail(err);
+                fail(err as Error);
                 return;
             }
             if (!truncated) {
@@ -1570,7 +1644,7 @@ class Connection {
             prevSection = truncated.section;
             prevIndex = truncated.nextIndex;
             var items = buildTruncatedDescribeRequest(truncated.section, truncated.nextIndex, withSchema);
-            self.statementInfo(statement, items, function(err: any, info: any) {
+            self.statementInfo(statement, items, function(err?: Error | null, info?: WireResponse) {
                 if (err) {
                     fail(err);
                     return;
@@ -1644,9 +1718,9 @@ class Connection {
         // encoding could leave transaction blob state behind for a batch that
         // can never be sent.
         try {
-            validateBatchFixedPointRows(input, rows as any[][]);
+            validateBatchFixedPointRows(input, rows as unknown[][]);
         } catch (err) {
-            doError(err, callback);
+            doError(err as Error, callback);
             return;
         }
 
@@ -1672,7 +1746,7 @@ class Connection {
             outer:
             for (var ri = 0; ri < rows.length; ri++) {
                 for (var ci = 0; ci < blobCols.length; ci++) {
-                    var bv = (rows[ri] as any[])[blobCols[ci]];
+                    var bv = (rows[ri] as unknown[])[blobCols[ci]];
                     if (bv !== null && bv !== undefined) {
                         needsBlobPass = true;
                         break outer;
@@ -1682,10 +1756,10 @@ class Connection {
         }
 
         if (needsBlobPass) {
-            var cloned: any[][] = rows.map(function(r) { return (r as any[]).slice(); });
+            var cloned: unknown[][] = rows.map(function(r) { return (r as unknown[]).slice(); });
             var pendingBlobs = 1; // sentinel so zero uploads still settle
-            var blobFailure: any = null;
-            var settleBlobs = function(err?: any) {
+            var blobFailure: Error | null = null;
+            var settleBlobs = function(err?: Error | null) {
                 if (err && !blobFailure) {
                     blobFailure = err;
                 }
@@ -1714,7 +1788,7 @@ class Connection {
                         return;
                     }
                     pendingBlobs++;
-                    self.uploadBlob(transaction, v, function(err: any, oid: any) {
+                    self.uploadBlob(transaction, v, function(err?: Error | null, oid?: Quad) {
                         if (!err) {
                             row[j] = oid;
                         }
@@ -1726,19 +1800,19 @@ class Connection {
             return;
         }
 
-        this._executeBatchEncoded(transaction, statement, rows as any[][], callback, options);
+        this._executeBatchEncoded(transaction, statement, rows as unknown[][], callback, options);
     }
 
 
     /** Encode and send the batch packets (rows are fully materialized:
      *  blob values already replaced by quad ids by executeBatch). */
-    _executeBatchEncoded(transaction: Transaction, statement: Statement, rows: any[][], callback: BatchCb | undefined, options: BatchOptions) {
+    _executeBatchEncoded(transaction: Transaction, statement: Statement, rows: unknown[][], callback: BatchCb | undefined, options: BatchOptions) {
         var input = statement.input;
         var built;
         try {
             built = buildBatchEncoders(input, Object.assign({}, this.options, options));
         } catch (err) {
-            doError(err, callback);
+            doError(err as Error, callback);
             return;
         }
 
@@ -1747,11 +1821,11 @@ class Connection {
         var chunkSize = options.chunkSize && options.chunkSize > 0 ? options.chunkSize : 500;
         var chunkCount = Math.ceil(rows.length / chunkSize);
 
-        var failure: any = null;
-        var completion: any = null;
+        var failure: Error | null = null;
+        var completion: BatchCompletionState | null = null;
         var remaining = 2 + chunkCount; // create + msg chunks + exec
 
-        function settle(err?: any) {
+        function settle(err?: Error | null) {
             if (err && !failure)
                 failure = err;
             remaining--;
@@ -1764,7 +1838,7 @@ class Connection {
             }
 
             var detailed = completion ? completion.detailedErrors : [];
-            var errorRecordNumbers = detailed.map(function(e: any) { return e.recordNumber; })
+            var errorRecordNumbers = detailed.map(function(e) { return e.recordNumber; })
                 .concat(completion ? completion.errorRecordNumbers : []);
 
             if (callback) callback(undefined, {
@@ -1813,7 +1887,7 @@ class Connection {
 
                 for (var i = start; i < end; i++) {
                     // validated as an array of input.length values above
-                    var row = rows[i] as any[];
+                    var row = rows[i];
 
                     var nullBits = new BitSet();
                     for (var j = 0; j < input.length; j++) {
@@ -1854,7 +1928,7 @@ class Connection {
             msg.addInt(statement.handle);
             packets.push(Buffer.from(msg.getData()));
         } catch (err) {
-            doError(err, callback);
+            doError(err as Error, callback);
             return;
         }
 
@@ -1872,7 +1946,7 @@ class Connection {
         for (var p = 0; p < packets.length; p++) {
             this._pending.push('executeBatch');
             if (p === execIndex) {
-                this._queueEventBuffer(packets[p], function(err: any, ret: any) {
+                this._queueEventBuffer(packets[p], function(err?: Error | null, ret?: { batchCompletion?: BatchCompletionState }) {
                     if (!err && ret && ret.batchCompletion) {
                         completion = ret.batchCompletion;
                         settle();
@@ -1883,14 +1957,14 @@ class Connection {
             } else if (p === packets.length - 1) {
                 this._queueEventBuffer(packets[p], function() {});
             } else {
-                this._queueEventBuffer(packets[p], function(err: any) { settle(err); });
+                this._queueEventBuffer(packets[p], function(err?: Error | null) { settle(err); });
             }
         }
     }
 
 
     /** `params` may be the callback itself when the statement has no parameters. */
-    executeStatement(transaction: Transaction, statement: Statement, params: any, callback?: QueueCallback, custom?: InternalQueryOptions) {
+    executeStatement(transaction: Transaction, statement: Statement, params: QueryParams | QueueCallback | undefined, callback?: QueueCallback, custom?: InternalQueryOptions) {
     
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -1898,8 +1972,8 @@ class Connection {
         // for auto detach
         this._pending.push('executeStatement');
     
-        if (params instanceof Function) {
-            callback = params;
+        if (typeof params === 'function') {
+            callback = params as QueueCallback;
             params = undefined;
         }
     
@@ -1918,17 +1992,24 @@ class Connection {
             op = Const.op_execute2;
         }
     
-        function PrepareParams(params: any[], input: Xsql.SQLVarBase[], callback: (prms: any[]) => void) {
+        function PrepareParams(params: unknown[], input: Xsql.SQLVarBase[], callback: (prms: Xsql.SQLParamValue[]) => void) {
 
-            var value, meta;
-            var ret = new Array(params.length);
+            var value: unknown, meta: Xsql.SQLVarBase;
+            var ret: Xsql.SQLParamValue[] = new Array(params.length);
 
-            function putBlobData(index: any, value: any, callback: any) {
+            function putBlobData(index: number, value: unknown, callback: () => void) {
     
-                self.createBlob2(transaction, function(err: any, blob: any) {
+                self.createBlob2(transaction, function(err?: Error | null, blob?: BlobHandle) {
     
-                    var b;
-                    var isStream = value.readable;
+                    var b: Buffer | undefined;
+                    var streamValue = value as {
+                        readable?: boolean;
+                        on(event: 'data', cb: (chunk: Buffer) => void): void;
+                        on(event: 'end', cb: () => void): void;
+                        pause(): void;
+                        resume(): void;
+                    };
+                    var isStream = Boolean(streamValue && streamValue.readable);
     
                     if (Buffer.isBuffer(value))
                         b = value;
@@ -1942,10 +2023,10 @@ class Connection {
     
                     if (Buffer.isBuffer(b)) {
                         bufferReader(b, chunkSize, function (b, next) {
-                            self.batchSegments(blob, b, next);
+                            self.batchSegments(blob!, b, next);
                         }, function() {
-                            ret[index] = new Xsql.SQLParamQuad(blob.oid);
-                            self.closeBlob(blob, callback, false);
+                            ret[index] = new Xsql.SQLParamQuad(blob!.oid);
+                            self.closeBlob(blob!, callback, false);
                         });
                         return;
                     }
@@ -1953,48 +2034,48 @@ class Connection {
                     var isReading = false;
                     var isEnd = false;
 
-                    value.on('data', function(chunk: any) {
+                    streamValue.on('data', function(chunk: Buffer) {
                         // Optimization: If chunk is smaller than transfer size, send directly
                         if (chunk.length <= chunkSize) {
-                            self.batchSegments(blob, chunk, function () {
+                            self.batchSegments(blob!, chunk, function () {
                                 if (isEnd && !isReading) {
-                                    ret[index] = new Xsql.SQLParamQuad(blob.oid);
-                                    self.closeBlob(blob, callback, false);
+                                    ret[index] = new Xsql.SQLParamQuad(blob!.oid);
+                                    self.closeBlob(blob!, callback, false);
                                 }
                             });
                             return;
                         }
 
-                        value.pause();
+                        streamValue.pause();
                         isReading = true;
                         bufferReader(chunk, chunkSize, function (b, next) {
-                            self.batchSegments(blob, b, next);
+                            self.batchSegments(blob!, b, next);
                         }, function() {
                             isReading = false;
 
                             if (isEnd) {
-                                ret[index] = new Xsql.SQLParamQuad(blob.oid);
-                                self.closeBlob(blob, callback, false);
+                                ret[index] = new Xsql.SQLParamQuad(blob!.oid);
+                                self.closeBlob(blob!, callback, false);
                             } else
-                                value.resume();
+                                streamValue.resume();
                         });
                     });
 
-                    value.on('end', function() {
+                    streamValue.on('end', function() {
                         isEnd = true;
                         if (isReading)
                             return;
                         // If we are not currently reading (paused), close immediately
                         // If we are reading, the callback in batchSegments/bufferReader will handle closure
                         if (!isReading) {
-                            ret[index] = new Xsql.SQLParamQuad(blob.oid);
-                            self.closeBlob(blob, callback, false);
+                            ret[index] = new Xsql.SQLParamQuad(blob!.oid);
+                            self.closeBlob(blob!, callback, false);
                         }
                     });
                 });
             }
     
-            function step(i: any) {
+            function step(i: number) {
                 if (i === params.length) {
                     callback(ret);
                     return;
@@ -2004,7 +2085,7 @@ class Connection {
                 meta = input[i];
 
                 if (statement.connection.options && statement.connection.options.jsonAsObject && value !== null && value !== undefined && typeof value === 'object' && !(value instanceof Date) && !(value instanceof Buffer)) {
-                    if (typeof value.pipe !== 'function') {
+                    if (typeof (value as { pipe?: unknown }).pipe !== 'function') {
                         value = JSON.stringify(value);
                     }
                 }
@@ -2042,7 +2123,7 @@ class Connection {
                             ret[i] = new Xsql.SQLParamInt(null);
                             break;
                         default:
-                            ret[i] = null;
+                            ret[i] = new Xsql.SQLParamString(null);
                     }
                     step(i + 1);
                 } else {
@@ -2063,7 +2144,7 @@ class Connection {
                             else if (typeof(value) === 'string')
                                 ret[i] = new Xsql.SQLParamDate(parseDate(value));
                             else
-                                ret[i] = new Xsql.SQLParamDate(new Date(value));
+                                ret[i] = new Xsql.SQLParamDate(new Date(value as number));
 
                             step(i + 1);
                             break;
@@ -2097,7 +2178,7 @@ class Connection {
                                         break;
                                     default:
                                         //throw new Error('Unexpected parametter: ' + JSON.stringify(params) + ' - ' + JSON.stringify(input));
-                                        ret[i] = textParam(self.options, value.toString());
+                                        ret[i] = textParam(self.options, String(value));
                                         break;
                                 }
                             }
@@ -2112,10 +2193,10 @@ class Connection {
         var input = statement.input;
     
         if (input.length) {
-    
+            var paramArray: unknown[];
             if (!(params instanceof Array)) {
                 if (params !== undefined && typeof params === 'object' && params !== null) {
-                    var mappedParams: any[] = [];
+                    var mappedParams: unknown[] = [];
                     for (var i = 0; i < input.length; i++) {
                         mappedParams.push(undefined);
                     }
@@ -2127,35 +2208,38 @@ class Connection {
                             nameMap[name.toUpperCase()] = i;
                         }
                     }
-                    for (var key in params) {
-                        if (Object.prototype.hasOwnProperty.call(params, key)) {
+                    var paramRecord = params as Record<string, unknown>;
+                    for (var key in paramRecord) {
+                        if (Object.prototype.hasOwnProperty.call(paramRecord, key)) {
                             var cleanKey = key.startsWith(':') ? key.substring(1) : key;
                             var index = nameMap[cleanKey.toUpperCase()];
                             if (index !== undefined) {
-                                mappedParams[index] = params[key];
+                                mappedParams[index] = paramRecord[key];
                                 matchedCount++;
                             }
                         }
                     }
                     if (matchedCount > 0) {
-                        params = mappedParams;
+                        paramArray = mappedParams;
                     } else {
-                        params = [params];
+                        paramArray = [params];
                     }
                 } else if (params !== undefined) {
-                    params = [params];
+                    paramArray = [params];
                 } else {
-                    params = [];
+                    paramArray = [];
                 }
+            } else {
+                paramArray = params;
             }
     
-            if (params.length !== input.length) {
+            if (paramArray.length !== input.length) {
                 self._pending.pop();
-                callback!(new Error('Expected parameters: (params=' + params.length + ' vs. expected=' + input.length + ') - ' + statement.query));
+                callback!(new Error('Expected parameters: (params=' + paramArray.length + ' vs. expected=' + input.length + ') - ' + statement.query));
                 return;
             }
     
-            PrepareParams(params, input, function(prms: any) {
+            PrepareParams(paramArray, input, function(prms: Xsql.SQLParamValue[]) {
                 self.sendExecute(op, statement, transaction, callback, prms);
             });
     
@@ -2166,7 +2250,7 @@ class Connection {
     }
 
 
-    sendExecute(op: number, statement: Statement, transaction: Transaction, callback: QueueCallback | undefined, parameters?: any[]) {
+    sendExecute(op: number, statement: Statement, transaction: Transaction, callback: QueueCallback | undefined, parameters?: Xsql.SQLParamValue[]) {
         var msg = this._msg;
         var blr = this._blr;
         msg.pos = 0;
@@ -2254,7 +2338,7 @@ class Connection {
 
 
     /** `count` may be the callback itself when no fetch size is given. */
-    fetch(statement: Statement, transaction: Transaction, count: any, callback?: QueueCallback) {
+    fetch(statement: Statement, transaction: Transaction, count: number | string | QueueCallback | undefined, callback?: QueueCallback) {
     
         var msg = this._msg;
         var blr = this._blr;
@@ -2262,7 +2346,7 @@ class Connection {
         msg.pos = 0;
         blr.pos = 0;
     
-        if (count instanceof Function) {
+        if (typeof count === 'function') {
             callback = count;
             count = undefined;
         }
@@ -2272,14 +2356,14 @@ class Connection {
         CalcBlr(blr, statement.output);
         msg.addBlr(blr);
         msg.addInt(0); // message number
-        msg.addInt(count || resolveFetchSize(statement, this.options)); // fetch count
+        msg.addInt((typeof count === 'number' ? count : Number(count)) || resolveFetchSize(statement, this.options)); // fetch count
     
         callback!.statement = statement;
         this._queueEvent(callback);
     }
 
 
-    fetchScroll(statement: Statement, transaction: Transaction, direction: string | number, offset: any, count: any, callback?: QueueCallback) {
+    fetchScroll(statement: Statement, transaction: Transaction, direction: string | number, offset: number | QueueCallback | undefined, count?: number | QueueCallback, callback?: QueueCallback) {
         if (typeof count === 'function') {
             callback = count;
             count = undefined;
@@ -2366,9 +2450,9 @@ class Connection {
      * transaction.execute for op_execute2 singletons (EXECUTE PROCEDURE /
      * RETURNING — issue #305, whose blobs never resolved before).
      */
-    resolveTextBlobs(transaction: Transaction, ret: any, callback: (err?: any) => void) {
+    resolveTextBlobs(transaction: Transaction, ret: FetchResult | undefined, callback: (err?: Error | null) => void) {
         const self = this;
-        const fns = (ret && ret.arrBlob) || [];
+        const fns: PendingTextBlobResolver[] = (ret && ret.arrBlob) || [];
         if (!fns.length) {
             return callback();
         }
@@ -2376,10 +2460,10 @@ class Connection {
             if (index >= fns.length) {
                 return callback();
             }
-            fns[index](transaction).then((blob: any) => {
+            fns[index](transaction).then((blob: ResolvedTextBlobInfo) => {
                 // nestTables === true rows: the value lives in the
                 // per-table sub-object, not on the row itself
-                Xsql.nestCell(ret.data[blob.row], blob.table)[blob.column] = applyTypeCast(
+                Xsql.nestCell(ret!.data[blob.row] as Record<string, unknown>, blob.table)[blob.column] = applyTypeCast(
                     self.options, blob.meta || {},
                     parseValueIfJson(blob.value, self.options));
                 read(index + 1);
@@ -2389,21 +2473,21 @@ class Connection {
     }
 
 
-    fetchAll(statement: Statement, transaction: Transaction, callback: Callback<any[]>) {
+    fetchAll(statement: Statement, transaction: Transaction, callback: Callback<unknown[]>) {
         const self = this;
         const custom = statement.options || {};
         const asStream = custom.asStream && custom.on;
         const fetchSize = resolveFetchSize(statement, this.options);
-        const data: any[] | null = asStream ? null : [];
+        const data: unknown[] | null = asStream ? null : [];
         let streamIndex = 0;
-        const loop = (err: any, ret: any) => {
+        const loop = (err?: Error | null, ret?: FetchResult) => {
             if (err) {
                 callback(err);
                 return;
             }
 
             if (ret && ret.data && ret.data.length) {
-                self.resolveTextBlobs(transaction, ret, (blobErr?: any) => {
+                self.resolveTextBlobs(transaction, ret, (blobErr?: Error | null) => {
                     if (blobErr) {
                         callback(blobErr);
                         return;
@@ -2454,7 +2538,7 @@ class Connection {
     }
 
 
-    closeBlob(blob: any, callback?: QueueCallback, defer = true) {
+    closeBlob(blob: { handle: number }, callback?: QueueCallback, defer = true) {
         var msg = this._msg;
         msg.pos = 0;
         msg.addInt(Const.op_close_blob);
@@ -2463,7 +2547,7 @@ class Connection {
     }
 
 
-    getSegment(blob: any, callback: QueueCallback) {
+    getSegment(blob: { handle: number }, callback: QueueCallback) {
         var msg = this._msg;
         msg.pos = 0;
         msg.addInt(Const.op_get_segment);
@@ -2486,7 +2570,7 @@ class Connection {
     }
 
 
-    batchSegments(blob: any, buffer: Buffer, callback: QueueCallback) {
+    batchSegments(blob: { handle: number }, buffer: Buffer, callback: QueueCallback) {
         var msg = this._msg;
         var blr = this._blr;
         msg.pos = 0;
@@ -2507,7 +2591,7 @@ class Connection {
      * blobs (the batch parameter buffer's default BLOB_NONE policy), just
      * like the classic execute path stores blob params.
      */
-    uploadBlob(transaction: Transaction, value: any, callback: (err: any, oid?: any) => void) {
+    uploadBlob(transaction: Transaction, value: unknown, callback: (err?: Error | null, oid?: Quad) => void) {
         var self = this;
         var b: Buffer;
         if (Buffer.isBuffer(value)) {
@@ -2518,25 +2602,25 @@ class Connection {
             b = Xsql.encodeConnectionText(this.options, JSON.stringify(value));
         }
 
-        self.createBlob2(transaction, function(err: any, blob: any) {
+        self.createBlob2(transaction, function(err?: Error | null, blob?: BlobHandle) {
             if (err) {
                 return callback(err);
             }
             var chunkSize = self.options.blobChunkSize || 1024;
             // bufferReader's next() drops errors — capture the first segment
             // failure so a truncated upload is never reported as success
-            var segmentError: any = null;
+            var segmentError: Error | null = null;
             bufferReader(b, chunkSize, function(part, next) {
-                self.batchSegments(blob, part, function(segErr: any) {
+                self.batchSegments(blob!, part, function(segErr?: Error | null) {
                     if (segErr && !segmentError) {
                         segmentError = segErr;
                     }
                     next();
-                } as any);
+                });
             }, function() {
-                self.closeBlob(blob, function(closeErr: any) {
-                    callback(segmentError || closeErr, blob.oid);
-                } as any, false);
+                self.closeBlob(blob!, function(closeErr?: Error | null) {
+                    callback(segmentError || closeErr, blob!.oid);
+                }, false);
             });
         });
     }
@@ -2577,17 +2661,17 @@ class Connection {
     
         var self = this;
     
-        function cb(err: any, ret: any) {
+        var cb: QueueCallback = function (err?: Error | null, ret?: ServiceManager & WireResponse) {
     
             if (err) {
                 doError(err, callback);
                 return;
             }
     
-            self.svchandle = ret.handle;
+            self.svchandle = ret!.handle;
             if (callback)
                 callback(undefined, ret);
-        }
+        };
     
         // For reconnect
         if (svc) {
@@ -2639,7 +2723,7 @@ class Connection {
     }
 
 
-    svcdetach(callback: Callback | undefined) {
+    svcdetach(callback: Callback<WireResponse> | undefined, _force?: boolean) {
         var self = this;
 
         if (self._isClosed) {
@@ -2656,7 +2740,7 @@ class Connection {
         msg.addInt(Const.op_service_detach);
         msg.addInt(this.svchandle!); // Database Object ID
     
-        self._queueEvent(function (err: any, ret: any) {
+        self._queueEvent(function (err?: Error | null, ret?: WireResponse) {
             delete (self.svchandle);
             if (callback)
                 callback(err, ret);
@@ -2665,7 +2749,7 @@ class Connection {
 
 
 
-    auxConnection(eventid: number | Callback, callback?: Callback) {
+    auxConnection(eventid: number | Callback<AuxSocketInfo>, callback?: Callback<AuxSocketInfo>) {
         if (typeof eventid === 'function') {
             // Preserve the older auxConnection(callback) call shape; plain
             // auxiliary connections historically used event id 0.
@@ -2685,7 +2769,7 @@ class Connection {
             console.log('[fb-debug] auxConnection: sending op_connect_request(53) dbhandle=%d eventid=%d queue_before=%d xdr_saved=%s',
                 self.dbhandle, eventid, self._queue.length, Boolean(self._xdr));
         }
-        function cb(err: any, ret: any) {
+        function cb(err?: Error | null, ret?: WireResponse) {
     
             if (err) {
                 if (process.env.FIREBIRD_DEBUG) {
@@ -2694,12 +2778,12 @@ class Connection {
                 doError(err, callback);
                 return;
             }
-    
-            var socket_info = {
-                family: ret.buffer.readInt16BE(0),
-                port: ret.buffer.readUInt16BE(2),
-                host: ret.buffer.readUInt8(4) + '.' + ret.buffer.readUInt8(5) + '.' + ret.buffer.readUInt8(6) + '.' + ret.buffer.readUInt8(7)
-            }
+            var buf = ret!.buffer!;
+            var socket_info: AuxSocketInfo = {
+                family: buf.readInt16BE(0),
+                port: buf.readUInt16BE(2),
+                host: buf.readUInt8(4) + '.' + buf.readUInt8(5) + '.' + buf.readUInt8(6) + '.' + buf.readUInt8(7)
+            };
 
             if (process.env.FIREBIRD_DEBUG) {
                 console.log('[fb-debug] auxConnection: op_response ok → aux family=%d port=%d host=%s queue=%d',
@@ -2712,7 +2796,7 @@ class Connection {
     }
 
 
-    queEvents(events: Record<string, number>, eventid: number, callback: Callback) {
+    queEvents(events: Record<string, number>, eventid: number, callback: Callback<WireResponse>) {
         var self = this;
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -2739,7 +2823,7 @@ class Connection {
         msg.addInt(0);   // args
         msg.addInt(eventid);
         
-        function cb(err: any, ret: any) {
+        function cb(err?: Error | null, ret?: WireResponse) {
             if (err) {
                 doError(err, callback);
                 return;
@@ -2752,7 +2836,7 @@ class Connection {
     }
 
 
-    closeEvents(eventid: number, callback: Callback) {
+    closeEvents(eventid: number, callback: Callback<WireResponse>) {
         var self = this;
         if (this._isClosed)
             return this.throwClosed(callback);
@@ -2762,7 +2846,7 @@ class Connection {
         msg.addInt(self.dbhandle!);
         msg.addInt(eventid);
     
-        function cb(err: any, ret: any) {
+        function cb(err?: Error | null, _ret?: WireResponse) {
             if (err) {
                 doError(err, callback);
                 return;
@@ -2781,13 +2865,35 @@ const opcodeNames = Object.fromEntries(
     Object.entries(Const).filter(([k]) => k.startsWith('op_')).map(([k, v]) => [v, k])
 );
 
-function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cnx: Connection, lowercase_keys: boolean | undefined, cb: (err?: any, obj?: any) => void) {
+export type DecodedWirePacket = WireResponse & FetchResult & {
+    _isOpEvent?: boolean;
+    batchCompletion?: BatchCompletionState;
+};
+
+export type PipeableBlobEmitter = Events.EventEmitter & {
+    pipe: (stream: NodeJS.WritableStream) => void;
+};
+
+export type BlobFetchCallback = (
+    err: Error | null | undefined,
+    name?: string | number,
+    emitter?: PipeableBlobEmitter,
+    row?: number
+) => void;
+
+function decodeResponse(
+    data: XdrReader,
+    callback: QueueCallback | undefined,
+    cnx: Connection,
+    lowercase_keys: boolean | undefined,
+    cb: (err?: Error | null, obj?: Partial<DecodedWirePacket> | AcceptPacket) => void
+) {
     // Once the response has been handed to cb, a RangeError reaching the
     // catch below was thrown by the callback chain, not by reading a
     // truncated packet, and must not be reported as an incomplete packet.
     let delivered = false;
     const deliver = cb;
-    cb = function (err?: any, obj?: any) {
+    cb = function (err?: Error | null, obj?: Partial<DecodedWirePacket> | AcceptPacket) {
         delivered = true;
         return deliver(err, obj);
     };
@@ -2822,7 +2928,7 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                 r, opcodeNames[r] || 'unknown', data.pos, data.buffer.length);
         }
 
-        var item, op, response: any;
+        var item: Xsql.SQLVarBase, op: number, response: WireResponse;
 
         switch (r) {
             case Const.op_response:
@@ -2833,7 +2939,7 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                     response = {};
                 }
 
-                let loop = function (err: any) {
+                let loop = function (err?: Error | null) {
                     if (err) {
                         return cb(err);
                     } else {
@@ -2857,24 +2963,22 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                 // statement, reccount, updates count, vectors count, errors
                 // count, then the update-count array, the (recnum + status
                 // vector) pairs and finally the status-less error recnums.
-                var completion: any = {
-                    statementHandle: data.readInt(),
-                    recordCount: data.readInt(),
-                };
+                var statementHandle = data.readInt();
+                var recordCount = data.readInt();
                 var updatesCount = data.readInt();
                 var vectorsCount = data.readInt();
                 var simpleErrorsCount = data.readInt();
 
-                completion.updateCounts = new Array(updatesCount);
+                var updateCounts: number[] = new Array(updatesCount);
                 for (var bi = 0; bi < updatesCount; bi++) {
-                    completion.updateCounts[bi] = data.readInt();
+                    updateCounts[bi] = data.readInt();
                 }
 
-                completion.detailedErrors = [];
+                var detailedErrors: Array<{ recordNumber: number; error: Error }> = [];
                 for (var bi = 0; bi < vectorsCount; bi++) {
                     var recordNumber = data.readInt();
                     var vector = readStatusVector(data);
-                    var recordError: any = new Error(lookupMessages(vector.status) || 'Batch record failed');
+                    var recordError: FbError = new Error(lookupMessages(vector.status) || 'Batch record failed');
                     if (vector.status.length) {
                         recordError.gdscode = vector.status[0].gdscode;
                         recordError.gdsparams = vector.status[0].params;
@@ -2882,13 +2986,21 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                     if (vector.sqlcode !== undefined) {
                         recordError.sqlcode = vector.sqlcode;
                     }
-                    completion.detailedErrors.push({ recordNumber: recordNumber, error: recordError });
+                    detailedErrors.push({ recordNumber: recordNumber, error: recordError });
                 }
 
-                completion.errorRecordNumbers = [];
+                var errorRecordNumbers: number[] = [];
                 for (var bi = 0; bi < simpleErrorsCount; bi++) {
-                    completion.errorRecordNumbers.push(data.readInt());
+                    errorRecordNumbers.push(data.readInt());
                 }
+
+                var completion: BatchCompletionState = {
+                    statementHandle,
+                    recordCount,
+                    updateCounts,
+                    detailedErrors,
+                    errorRecordNumbers
+                };
 
                 return cb(null, { batchCompletion: completion });
             }
@@ -2946,7 +3058,7 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                     }
                 }
 
-                const arrBlob: any[] = [];
+                const arrBlob: PendingTextBlobResolver[] = [];
                 const lowerV13 = statement.connection.accept.protocolVersion <  Const.PROTOCOL_VERSION13;
 
                 // op_sql_response (op_execute2) is always followed by an
@@ -2982,20 +3094,22 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                             _xdrpos = data.pos;
                             const key = custom.asObject ? data.fcols![data.fcolumn!] : data.fcolumn;
                             const row = data.frows.length;
-                            let value = item.decode(data, lowerV13, cnx.options);
+                            let value: unknown = item.decode(data, lowerV13, cnx.options);
                             // text blobs resolved by blobAsText run through the
                             // typeCast hook once the text arrives (see fetchAll),
                             // not here where the value is still a pending fetch
                             let pendingTextBlob = false;
 
                             if (item.type === Const.SQL_BLOB && value !== null) {
+                                const blobQuad = value as Quad;
                                 if (item.subType === Const.isc_blob_text && cnx.options.blobAsText) {
-                                    value = fetch_blob_async_transaction(statement, value, key, row, item,
+                                    const textBlobFn = fetch_blob_async_transaction(statement, blobQuad, key, row, item,
                                         data.ftables && data.ftables[data.fcolumn!]);
-                                    arrBlob.push(value);
+                                    arrBlob.push(textBlobFn);
+                                    value = textBlobFn;
                                     pendingTextBlob = true;
                                 } else {
-                                    value = fetch_blob_async(statement, value, key, row);
+                                    value = fetch_blob_async(statement, blobQuad, key, row);
                                 }
                             }
 
@@ -3070,7 +3184,7 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
             case Const.op_accept:
             case Const.op_cond_accept:
             case Const.op_accept_data:
-                let accept: any = {
+                let accept: AcceptPacket = {
                     protocolVersion: data.readInt(),
                     protocolArchitecture: data.readInt(),
                     protocolMinimumType: data.readInt(),
@@ -3466,10 +3580,10 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
                 }
                 return cb(new Error('Unexpected:' + r));
         }
-    } catch (err: any) {
+    } catch (err) {
         if (process.env.FIREBIRD_DEBUG) {
             console.warn('[fb-debug] decodeResponse exception: %s (RangeError=%s) pos=%d buflen=%d',
-                err.message, err instanceof RangeError, data.pos, data.buffer.length);
+                (err as Error).message, err instanceof RangeError, data.pos, data.buffer.length);
         }
         if (err instanceof RangeError && !delivered) {
             return cb(err);
@@ -3482,9 +3596,9 @@ function decodeResponse(data: XdrReader, callback: QueueCallback | undefined, cn
  * Read one XDR status vector (as in op_response / op_batch_cs error
  * vectors): a stream of isc_arg_* items terminated by isc_arg_end.
  */
-function readStatusVector(data: XdrReader): { status: any[]; warnings?: any[]; sqlcode?: number } {
-    var result: { status: any[]; warnings?: any[]; sqlcode?: number } = { status: [] };
-    var item: any = {};
+function readStatusVector(data: XdrReader): { status: FbStatusItem[]; warnings?: FbStatusItem[]; sqlcode?: number } {
+    var result: { status: FbStatusItem[]; warnings?: FbStatusItem[]; sqlcode?: number } = { status: [] };
+    var item: FbStatusItem = { gdscode: 0 };
 
     while (true) {
         var op = data.readInt();
@@ -3530,7 +3644,7 @@ function readStatusVector(data: XdrReader): { status: any[]; warnings?: any[]; s
     }
 }
 
-function parseOpResponse(data: XdrReader, response: WireResponse, cb?: (err?: any, response?: any) => void) {
+function parseOpResponse(data: XdrReader, response: WireResponse, cb?: (err?: Error | null, response?: WireResponse) => void) {
     var handle = data.readInt();
 
     if (!response.handle) {
@@ -3547,7 +3661,7 @@ function parseOpResponse(data: XdrReader, response: WireResponse, cb?: (err?: an
         response.buffer = buf;
     }
 
-    var num: any, op: any, item: any = {};
+    var num: number, op: number, item: FbStatusItem = { gdscode: 0 };
     while (true) {
         op = data.readInt();
 
@@ -3664,9 +3778,9 @@ function buildTruncatedDescribeRequest(section: number, startIndex: number, with
 
 function describe(buff: Buffer, statement: Statement): { section: number; nextIndex: number } | null {
     var br = new BlrReader(buff);
-    var parameters: any = null;
+    var parameters: Xsql.SQLVarBase[] | null = null;
     var currentSection = 0;
-    var type: any, param: any;
+    var type: number, param: Xsql.SQLVarBase | null = null;
 
     while (br.pos < br.buffer.length) {
         switch (br.readByteCode()) {
@@ -3707,7 +3821,7 @@ function describe(buff: Buffer, statement: Statement): { section: number; nextIn
                             inVar = true;
                             break;
                         case Const.isc_info_sql_type:
-                            type = br.readInt();
+                            type = br.readInt()!;
                             switch (type&~1) {
                                 case Const.SQL_VARYING:   param = new Xsql.SQLVarString(); break;
                                 case Const.SQL_NULL:      param = new Xsql.SQLVarNull(); break;
@@ -3743,37 +3857,37 @@ function describe(buff: Buffer, statement: Statement): { section: number; nextIn
                             param.type &= ~1;
                             break;
                         case Const.isc_info_sql_sub_type:
-                            param.subType = br.readInt();
+                            param!.subType = br.readInt()!;
                             break;
                         case Const.isc_info_sql_scale:
-                            param.scale = br.readInt();
+                            param!.scale = br.readInt()!;
                             break;
                         case Const.isc_info_sql_length:
-                            param.length = br.readInt();
+                            param!.length = br.readInt()!;
                             break;
                         case Const.isc_info_sql_null_ind:
-                            param.nullable = Boolean(br.readInt());
+                            param!.nullable = Boolean(br.readInt());
                             break;
                         case Const.isc_info_sql_field:
-                            param.field = br.readString(Const.DEFAULT_ENCODING);
+                            param!.field = br.readString(Const.DEFAULT_ENCODING);
                             break;
                         case Const.isc_info_sql_relation:
-                            param.relation = br.readString(Const.DEFAULT_ENCODING);
+                            param!.relation = br.readString(Const.DEFAULT_ENCODING);
                             break;
                         case Const.isc_info_sql_relation_schema:
                             // Firebird 6.0 (Protocol 20+): schema that owns the
                             // source relation.  Empty string means the default
                             // (PUBLIC) schema or a non-schema-aware server.
-                            param.relationSchema = br.readString(Const.DEFAULT_ENCODING);
+                            param!.relationSchema = br.readString(Const.DEFAULT_ENCODING);
                             break;
                         case Const.isc_info_sql_owner:
-                            param.owner = br.readString(Const.DEFAULT_ENCODING);
+                            param!.owner = br.readString(Const.DEFAULT_ENCODING);
                             break;
                         case Const.isc_info_sql_alias:
-                            param.alias = br.readString(Const.DEFAULT_ENCODING);
+                            param!.alias = br.readString(Const.DEFAULT_ENCODING);
                             break;
                         case Const.isc_info_sql_relation_alias:
-                            param.relationAlias = br.readString(Const.DEFAULT_ENCODING);
+                            param!.relationAlias = br.readString(Const.DEFAULT_ENCODING);
                             break;
                         case Const.isc_info_truncated:
                             // If truncation happened before any variable in this
@@ -3802,7 +3916,7 @@ function describe(buff: Buffer, statement: Statement): { section: number; nextIn
         }
     }
 
-    function unpackCharSetCollation(params: any[]) {
+    function unpackCharSetCollation(params: Xsql.SQLVarBase[] | undefined) {
         if (!params) return;
         for (let i = 0; i < params.length; i++) {
             const p = params[i];
@@ -3833,7 +3947,7 @@ function describe(buff: Buffer, statement: Statement): { section: number; nextIn
  * the width-based trim in the text decoders restores the column's true
  * character capacity. The native length is preserved for metadata.
  */
-function scaleOutputLengths(output: any[], options: any) {
+function scaleOutputLengths(output: Xsql.SQLVarBase[] | undefined, options: InternalOptions | undefined) {
     if (!output || !output.length) return;
     const connWidth = Xsql.getFirebirdCharsetWidth(options && options.encoding);
     if (connWidth <= 1) return;
@@ -3858,9 +3972,9 @@ function scaleOutputLengths(output: any[], options: any) {
     }
 }
 
-function scaleBatchFixedPoint(value: any, meta: any, bits: 16 | 32 | 64 | 128, column: number): bigint {
+function scaleBatchFixedPoint(value: unknown, meta: Xsql.SQLVarBase, bits: 16 | 32 | 64 | 128, column: number): bigint {
     try {
-        return Xsql.toScaledInteger(value, meta.scale, bits);
+        return Xsql.toScaledInteger(value as number | bigint | string, meta.scale, bits);
     } catch (err) {
         var message = err instanceof Error ? err.message : String(err);
         throw new Error('Invalid fixed-point batch value for column ' + column +
@@ -3871,7 +3985,7 @@ function scaleBatchFixedPoint(value: any, meta: any, bits: 16 | 32 | 64 | 128, c
 /** Validate values whose batch wire representation is metadata-directed.
  * This runs before BLOB uploads, which may write to the transaction as soon
  * as executeBatch starts its asynchronous pre-pass. */
-function validateBatchFixedPointRows(input: any[], rows: any[][]): void {
+function validateBatchFixedPointRows(input: Xsql.SQLVarBase[], rows: unknown[][]): void {
     for (var i = 0; i < rows.length; i++) {
         for (var j = 0; j < input.length; j++) {
             var value = rows[i][j];
@@ -3901,19 +4015,19 @@ function validateBatchFixedPointRows(input: any[], rows: any[][]): void {
  * encoders[j](msg, value) writes a non-null value and msglen is the
  * unpacked message length sent with op_batch_create.
  */
-function buildBatchEncoders(input: any[], options: any) {
-    var encoders: Array<(msg: any, v: any) => void> = [];
+function buildBatchEncoders(input: Xsql.SQLVarBase[], options: InternalOptions) {
+    var encoders: Array<(msg: XdrWriter, v: unknown) => void> = [];
     var offset = 0;
     var align = function(a: number) { offset = (offset + a - 1) & ~(a - 1); };
 
     var jsonAsObject = options && options.jsonAsObject;
-    var toText = function(v: any): string {
+    var toText = function(v: unknown): string {
         if (typeof v === 'string') return v;
         if (v instanceof Date) return v.toString();
-        if (typeof v === 'object' && !Buffer.isBuffer(v)) return jsonAsObject ? JSON.stringify(v) : v.toString();
+        if (typeof v === 'object' && v !== null && !Buffer.isBuffer(v)) return jsonAsObject ? JSON.stringify(v) : v.toString();
         return String(v);
     };
-    var toBytes = function(v: any, meta: any, column: number): Buffer {
+    var toBytes = function(v: unknown, meta: Xsql.SQLVarBase, column: number): Buffer {
         var b = Buffer.isBuffer(v) ? v : Xsql.encodeConnectionText(options, toText(v));
         if (b.length > meta.length) {
             throw new Error('Batch value for column ' + column + ' is ' + b.length +
@@ -3921,10 +4035,10 @@ function buildBatchEncoders(input: any[], options: any) {
         }
         return b;
     };
-    var toDate = function(v: any): Date {
+    var toDate = function(v: unknown): Date {
         if (v instanceof Date) return v;
         if (typeof v === 'string') return parseDate(v);
-        return new Date(v);
+        return new Date(v as number);
     };
     for (var j = 0; j < input.length; j++) {
         var meta = input[j];
@@ -3933,7 +4047,7 @@ function buildBatchEncoders(input: any[], options: any) {
         switch (meta.type) {
             case Const.SQL_TEXT: // CHAR: fixed meta.length bytes, space-padded
                 encoders.push((function(m, col) {
-                    return function(msg: any, v: any) {
+                    return function(msg: XdrWriter, v: unknown) {
                         var b = toBytes(v, m, col);
                         if (b.length < m.length) {
                             b = Buffer.concat([b, Buffer.alloc(m.length - b.length, 0x20)]);
@@ -3947,7 +4061,7 @@ function buildBatchEncoders(input: any[], options: any) {
             case Const.SQL_VARYING:
             case Const.SQL_NULL:
                 encoders.push((function(m, col) {
-                    return function(msg: any, v: any) {
+                    return function(msg: XdrWriter, v: unknown) {
                         var b = toBytes(v, m, col);
                         msg.addInt(b.length);
                         msg.addParamBuffer(b);
@@ -3959,21 +4073,21 @@ function buildBatchEncoders(input: any[], options: any) {
             case Const.SQL_SHORT:
                 // 2 bytes in the message struct (msglen), 4 on the XDR wire
                 encoders.push((function(m, col) {
-                    return function(msg: any, v: any) { msg.addInt(Number(scaleBatchFixedPoint(v, m, 16, col))); };
+                    return function(msg: XdrWriter, v: unknown) { msg.addInt(Number(scaleBatchFixedPoint(v, m, 16, col))); };
                 })(meta, column));
                 align(2); offset += 2;
                 break;
 
             case Const.SQL_LONG:
                 encoders.push((function(m, col) {
-                    return function(msg: any, v: any) { msg.addInt(Number(scaleBatchFixedPoint(v, m, 32, col))); };
+                    return function(msg: XdrWriter, v: unknown) { msg.addInt(Number(scaleBatchFixedPoint(v, m, 32, col))); };
                 })(meta, column));
                 align(4); offset += 4;
                 break;
 
             case Const.SQL_INT64:
                 encoders.push((function(m, col) {
-                    return function(msg: any, v: any) {
+                    return function(msg: XdrWriter, v: unknown) {
                         msg.addInt64(scaleBatchFixedPoint(v, m, 64, col));
                     };
                 })(meta, column));
@@ -3982,36 +4096,36 @@ function buildBatchEncoders(input: any[], options: any) {
 
             case Const.SQL_INT128:
                 encoders.push((function(m, col) {
-                    return function(msg: any, v: any) { msg.addInt128(scaleBatchFixedPoint(v, m, 128, col)); };
+                    return function(msg: XdrWriter, v: unknown) { msg.addInt128(scaleBatchFixedPoint(v, m, 128, col)); };
                 })(meta, column));
                 align(8); offset += 16;
                 break;
 
             case Const.SQL_FLOAT:
             case Const.SQL_D_FLOAT:
-                encoders.push(function(msg: any, v: any) { msg.addFloat(Number(v)); });
+                encoders.push(function(msg: XdrWriter, v: unknown) { msg.addFloat(Number(v)); });
                 align(4); offset += 4;
                 break;
 
             case Const.SQL_DOUBLE:
-                encoders.push(function(msg: any, v: any) { msg.addDouble(Number(v)); });
+                encoders.push(function(msg: XdrWriter, v: unknown) { msg.addDouble(Number(v)); });
                 align(8); offset += 8;
                 break;
 
             case Const.SQL_DEC16:
-                encoders.push(function(msg: any, v: any) { msg.addDecFloat16(v); });
+                encoders.push(function(msg: XdrWriter, v: unknown) { msg.addDecFloat16(v as string | number | bigint); });
                 align(8); offset += 8;
                 break;
 
             case Const.SQL_DEC34:
-                encoders.push(function(msg: any, v: any) { msg.addDecFloat34(v); });
+                encoders.push(function(msg: XdrWriter, v: unknown) { msg.addDecFloat34(v as string | number | bigint); });
                 align(8); offset += 16;
                 break;
 
             case Const.SQL_BOOLEAN:
                 // xdr_datum sends booleans as a 1-byte opaque (value byte
                 // first, then 3 pad bytes), not as a big-endian int.
-                encoders.push(function(msg: any, v: any) {
+                encoders.push(function(msg: XdrWriter, v: unknown) {
                     msg.addBuffer(Buffer.from([v ? 1 : 0]));
                     msg.addAlignment(1);
                 });
@@ -4019,7 +4133,7 @@ function buildBatchEncoders(input: any[], options: any) {
                 break;
 
             case Const.SQL_TIMESTAMP:
-                encoders.push(function(msg: any, v: any) {
+                encoders.push(function(msg: XdrWriter, v: unknown) {
                     var parts = Xsql.encodeDateTimeParts(toDate(v));
                     msg.addInt(parts.date);
                     msg.addUInt(parts.time);
@@ -4028,14 +4142,14 @@ function buildBatchEncoders(input: any[], options: any) {
                 break;
 
             case Const.SQL_TYPE_DATE:
-                encoders.push(function(msg: any, v: any) {
+                encoders.push(function(msg: XdrWriter, v: unknown) {
                     msg.addInt(Xsql.encodeDateTimeParts(toDate(v)).date);
                 });
                 align(4); offset += 4;
                 break;
 
             case Const.SQL_TYPE_TIME:
-                encoders.push(function(msg: any, v: any) {
+                encoders.push(function(msg: XdrWriter, v: unknown) {
                     msg.addUInt(Xsql.encodeDateTimeParts(toDate(v)).time);
                 });
                 align(4); offset += 4;
@@ -4047,13 +4161,14 @@ function buildBatchEncoders(input: any[], options: any) {
                 // executeBatch's uploadBlob pre-pass, or passed by the
                 // caller directly. ISC_QUAD: two longs, align 4.
                 encoders.push((function(col) {
-                    return function(msg: any, v: any) {
-                        if (!v || typeof v.high !== 'number' || typeof v.low !== 'number') {
+                    return function(msg: XdrWriter, v: unknown) {
+                        var q = v as Quad | null | undefined;
+                        if (!q || typeof q.high !== 'number' || typeof q.low !== 'number') {
                             throw new Error('Batch value for BLOB column ' + col +
                                 ' must be a Buffer, string, object, or blob quad id');
                         }
-                        msg.addInt(v.high);
-                        msg.addInt(v.low);
+                        msg.addInt(q.high);
+                        msg.addInt(q.low);
                     };
                 })(column));
                 align(4); offset += 8;
@@ -4079,7 +4194,7 @@ function buildBatchEncoders(input: any[], options: any) {
  * buffer — version byte, then per clumplet a tag byte, int32 LE length and
  * the value (ints are 4-byte LE).
  */
-function buildBatchPb(options: any): Buffer {
+function buildBatchPb(options: BatchOptions | undefined): Buffer {
     var parts: number[] = [Const.BATCH_VERSION1];
 
     var addIntClumplet = function(tag: number, value: number) {
@@ -4100,7 +4215,7 @@ function buildBatchPb(options: any): Buffer {
     return Buffer.from(parts);
 }
 
-function CalcBlr(blr: BlrWriter, xsqlda: any[]) {
+function CalcBlr(blr: BlrWriter, xsqlda: Array<{ calcBlr(blr: BlrWriter): void }>) {
     blr.addBytes([Const.blr_version5, Const.blr_begin, Const.blr_message, 0]); // + message number
     blr.addWord(xsqlda.length * 2);
 
@@ -4114,14 +4229,14 @@ function CalcBlr(blr: BlrWriter, xsqlda: any[]) {
     blr.addByte(Const.blr_eoc);
 }
 
-function fetch_blob_async_transaction(statement: Statement, id: Quad, column: string | number, row: number, meta?: Xsql.SQLVarBase, table?: string) {
-    const infoValue = { row, column, value: '', meta, table };
+function fetch_blob_async_transaction(statement: Statement, id: Quad, column: string | number, row: number, meta?: Xsql.SQLVarBase, table?: string): PendingTextBlobResolver {
+    const infoValue: ResolvedTextBlobInfo = { row, column, value: '', meta, table };
     // decode ONCE from the concatenated bytes: per-segment toString() both
     // ignored the connection charset (#301 — cyrillic mojibake) and could
     // split a multi-byte UTF-8 character across segment boundaries
     const chunks: Buffer[] = [];
 
-    return (transactionArg: any) => {
+    return (transactionArg?: Transaction): Promise<ResolvedTextBlobInfo> => {
         const cacheKey = `${id.high}:${id.low}`;
         if (statement.connection._inlineBlobs && statement.connection._inlineBlobs.has(cacheKey)) {
             const data = statement.connection._inlineBlobs.get(cacheKey);
@@ -4134,11 +4249,11 @@ function fetch_blob_async_transaction(statement: Statement, id: Quad, column: st
         let promiseTransaction: Promise<Transaction>;
         if (singleTransaction) {
             promiseTransaction = new Promise((resolve, reject) => {
-                statement.connection.startTransaction(Const.ISOLATION_READ_UNCOMMITTED, (err: any, transaction: Transaction) => {
+                statement.connection.startTransaction(Const.ISOLATION_READ_UNCOMMITTED, (err?: Error | null, transaction?: Transaction) => {
                     if (err) {
                         return reject(err);
                     }
-                    resolve(transaction);
+                    resolve(transaction!);
                 });
             });
         } else {
@@ -4146,9 +4261,9 @@ function fetch_blob_async_transaction(statement: Statement, id: Quad, column: st
         }
 
         return promiseTransaction.then((transaction) => {
-            return new Promise((resolve, reject) => {
+            return new Promise<ResolvedTextBlobInfo>((resolve, reject) => {
                 statement.connection._pending.push('openBlob');
-                statement.connection.openBlob(id, transaction, (err: any, blob: any) => {
+                statement.connection.openBlob(id, transaction, (err?: Error | null, blob?: WireResponse) => {
 
                     if (err) {
                         reject(err);
@@ -4156,7 +4271,7 @@ function fetch_blob_async_transaction(statement: Statement, id: Quad, column: st
                     }
 
                     const read = () => {
-                        statement.connection.getSegment(blob, (err: any, ret: any) => {
+                        statement.connection.getSegment(blob as { handle: number }, (err?: Error | null, ret?: WireResponse) => {
 
                             if (err) {
                                 if (singleTransaction) {
@@ -4167,21 +4282,21 @@ function fetch_blob_async_transaction(statement: Statement, id: Quad, column: st
                                 return;
                             }
 
-                            if (ret.buffer) {
+                            if (ret && ret.buffer) {
                                 const blr = new BlrReader(ret.buffer);
                                 chunks.push(blr.readSegment());
                             }
 
-                            if (ret.handle !== 2) {
+                            if (!ret || ret.handle !== 2) {
                                 read();
                                 return;
                             }
 
                             infoValue.value = Xsql.decodeConnectionText(
                                 statement.connection.options, Buffer.concat(chunks));
-                            statement.connection.closeBlob(blob);
+                            statement.connection.closeBlob(blob as { handle: number });
                             if (singleTransaction) {
-                                transaction.commit((err: any) => {
+                                transaction.commit((err?: Error | null) => {
                                     if (err) {
                                         reject(err);
                                     } else {
@@ -4202,58 +4317,58 @@ function fetch_blob_async_transaction(statement: Statement, id: Quad, column: st
 }
 
 function fetch_blob_async(statement: Statement, id: Quad, name: string | number, row: number) {
-    const cbTransaction = (transaction: Transaction, close: any, callback: any) => {
+    const cbTransaction = (transaction: Transaction, close: boolean, callback: BlobFetchCallback) => {
         statement.connection._pending.push('openBlob');
-        statement.connection.openBlob(id, transaction, (err: any, blob: any) => {
-            let e: any = new Events.EventEmitter();
-
-            e.pipe = (stream: any) => {
-                e.on('data', (chunk: any) => {
-                    stream.write(chunk);
-                });
-                e.on('end', () => {
-                    stream.end();
-                });
-            };
+        statement.connection.openBlob(id, transaction, (err?: Error | null, blob?: WireResponse) => {
+            let e: PipeableBlobEmitter | null = Object.assign(new Events.EventEmitter(), {
+                pipe: (stream: NodeJS.WritableStream) => {
+                    e!.on('data', (chunk: Buffer) => {
+                        stream.write(chunk);
+                    });
+                    e!.on('end', () => {
+                        stream.end();
+                    });
+                }
+            });
 
             if (err) {
                 return callback(err, name, e, row);
             }
 
             const read = () => {
-                statement.connection.getSegment(blob, (err: any, ret: any) => {
+                statement.connection.getSegment(blob as { handle: number }, (err?: Error | null, ret?: WireResponse) => {
 
                     if (err) {
                         transaction.rollback(() => {
-                            e.emit('error', err);
+                            if (e) e.emit('error', err);
                         });
                         return;
                     }
 
-                    if (ret.buffer) {
+                    if (ret && ret.buffer) {
                         const blr = new BlrReader(ret.buffer);
                         const data = blr.readSegment();
 
-                        e.emit('data', data);
+                        if (e) e.emit('data', data);
                     }
 
-                    if (ret.handle !== 2) {
+                    if (!ret || ret.handle !== 2) {
                         read();
                         return;
                     }
 
-                    statement.connection.closeBlob(blob);
+                    statement.connection.closeBlob(blob as { handle: number });
                     if (close) {
-                        transaction.commit((err: any) => {
+                        transaction.commit((err?: Error | null) => {
                             if (err) {
-                                e.emit('error', err);
+                                if (e) e.emit('error', err);
                             } else {
-                                e.emit('end');
+                                if (e) e.emit('end');
                             }
                             e = null;
                         });
                     } else {
-                        e.emit('end');
+                        if (e) e.emit('end');
                         e = null;
                     }
                 });
@@ -4264,23 +4379,24 @@ function fetch_blob_async(statement: Statement, id: Quad, name: string | number,
         });
     };
 
-    return (transaction: Transaction, callback: any) => {
+    return (transaction: Transaction | BlobFetchCallback, callback?: BlobFetchCallback) => {
         // callback(error, nameField, eventEmitter, row)
         const singleTransaction = callback === undefined;
-        const actualCallback = singleTransaction ? transaction : callback;
+        const actualCallback: BlobFetchCallback = singleTransaction ? (transaction as BlobFetchCallback) : callback;
 
         const cacheKey = `${id.high}:${id.low}`;
         if (statement.connection._inlineBlobs && statement.connection._inlineBlobs.has(cacheKey)) {
             const data = statement.connection._inlineBlobs.get(cacheKey);
-            let e: any = new Events.EventEmitter();
-            e.pipe = (stream: any) => {
-                e.on('data', (chunk: any) => {
-                    stream.write(chunk);
-                });
-                e.on('end', () => {
-                    stream.end();
-                });
-            };
+            const e: PipeableBlobEmitter = Object.assign(new Events.EventEmitter(), {
+                pipe: (stream: NodeJS.WritableStream) => {
+                    e.on('data', (chunk: Buffer) => {
+                        stream.write(chunk);
+                    });
+                    e.on('end', () => {
+                        stream.end();
+                    });
+                }
+            });
 
             actualCallback(null, name, e, row);
 
@@ -4294,16 +4410,15 @@ function fetch_blob_async(statement: Statement, id: Quad, name: string | number,
         }
 
         if (singleTransaction) {
-            callback = transaction;
-            statement.connection.startTransaction(Const.ISOLATION_READ_UNCOMMITTED, (err: any, transaction: Transaction) => {
+            statement.connection.startTransaction(Const.ISOLATION_READ_UNCOMMITTED, (err?: Error | null, startedTx?: Transaction) => {
                 if (err) {
-                    callback(err);
+                    actualCallback(err);
                     return;
                 }
-                cbTransaction(transaction, singleTransaction, callback);
+                cbTransaction(startedTx!, singleTransaction, actualCallback);
             });
         } else {
-            cbTransaction(transaction, singleTransaction, callback);
+            cbTransaction(transaction as Transaction, singleTransaction, actualCallback);
         }
     };
 }
@@ -4314,7 +4429,7 @@ function fetch_blob_async(statement: Statement, id: Quad, name: string | number,
  * falls back to the default; values above MAX_FETCHSIZE are clamped (the
  * wire field is 16-bit).
  */
-function resolveFetchSize(statement: Statement, options: any): number {
+function resolveFetchSize(statement: Statement, options: InternalOptions | undefined): number {
     const size = Number(statement.options?.fetchSize ?? options?.fetchSize);
     if (Number.isInteger(size) && size > 0) {
         return Math.min(size, Const.MAX_FETCHSIZE);
@@ -4331,7 +4446,11 @@ function resolveFetchSize(statement: Statement, options: any): number {
  * called later (asynchronous consumer) resumes the loop. Each row gets its
  * own next(); only its first call counts.
  */
-function doSynchronousLoop(data: any[], processData: (row: any, index: number, next: (err?: any) => void) => void, done: (err?: any) => void) {
+function doSynchronousLoop<T = unknown>(
+    data: T[],
+    processData: (row: T, index: number, next: (err?: Error | null) => void) => void,
+    done: (err?: Error | null) => void
+) {
     if (!data || !data.length) {
         done();
         return;
@@ -4346,7 +4465,7 @@ function doSynchronousLoop(data: any[], processData: (row: any, index: number, n
             let inCall = true;
             let advanced = false;
 
-            const next = (err?: any) => {
+            const next = (err?: Error | null) => {
                 if (called || finished) {
                     return;
                 }
@@ -4382,9 +4501,15 @@ function doSynchronousLoop(data: any[], processData: (row: any, index: number, n
     run();
 }
 
-function executeStreamRow(custom: any, row: any, index: number, output: any, next: (err?: any) => void) {
+function executeStreamRow(
+    custom: InternalQueryOptions,
+    row: unknown,
+    index: number,
+    output: Xsql.SQLVarBase[],
+    next: (err?: Error | null) => void
+) {
     let done = false;
-    const finish = (err?: any) => {
+    const finish = (err?: Error | null) => {
         if (done) {
             return;
         }
@@ -4393,18 +4518,18 @@ function executeStreamRow(custom: any, row: any, index: number, output: any, nex
     };
 
     try {
-        const ret = custom.on(row, index, output, finish);
-        if (custom.on.length < 4) {
+        const ret = custom.on!(row, index, output, finish) as PromiseLike<unknown> | void;
+        if (custom.on!.length < 4) {
             if (ret && typeof ret.then === 'function') {
-                ret.then(() => finish()).catch(finish);
+                ret.then(() => finish(), finish);
             } else {
                 finish();
             }
         } else if (ret && typeof ret.then === 'function') {
-            ret.catch(finish);
+            ret.then(undefined, finish);
         }
     } catch (err) {
-        finish(err);
+        finish(err as Error);
     }
 }
 

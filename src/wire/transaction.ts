@@ -6,6 +6,12 @@ import { makeSqlTag, type SqlTag } from '../sql-template';
 import { describeFields, parseRecordCounts } from './xsqlvar';
 import makeQueryStream from './query-stream';
 import makeBatchStream from './batch-stream';
+import {
+    hasQuerySubscribers,
+    publishQueryStart,
+    publishQueryEnd,
+    publishQueryError,
+} from '../diagnostics';
 import type Connection from './connection';
 import type Database from './database';
 import type Statement from './statement';
@@ -176,6 +182,37 @@ class Transaction {
             options = callback;
             callback = params;
             params = undefined;
+        }
+
+        if (hasQuerySubscribers()) {
+            const rawCallback = callback;
+            const endpointOpts = this.connection.options;
+            const diagTx = this;
+            const diagParams = params;
+            const diagStart = publishQueryStart(query, diagParams, endpointOpts, diagTx, false);
+            let settled = false;
+            callback = function (err?: any, rows?: any, meta?: any, isSelect?: boolean) {
+                if (!settled) {
+                    settled = true;
+                    if (err) {
+                        publishQueryError(diagStart, query, diagParams, endpointOpts, diagTx, err, false);
+                    } else {
+                        const rowCount = Array.isArray(rows)
+                            ? rows.length
+                            : (rows && typeof rows === 'object' && typeof rows.affectedRows === 'number'
+                                ? rows.affectedRows
+                                : (rows !== undefined ? 1 : undefined));
+                        publishQueryEnd(diagStart, query, diagParams, endpointOpts, diagTx, rowCount, isSelect, false);
+                    }
+                }
+                if (rawCallback) {
+                    if (arguments.length === 0) {
+                        rawCallback();
+                    } else {
+                        rawCallback(err, rows, meta, isSelect);
+                    }
+                }
+            };
         }
 
         var signal = options && options.signal;
@@ -441,6 +478,35 @@ class Transaction {
      */
     executeBatch(query: string, rows: QueryParams[], callback?: BatchCb, options?: BatchOptions & QueryOptions): void {
         var self = this;
+        if (hasQuerySubscribers()) {
+            const rawCallback = callback;
+            const endpointOpts = this.connection.options;
+            const diagTx = this;
+            const diagStart = publishQueryStart(query, rows, endpointOpts, diagTx, true);
+            let settled = false;
+            callback = function (err?: any, result?: BatchResult) {
+                if (!settled) {
+                    settled = true;
+                    if (err) {
+                        publishQueryError(diagStart, query, rows, endpointOpts, diagTx, err, true);
+                    } else {
+                        publishQueryEnd(
+                            diagStart,
+                            query,
+                            rows,
+                            endpointOpts,
+                            diagTx,
+                            result ? result.recordCount : (Array.isArray(rows) ? rows.length : undefined),
+                            false,
+                            true
+                        );
+                    }
+                }
+                if (rawCallback) {
+                    (rawCallback as (err?: any, result?: BatchResult) => void)(err, result as BatchResult);
+                }
+            };
+        }
         this.newStatement(query, function(err: any, statement?: Statement) {
             if (err || !statement) {
                 doError(err, callback);

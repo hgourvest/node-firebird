@@ -13,6 +13,7 @@ import type { Options } from './types';
 const BOOLEAN_KEYS = new Set([
     'lowercase_keys', 'blobAsText', 'wireCompression', 'manager',
     'namedPlaceholders', 'enableKeepAlive', 'eventBaseline',
+    'native', 'embedded',
 ]);
 
 /** Option keys coerced to number when they arrive as URI query parameters. */

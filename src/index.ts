@@ -6,6 +6,15 @@ import PoolCluster from './pool-cluster';
 import type { PoolClusterOptions } from './pool-cluster';
 import { escape as escapeValue } from './utils';
 import { parseConnectionUri, parseConnectionString, normalizeOptions } from './uri';
+import {
+    native,
+    hasNativeDriver,
+    loadNativeDriver,
+    attachNative,
+    createNative,
+    attachOrCreateNative,
+    dropNative,
+} from './native';
 import type {
     Options,
     SvcMgrOptions,
@@ -19,6 +28,7 @@ import type {
 
 export * from './types';
 export { GDSCode } from './gdscodes';
+export { DIAGNOSTICS_CHANNELS, channels as diagnosticsChannels } from './diagnostics';
 
 if (typeof(setImmediate) === 'undefined') {
     (global as any).setImmediate = function(cb: () => void) {
@@ -198,6 +208,10 @@ export function attach(options: Options | string, callback: DatabaseCallback): v
 export function attach(options: SvcMgrOptions, callback: ServiceManagerCallback): void;
 export function attach(options: any, callback: any): void {
     options = normalizeOptions(options);
+    if (options.native && !options.manager) {
+        attachNative(options, callback);
+        return;
+    }
     var host = options.host || Const.DEFAULT_HOST;
     var port = options.port || Const.DEFAULT_PORT;
     var manager = options.manager || false;
@@ -223,7 +237,12 @@ export function attach(options: any, callback: any): void {
 }
 
 export function drop(options: Options | string, callback: SimpleCallback): void {
-	attach(normalizeOptions(options), function(err: any, db: any) {
+    options = normalizeOptions(options);
+    if ((options as any).native) {
+        dropNative(options, callback);
+        return;
+    }
+	attach(options, function(err: any, db: any) {
 		if (err) {
 			callback({ error: err, message: "Drop error" });
 			return;
@@ -235,6 +254,10 @@ export function drop(options: Options | string, callback: SimpleCallback): void 
 
 export function create(options: Options | string, callback: DatabaseCallback): void {
     options = normalizeOptions(options);
+    if ((options as any).native) {
+        createNative(options, callback);
+        return;
+    }
     var host = options.host || Const.DEFAULT_HOST;
     var port = options.port || Const.DEFAULT_PORT;
     var cnx = connection = new Connection(host, port, function(err: any) {
@@ -260,6 +283,10 @@ export function create(options: Options | string, callback: DatabaseCallback): v
 
 export function attachOrCreate(options: Options | string, callback: DatabaseCallback): void {
     options = normalizeOptions(options);
+    if ((options as any).native) {
+        attachOrCreateNative(options, callback);
+        return;
+    }
 
     var host = options.host || Const.DEFAULT_HOST;
     var port = options.port || Const.DEFAULT_PORT;
@@ -318,6 +345,7 @@ export type { PoolClusterOptions, ClusterSelector } from './pool-cluster';
 
 export { parseConnectionUri, parseConnectionString };
 export { parseNamedPlaceholders } from './named-params';
+export { native, hasNativeDriver, loadNativeDriver };
 
 /*
  * Promise / async-await API.

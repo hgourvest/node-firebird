@@ -93,6 +93,11 @@ jobs:
         export FIREBIRD_DEBUG=1
         npm test
 
+    - name: Benchmark (Micro + Live Firebird)
+      run: |
+        export FIREBIRD_DATA=/firebird/data
+        npm run bench:live
+
     - name: Show Firebird log on failure
       if: failure()
       run: |

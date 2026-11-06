@@ -1,8 +1,23 @@
 'use strict';
 
+const fs = require('node:fs');
 const path = require('node:path');
 const Firebird = require('../lib');
 const { benchAsync, printTable } = require('./harness');
+
+function ensureFirebirdLockPermissions() {
+    try {
+        for (const name of fs.readdirSync('/tmp/firebird')) {
+            try {
+                fs.chmodSync(path.join('/tmp/firebird', name), 0o666);
+            } catch {
+                // ignore files not owned by current user
+            }
+        }
+    } catch {
+        // ignore if /tmp/firebird does not exist
+    }
+}
 
 function getLiveConfig() {
     const dataDir = process.env.FIREBIRD_DATA || '/tmp';
@@ -18,6 +33,7 @@ function getLiveConfig() {
 }
 
 async function runLiveBenchmarks(options = {}) {
+    ensureFirebirdLockPermissions();
     const config = getLiveConfig();
     let db;
 
@@ -57,6 +73,23 @@ async function runLiveBenchmarks(options = {}) {
             )
         `);
 
+        const supportsWireBatch =
+            db.connection &&
+            db.connection.accept &&
+            db.connection.accept.protocolVersion >= (0x8000 | 16);
+
+        const insertRowsHelper = async (sql, rows) => {
+            if (supportsWireBatch) {
+                await db.executeBatchAsync(sql, rows);
+            } else {
+                await db.withTransaction(async (tx) => {
+                    for (let i = 0; i < rows.length; i++) {
+                        await tx.queryAsync(sql, rows[i]);
+                    }
+                });
+            }
+        };
+
         const seedRows = Array.from({ length: 1000 }, (_, i) => [
             i + 1,
             `CODE-${String(i + 1).padStart(5, '0')}`,
@@ -65,7 +98,7 @@ async function runLiveBenchmarks(options = {}) {
             i % 2,
             new Date(Date.UTC(2026, 0, 1, 12, 0, i % 60))
         ]);
-        await db.executeBatchAsync(
+        await insertRowsHelper(
             'INSERT INTO BENCH_ITEMS (ID, CODE, TITLE, AMOUNT, ACTIVE, CREATED_AT) VALUES (?, ?, ?, ?, ?, ?)',
             seedRows
         );
@@ -73,30 +106,30 @@ async function runLiveBenchmarks(options = {}) {
         const blobPayload64K = Buffer.alloc(64 * 1024, 0x61);
         await db.queryAsync('INSERT INTO BENCH_BLOBS (ID, DATA) VALUES (?, ?)', [1, blobPayload64K]);
 
-        const uncachedDb = await Firebird.attachAsync(Object.assign({}, config, { statementCacheSize: 0 }));
         const liveResults = [];
 
+        const txCached = await db.transactionAsync(Firebird.ISOLATION_READ_COMMITTED_READ_ONLY);
         try {
-            const txCached = await db.transactionAsync(Firebird.ISOLATION_READ_COMMITTED_READ_ONLY);
-            try {
-                let lookupId = 1;
-                liveResults.push(
-                    await benchAsync(
-                        'Point SELECT by PK (cached prepared statement)',
-                        async () => {
-                            lookupId = (lookupId % 1000) + 1;
-                            await txCached.queryAsync(
-                                'SELECT ID, CODE, TITLE, AMOUNT, ACTIVE, CREATED_AT FROM BENCH_ITEMS WHERE ID = ?',
-                                [lookupId]
-                            );
-                        },
-                        { warmupIterations: 5, iterations: 50, itemsPerOp: 1, unit: 'queries/s' }
-                    )
-                );
-            } finally {
-                await txCached.commitAsync();
-            }
+            let lookupId = 1;
+            liveResults.push(
+                await benchAsync(
+                    'Point SELECT by PK (cached prepared statement)',
+                    async () => {
+                        lookupId = (lookupId % 1000) + 1;
+                        await txCached.queryAsync(
+                            'SELECT ID, CODE, TITLE, AMOUNT, ACTIVE, CREATED_AT FROM BENCH_ITEMS WHERE ID = ?',
+                            [lookupId]
+                        );
+                    },
+                    { warmupIterations: 5, iterations: 50, itemsPerOp: 1, unit: 'queries/s' }
+                )
+            );
+        } finally {
+            await txCached.commitAsync();
+        }
 
+        const uncachedDb = await Firebird.attachAsync(Object.assign({}, config, { statementCacheSize: 0 }));
+        try {
             const txUncached = await uncachedDb.transactionAsync(Firebird.ISOLATION_READ_COMMITTED_READ_ONLY);
             try {
                 let uncachedId = 1;
@@ -116,59 +149,6 @@ async function runLiveBenchmarks(options = {}) {
             } finally {
                 await txUncached.commitAsync();
             }
-
-            liveResults.push(
-                await benchAsync(
-                    'SELECT 1,000 rows -> Objects (queryAsync)',
-                    async () => {
-                        await db.queryAsync('SELECT ID, CODE, TITLE, AMOUNT, ACTIVE, CREATED_AT FROM BENCH_ITEMS');
-                    },
-                    { warmupIterations: 3, iterations: 15, itemsPerOp: 1000, unit: 'rows/s' }
-                )
-            );
-
-            liveResults.push(
-                await benchAsync(
-                    'SELECT 1,000 rows -> Arrays (executeAsync)',
-                    async () => {
-                        await db.executeAsync('SELECT ID, CODE, TITLE, AMOUNT, ACTIVE, CREATED_AT FROM BENCH_ITEMS');
-                    },
-                    { warmupIterations: 3, iterations: 15, itemsPerOp: 1000, unit: 'rows/s' }
-                )
-            );
-
-            const batchRows200 = Array.from({ length: 200 }, (_, i) => [
-                i + 1,
-                `BatchUser-${i + 1}`,
-                (i + 1) * 10
-            ]);
-            liveResults.push(
-                await benchAsync(
-                    'INSERT 200 rows via executeBatchAsync',
-                    async () => {
-                        await db.executeBatchAsync(
-                            'INSERT INTO BENCH_BATCH (ID, NAME, SCORE) VALUES (?, ?, ?)',
-                            batchRows200
-                        );
-                    },
-                    { warmupIterations: 2, iterations: 10, itemsPerOp: 200, unit: 'rows/s' }
-                )
-            );
-
-            liveResults.push(
-                await benchAsync(
-                    'BLOB 64 KB write round-trip',
-                    async () => {
-                        await db.queryAsync('UPDATE BENCH_BLOBS SET DATA = ? WHERE ID = 1', [blobPayload64K]);
-                    },
-                    { warmupIterations: 2, iterations: 10, itemsPerOp: 64 / 1024, unit: 'MB/s' }
-                )
-            );
-
-            if (!options.json) {
-                printTable('Live Firebird Server Benchmarks', liveResults);
-            }
-            return liveResults;
         } finally {
             try {
                 await uncachedDb.detachAsync();
@@ -176,6 +156,61 @@ async function runLiveBenchmarks(options = {}) {
                 // ignore detach error on cleanup
             }
         }
+
+        liveResults.push(
+            await benchAsync(
+                'SELECT 1,000 rows -> Objects (queryAsync)',
+                async () => {
+                    await db.queryAsync('SELECT ID, CODE, TITLE, AMOUNT, ACTIVE, CREATED_AT FROM BENCH_ITEMS');
+                },
+                { warmupIterations: 3, iterations: 15, itemsPerOp: 1000, unit: 'rows/s' }
+            )
+        );
+
+        liveResults.push(
+            await benchAsync(
+                'SELECT 1,000 rows -> Arrays (executeAsync)',
+                async () => {
+                    await db.executeAsync('SELECT ID, CODE, TITLE, AMOUNT, ACTIVE, CREATED_AT FROM BENCH_ITEMS');
+                },
+                { warmupIterations: 3, iterations: 15, itemsPerOp: 1000, unit: 'rows/s' }
+            )
+        );
+
+        const batchRows200 = Array.from({ length: 200 }, (_, i) => [
+            i + 1,
+            `BatchUser-${i + 1}`,
+            (i + 1) * 10
+        ]);
+        liveResults.push(
+            await benchAsync(
+                supportsWireBatch
+                    ? 'INSERT 200 rows via executeBatchAsync'
+                    : 'INSERT 200 rows (single transaction)',
+                async () => {
+                    await insertRowsHelper(
+                        'INSERT INTO BENCH_BATCH (ID, NAME, SCORE) VALUES (?, ?, ?)',
+                        batchRows200
+                    );
+                },
+                { warmupIterations: 2, iterations: 10, itemsPerOp: 200, unit: 'rows/s' }
+            )
+        );
+
+        liveResults.push(
+            await benchAsync(
+                'BLOB 64 KB write round-trip',
+                async () => {
+                    await db.queryAsync('UPDATE BENCH_BLOBS SET DATA = ? WHERE ID = 1', [blobPayload64K]);
+                },
+                { warmupIterations: 2, iterations: 10, itemsPerOp: 64 / 1024, unit: 'MB/s' }
+            )
+        );
+
+        if (!options.json) {
+            printTable('Live Firebird Server Benchmarks', liveResults);
+        }
+        return liveResults;
     } finally {
         try {
             await db.dropAsync();

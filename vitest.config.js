@@ -50,7 +50,8 @@ module.exports = defineConfig({
             'test/json.js',
             'test/row-type.js',
             'test/collations.js',
-            'test/ping-watchdog.js'
+            'test/ping-watchdog.js',
+            'test/native.js'
         ],
     },
 });

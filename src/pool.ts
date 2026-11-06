@@ -6,6 +6,7 @@
 
 import Events from 'events';
 import { fromCallback, withPooledConnection } from './callback';
+import { hasPoolCheckoutSubscribers, nowMs, publishPoolCheckout } from './diagnostics';
 import type { Callback } from './callback';
 
 type AttachFn = (options: any, callback: Callback) => void;
@@ -181,6 +182,16 @@ class Pool extends Events.EventEmitter {
     }
 
     get(callback: Callback): this {
+        if (hasPoolCheckoutSubscribers()) {
+            const rawCallback = callback;
+            const diagStart = nowMs();
+            const self = this;
+            const wrapped: Callback & { _diagCreated?: boolean } = function (err?: any, db?: any) {
+                publishPoolCheckout(self, diagStart, db, Boolean(wrapped._diagCreated), err || undefined);
+                rawCallback(err, db);
+            };
+            callback = wrapped;
+        }
         // [Fix 2] Reject immediately if the pool has already been destroyed.
         if (this._destroyed) {
             callback(new Error('Pool has been destroyed'), null);
@@ -265,6 +276,7 @@ class Pool extends Events.EventEmitter {
                 timer = setTimeout(function () {
                     timedOut = true;
                     self._creating--;
+                    (cb as any)._diagCreated = true;
                     cb(new Error(
                         'Connection timeout after ' + self.options.connectTimeout + 'ms'
                     ), null);
@@ -301,6 +313,7 @@ class Pool extends Events.EventEmitter {
                             db.detach();
                         } catch (e) { /* ignore cleanup errors */ }
                     }
+                    (cb as any)._diagCreated = true;
                     cb(new Error('Pool has been destroyed'), null);
                     return;
                 }
@@ -342,6 +355,7 @@ class Pool extends Events.EventEmitter {
                     self.emit('acquire', db);
                 }
 
+                (cb as any)._diagCreated = true;
                 cb(err, db);
             });
         }

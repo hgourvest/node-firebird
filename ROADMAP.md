@@ -134,11 +134,9 @@ Superseded by the migration: the hand-maintained `.d.ts` files are gone. Declara
 - Blob columns being functions is a runtime quirk; the typings are accurate but may surprise users new to the library.
 - Some options and event payloads vary by server version or protocol; typings stay permissive in those areas to avoid false type errors.
 
-### Phase A.1 — Strictness hardening ✅ Done
+### Phase A.1 & A.2 — Strictness hardening & wire-core strict typing ✅ Done
 
-The sources now compile with full `"strict": true` (including `noImplicitAny`, `strictNullChecks`, `strictPropertyInitialization`, `useUnknownInCatchVariables`). The hardening was done without runtime changes: wire-populated fields use definite-assignment assertions, connection/service handles use non-null assertions at send sites, and the intentionally dynamic wire-core parameters carry explicit `: any` annotations — making the remaining looseness visible and greppable (`grep ': any' src/wire`) for the follow-up tightening below.
-
-**Follow-up (Phase A.2, future):** replace the explicit `: any` annotations in `src/wire/connection.ts` with real types (Statement/Transaction/Callback shapes), which is a semantic typing effort rather than a compiler-flag one.
+The sources compile with full `"strict": true` (including `noImplicitAny`, `strictNullChecks`, `strictPropertyInitialization`, `useUnknownInCatchVariables`), and all explicit `: any` annotations in `src/wire/connection.ts`, `src/wire/xsqlvar.ts`, and `src/wire/service.ts` have been replaced with concrete internal interfaces (`SQLParamValue`, `DecodedCellValue`, `TextEncodingOptions`, `BlobHandle`, `BatchCompletionState`, `DecodedWirePacket`, `ServiceBackupOptions`, `ServiceRestoreOptions`, `ServiceQueryResult`, etc.).
 
 ### Phase B — Dual API: callbacks + promises ✅ Done
 
@@ -297,6 +295,7 @@ ESM/CJS dual exports (pg ships both since 8.15) and callback-API generics stay u
 | Shipped in 2.14.0 | Multi-host pooling (`poolCluster`, #12) — **Rounds 1 & 2 complete** |
 | Shipped in 2.15.0–2.19.1 | Exact fixed-point numerics (`numericMode`: `lossy` / `safe` / `string`); Firebird 6.0 enhanced collation metadata (`charSetId` / `collationId`); IPv4/IPv6 `ipFamily` option; iterative `doSynchronousLoop` (prevents call-stack overflow on large synchronous fetches); SRP auth-chain switching fix (#438); deferred socket write accumulation fix (#411) |
 | Shipped in 2.20.0 | Truncated statement `describe()` pagination via `isc_info_sql_sqlda_start` for > ~1,800 parameters (#446, ✅ done); Benchmark Suite (`benchmarks/`, ✅ done); Connection `ping()` API (`op_ping`), pool `pingIntervalMillis`, & client-side `socketTimeout` request watchdog (#11, ✅ done) |
+| Shipped in 2.21.0 | Optional Native Driver Support (`node-firebird-driver-native`, `{ native: true }`, `Firebird.native`, `Firebird.hasNativeDriver()`, ✅ done); Multi-Driver Benchmark Comparison (`benchmarks/compare.js`, `benchmarks/COMPARISON.md`, CI benchmark workflow step, ✅ done); TypeScript Phase A.2 Wire-Core Strict Typing (267 `: any` → 0 across `connection.ts`, `service.ts`, `xsqlvar.ts`, ✅ done); Zero-Overhead Diagnostics Channel (`node:diagnostics_channel`, #10, ✅ done) |
 
 ---
 
@@ -326,8 +325,8 @@ With Rounds 1 & 2 complete and the issue tracker at **0 open issues and 0 open P
    - **Bottleneck:** `PrepareParams` in `executeStatement` uploads BLOB parameters strictly sequentially (`createBlob2` → `batchSegments` → `closeBlob` for parameter 1 before starting parameter 2), paying 3 network round-trips per BLOB parameter.
    - **Deliverables:** Pipeline BLOB parameter uploads back-to-back (matching `executeBatch`'s `uploadBlob` pre-pass) so multiple BLOB parameters in a single `query`/`execute` share a single network round-trip.
 
-6. **Benchmark Suite (`benchmarks/`)** ✅ Implemented
-   - **Deliverables:** Zero-dependency benchmark suite (`npm run bench` / `npm run bench:live` / `--json`) measuring offline wire serialization (`XdrWriter`/`XdrReader`, `BitSet`, `BlrReader.readSegment`, `DECFLOAT`), `decodeResponse` row decode throughput across modes (`asObject`, array, `lowercase_keys` + `camel`, `nestTables`), large `describe()` parsing (1,500 bind params), `Srp256` handshake proof & `Arc4` cipher throughput, plus optional live Firebird server benchmarks (`statementCacheSize` speedup, 1k-row `SELECT`, `executeBatchAsync`, 64 KB `BLOB` round-trip).
+6. **Benchmark Suite & Multi-Driver Comparison (`benchmarks/`)** ✅ Implemented
+   - **Deliverables:** Zero-dependency benchmark suite (`npm run bench` / `npm run bench:live` / `npm run bench:compare` / `--json`) measuring offline wire serialization (`XdrWriter`/`XdrReader`, `BitSet`, `BlrReader.readSegment`, `DECFLOAT`), `decodeResponse` row decode throughput across modes (`asObject`, array, `lowercase_keys` + `camel`, `nestTables`), large `describe()` parsing (1,500 bind params), `Srp256` handshake proof & `Arc4` cipher throughput, live Firebird server benchmarks (`statementCacheSize` speedup, 1k-row `SELECT`, `executeBatchAsync`, 64 KB `BLOB` round-trip), and head-to-head comparisons against `node-firebird-driver-native` and `node-firebird-driver-wire` ([`benchmarks/COMPARISON.md`](benchmarks/COMPARISON.md)).
 
 ### B. Developer Experience, Observability & Remaining Polish
 
@@ -340,16 +339,19 @@ With Rounds 1 & 2 complete and the issue tracker at **0 open issues and 0 open P
 9. **Tagged-Template Object Builders (`db.sql` Insert / Update Helpers)**
    - **Deliverables:** Complete the deferred item from #14 — allow `db.sql(obj, 'col1', 'col2')` and `db.sql(rowsArray, 'col1', 'col2')` inside `db.sql` templates to generate parameterized `("COL1", "COL2") VALUES (?, ?)` and `SET "COL1" = ?, "COL2" = ?` fragments safely.
 
-10. **Zero-Overhead Diagnostics Channel (`node:diagnostics_channel`)**
-    - **Deliverables:** Publish structured events on Node's built-in `diagnostics_channel` (`firebird:query:start`, `firebird:query:end`, `firebird:query:error`, `firebird:pool:checkout`, `firebird:transaction`) so OpenTelemetry and APM tools can instrument `node-firebird` without monkey-patching.
+10. **Zero-Overhead Diagnostics Channel (`node:diagnostics_channel`)** ✅ Implemented
+    - **Deliverables:** Publishes structured events on Node's built-in `diagnostics_channel` (`firebird:query:start`, `firebird:query:end`, `firebird:query:error`, `firebird:pool:checkout`, `firebird:transaction`) gated by `channel.hasSubscribers` so OpenTelemetry and APM tools can instrument `node-firebird` (both wire and optional native drivers) with zero overhead when unsubscribed (`src/diagnostics.ts`, `Firebird.DIAGNOSTICS_CHANNELS`, `Firebird.diagnosticsChannels`).
 
 11. **Connection `ping()` API & Client-Side Request Watchdog** ✅ Implemented
     - **Deliverables:**
       - `db.ping([timeout], [callback])` / `db.pingAsync([timeout])` using `op_ping` (Protocol 13+ / Firebird 3.0+) with automatic fallback to `op_info_database` on Protocol 10–12, plus optional pool checkout health verification after idle periods (`pingIntervalMillis` / `pingTimeoutMillis`).
       - Opt-in client-side `socketTimeout` pending-request watchdog so requests on dead/blackholed TCP connections settle deterministically with `ETIMEDOUT` and destroy the dead socket (each arriving TCP data chunk resets the timer).
 
-12. **TypeScript Phase A.2 — Wire-Core Strict Typing**
-    - **Deliverables:** Replace the remaining explicit `: any` annotations in `src/wire/connection.ts`, `src/wire/xsqlvar.ts`, and `src/wire/service.ts` with concrete internal interfaces.
+12. **TypeScript Phase A.2 — Wire-Core Strict Typing** ✅ Implemented
+    - **Deliverables:** Replaced all 267 explicit `: any` annotations in `src/wire/connection.ts` (138 → 0), `src/wire/service.ts` (96 → 0), and `src/wire/xsqlvar.ts` (33 → 0) with concrete internal interfaces (`TextEncodingOptions`, `TextState`, `DecodedCellValue`, `SQLParamValue`, `BlobHandle`, `BatchCompletionState`, `ResolvedTextBlobInfo`, `PendingTextBlobResolver`, `AuxSocketInfo`, `DecodedWirePacket`, `PipeableBlobEmitter`, `ServiceBackupOptions`, `ServiceNBackupOptions`, `ServiceRestoreOptions`, `ServiceNRestoreOptions`, `ServiceFixPropertiesOptions`, `ServiceUserMutationOptions`, `ServiceQueryResult`, etc.).
+
+13. **Optional Native Driver Support (`node-firebird-driver-native`)** ✅ Implemented
+    - **Deliverables:** Optional `{ native: true }` / `Firebird.native` / `Firebird.hasNativeDriver()` adapter over `node-firebird-driver-native` (`libfbclient.so` / `fbclient.dll` / `libfbclient.dylib`), preserving the `node-firebird` callback + Promise API (`queryAsync`, `executeAsync`, `executeBatchAsync`, `withTransaction`, `savepoint`, `db.sql`, `statementCacheSize`, `pool`, `embedded: true`).
 
 ---
 

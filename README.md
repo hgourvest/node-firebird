@@ -1420,6 +1420,31 @@ Firebird.attach(options, function (err, db) {
 });
 ```
 
+### Zero-Overhead Diagnostics Channel (`node:diagnostics_channel`)
+
+`node-firebird` publishes structured telemetry events on Node's built-in `node:diagnostics_channel` so OpenTelemetry, APM agents, and custom loggers can observe queries, batch executions, pool checkouts, and transactions without monkey-patching. When no subscribers are registered on a channel (`channel.hasSubscribers === false`), event objects and high-resolution timers are not allocated.
+
+| Channel Name | Constant | Payload |
+| :--- | :--- | :--- |
+| `'firebird:query:start'` | `Firebird.DIAGNOSTICS_CHANNELS.QUERY_START` | `{ query, params, database, host, port, transaction, batch, timestamp }` |
+| `'firebird:query:end'` | `Firebird.DIAGNOSTICS_CHANNELS.QUERY_END` | `{ query, params, database, host, port, transaction, batch, durationMs, rowCount, isSelect, timestamp }` |
+| `'firebird:query:error'` | `Firebird.DIAGNOSTICS_CHANNELS.QUERY_ERROR` | `{ query, params, database, host, port, transaction, batch, durationMs, error, timestamp }` |
+| `'firebird:pool:checkout'` | `Firebird.DIAGNOSTICS_CHANNELS.POOL_CHECKOUT` | `{ pool, db, database, host, port, created, waitMs, totalCount, idleCount, activeCount, waitingCount, error, timestamp }` |
+| `'firebird:transaction'` | `Firebird.DIAGNOSTICS_CHANNELS.TRANSACTION` | `{ action, transaction, database, host, port, options, durationMs, error, timestamp }` (`action`: `'start'` \| `'commit'` \| `'rollback'` \| `'commitRetaining'` \| `'rollbackRetaining'`) |
+
+```js
+const dc = require('node:diagnostics_channel');
+const Firebird = require('node-firebird');
+
+dc.subscribe(Firebird.DIAGNOSTICS_CHANNELS.QUERY_END, (event) => {
+  console.log(`[firebird] ${event.query} (${event.durationMs.toFixed(2)} ms, rows=${event.rowCount ?? 0})`);
+});
+
+dc.subscribe(Firebird.DIAGNOSTICS_CHANNELS.QUERY_ERROR, (event) => {
+  console.error(`[firebird] ERROR in ${event.query} after ${event.durationMs.toFixed(2)} ms:`, event.error);
+});
+```
+
 ### Firebird Database Events (POST_EVENT)
 
 Firebird database events are **asynchronous** notifications triggered by `POST_EVENT` inside PSQL
@@ -2561,6 +2586,48 @@ in `firebird.conf` and publish that port too. See
 [§ The auxiliary connection](#the-auxiliary-connection-and-when-attachevent-fails) for the full
 picture, including the `0.0.0.0`/`::` case and why a DROP firewall rule delays the error by
 roughly two minutes.
+
+## Optional Native Driver Support (`node-firebird-driver-native`)
+
+By default, `node-firebird` uses its zero-dependency pure JavaScript wire protocol implementation. If `node-firebird-driver-native` (and `libfbclient.so` / `fbclient.dll` / `libfbclient.dylib`) is installed in your environment, you can opt into the native C++ N-API driver per connection or pool while keeping the exact same `node-firebird` API (`queryAsync`, `executeAsync`, `executeBatchAsync`, `withTransaction`, `db.sql`, `statementCacheSize`, `pool`, etc.):
+
+```js
+const Firebird = require('node-firebird');
+
+// Check if node-firebird-driver-native is available in the current environment
+if (Firebird.hasNativeDriver()) {
+    const db = await Firebird.attachAsync({
+        host: '127.0.0.1',
+        port: 3050,
+        database: '/path/to/database.fdb',
+        user: 'SYSDBA',
+        password: 'masterkey',
+        native: true,            // opt into libfbclient via node-firebird-driver-native
+        embedded: false,         // set true to connect directly to a local file without host/port
+        statementCacheSize: 100, // LRU prepared statement cache works in native mode too
+    });
+
+    const rows = await db.sql`SELECT * FROM USERS WHERE ACTIVE = ${1}`;
+    await db.detachAsync();
+}
+```
+
+You can also use the `Firebird.native` namespace directly (`Firebird.native.attachAsync(options)`, `Firebird.native.createAsync(options)`, `Firebird.native.pool(max, options)`), or pass `?native=true` in a `firebird://` connection URI.
+
+## Benchmarks & Driver Comparison
+
+See [`benchmarks/README.md`](./benchmarks/README.md) for the offline micro-benchmark and live Firebird server benchmark suites (`npm run bench`, `npm run bench:live`), and [`benchmarks/COMPARISON.md`](./benchmarks/COMPARISON.md) for the head-to-head comparison across:
+
+- **`node-firebird` (wire)** — default pure JS wire protocol driver
+- **`node-firebird` (`{ native: true }`)** — optional native adapter
+- **`node-firebird-driver-native`** — raw `libfbclient` N-API binding
+- **`node-firebird-driver-wire`** — external pure JS wire driver
+
+Run the comparison locally against a running Firebird server with:
+
+```bash
+npm run bench:compare
+```
 
 ## Contributing
 

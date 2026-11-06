@@ -4,6 +4,7 @@ import { getCodec } from './codepages';
 import type { TextCodec } from './codepages';
 import type { XdrReader, XdrWriter, BlrWriter } from './serialize';
 import type { NumericMode, RecordCounts } from '../types';
+import type { Quad } from './wire-types';
 
 /***************************************
  *
@@ -124,6 +125,12 @@ export function getFirebirdCharsetWidth(charset?: string): number {
     return FirebirdCharsetWidths[upper] || 1;
 }
 
+export interface TextEncodingOptions {
+    encoding?: string;
+    numericMode?: NumericMode;
+    __textState?: TextState;
+}
+
 /**
  * Resolve the Node.js Buffer encoding to use when decoding text from a
  * Firebird response buffer.
@@ -131,7 +138,7 @@ export function getFirebirdCharsetWidth(charset?: string): number {
  * @param {object|null} options  Connection options object (may be falsy).
  * @returns {string}             A Node.js-compatible encoding string.
  */
-export function resolveTextEncoding(options?: any): BufferEncoding {
+export function resolveTextEncoding(options?: TextEncodingOptions | null): BufferEncoding {
     const encoding = (options && options.encoding)
         ? options.encoding.toUpperCase()
         : Const.DEFAULT_ENCODING;
@@ -146,11 +153,11 @@ export function resolveTextEncoding(options?: any): BufferEncoding {
  * codepage, so every text column, parameter, SQL string and text blob
  * goes through the codec (issues #319/#301).
  */
-export function resolveTextCodec(options?: any): TextCodec | null {
+export function resolveTextCodec(options?: TextEncodingOptions | null): TextCodec | null {
     return resolveTextState(options).codec;
 }
 
-interface TextState {
+export interface TextState {
     key: string | undefined;
     codec: TextCodec | null;
     enc: BufferEncoding;
@@ -163,8 +170,8 @@ interface TextState {
  * recomputing uppercased names + map lookups a million times per large
  * fetch is pure waste. Invalidated if options.encoding ever changes.
  */
-export function resolveTextState(options?: any): TextState {
-    const key = options && options.encoding;
+export function resolveTextState(options?: TextEncodingOptions | null): TextState {
+    const key = options ? options.encoding : undefined;
     if (options && options.__textState && options.__textState.key === key) {
         return options.__textState;
     }
@@ -185,7 +192,7 @@ export function resolveTextState(options?: any): TextState {
  * Encode text in the CONNECTION charset — the byte form the server
  * expects for parameters, SQL statement text and text-blob content.
  */
-export function encodeConnectionText(options: any, value: string): Buffer {
+export function encodeConnectionText(options: TextEncodingOptions | null | undefined, value: string): Buffer {
     const state = resolveTextState(options);
     if (state.codec) {
         return state.codec.encode(value);
@@ -202,7 +209,7 @@ export function encodeConnectionText(options: any, value: string): Buffer {
  * Decode connection-charset bytes to text (the read counterpart of
  * encodeConnectionText — used for text blobs).
  */
-export function decodeConnectionText(options: any, buffer: Buffer): string {
+export function decodeConnectionText(options: TextEncodingOptions | null | undefined, buffer: Buffer): string {
     const codec = resolveTextCodec(options);
     if (codec) {
         return codec.decode(buffer);
@@ -211,6 +218,18 @@ export function decodeConnectionText(options: any, buffer: Buffer): string {
 }
 
 //------------------------------------------------------
+
+export type DecodedCellValue =
+    | string
+    | number
+    | boolean
+    | Date
+    | Buffer
+    | Quad
+    | Record<string, unknown>
+    | unknown[]
+    | null
+    | undefined;
 
 /**
  * Common shape of all SQLVar descriptor objects.  The metadata properties
@@ -237,7 +256,7 @@ export abstract class SQLVarBase {
      *  `length` for the fetch capacity check (issue #422). */
     nativeLength?: number;
 
-    abstract decode(data: XdrReader, lowerV13: boolean, options?: any): any;
+    abstract decode(data: XdrReader, lowerV13: boolean, options?: TextEncodingOptions): DecodedCellValue;
     abstract calcBlr(blr: BlrWriter): void;
 }
 
@@ -332,9 +351,10 @@ export function resolveKeyTransform(
     return (key: string) => {
         try {
             return String(value(key));
-        } catch (err: any) {
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
             console.warn('[node-firebird] transformKeys mapper threw for key "%s": %s — using the untransformed key',
-                key, err && err.message);
+                key, msg);
             return key;
         }
     };
@@ -347,13 +367,13 @@ export function resolveKeyTransform(
  */
 function resolveQueryOption<T>(
     name: string,
-    queryOptions: Record<string, any> | undefined,
-    connectionOptions: Record<string, any> | undefined
+    queryOptions: Record<string, unknown> | undefined,
+    connectionOptions: Record<string, unknown> | undefined
 ): T | undefined {
     if (queryOptions && queryOptions[name] !== undefined) {
-        return queryOptions[name];
+        return queryOptions[name] as T;
     }
-    return connectionOptions ? connectionOptions[name] : undefined;
+    return connectionOptions ? (connectionOptions[name] as T | undefined) : undefined;
 }
 
 /**
@@ -375,11 +395,16 @@ export function resolveNestTables(
  * sub-object, created on first use. Every site that reads or writes a
  * cell by ColumnKey must resolve it through here.
  */
-export function nestCell(row: any, table: string | undefined) {
+export function nestCell(row: Record<string, unknown>, table: string | undefined): Record<string, unknown> {
     if (table === undefined) {
         return row;
     }
-    return row[table] || (row[table] = {});
+    let nested = row[table] as Record<string, unknown> | undefined;
+    if (!nested) {
+        nested = {};
+        row[table] = nested;
+    }
+    return nested;
 }
 
 //------------------------------------------------------
@@ -485,7 +510,7 @@ export function parseRecordCounts(buffer: Buffer | undefined): RecordCounts {
 //------------------------------------------------------
 
 export class SQLVarText extends SQLVarBase {
-    decode(data: XdrReader, lowerV13: boolean, options?: any) {
+    decode(data: XdrReader, lowerV13: boolean, options?: TextEncodingOptions) {
         let ret;
         if (this.subType > 1 || this.subType === 0) {
             const state = resolveTextState(options);
@@ -521,7 +546,7 @@ export class SQLVarNull extends SQLVarText {
 //------------------------------------------------------
 
 export class SQLVarString extends SQLVarBase {
-    decode(data: XdrReader, lowerV13: boolean, options?: any) {
+    decode(data: XdrReader, lowerV13: boolean, options?: TextEncodingOptions) {
         let ret;
         if (this.subType > 1 || this.subType === 0) {
             const state = resolveTextState(options);
@@ -906,10 +931,23 @@ export class SQLVarBoolean extends SQLVarBase {
 
 //------------------------------------------------------
 
-export class SQLParamInt {
-    value: any;
+export type SQLParamValue =
+    | SQLParamInt
+    | SQLParamInt64
+    | SQLParamInt128
+    | SQLParamDecFloat16
+    | SQLParamDecFloat34
+    | SQLParamDouble
+    | SQLParamString
+    | SQLParamBuffer
+    | SQLParamQuad
+    | SQLParamDate
+    | SQLParamBool;
 
-    constructor(value: any) {
+export class SQLParamInt {
+    value: number | null | undefined;
+
+    constructor(value: number | null | undefined) {
         this.value = value;
     }
 
@@ -931,9 +969,9 @@ export class SQLParamInt {
 //------------------------------------------------------
 
 export class SQLParamInt64 {
-    value: any;
+    value: number | bigint | null | undefined;
 
-    constructor(value: any) {
+    constructor(value: number | bigint | null | undefined) {
         this.value = value;
     }
 
@@ -944,7 +982,7 @@ export class SQLParamInt64 {
 
     encode(data: XdrWriter): void {
         if (this.value != null) {
-            data.addInt64(this.value);
+            data.addInt64(this.value as number);
         } else {
             data.addInt64(0);
             data.addInt(1);
@@ -955,9 +993,9 @@ export class SQLParamInt64 {
 //------------------------------------------------------
 
 export class SQLParamInt128 {
-    value: any;
+    value: number | string | bigint | null | undefined;
 
-    constructor(value: any) {
+    constructor(value: number | string | bigint | null | undefined) {
         this.value = value;
     }
 
@@ -1056,9 +1094,9 @@ export function toScaledInteger(value: number | string | bigint, scale: number, 
 //------------------------------------------------------
 
 export class SQLParamDecFloat16 {
-    value: any;
+    value: number | string | bigint | null | undefined;
 
-    constructor(value: any) {
+    constructor(value: number | string | bigint | null | undefined) {
         this.value = value;
     }
 
@@ -1080,9 +1118,9 @@ export class SQLParamDecFloat16 {
 //------------------------------------------------------
 
 export class SQLParamDecFloat34 {
-    value: any;
+    value: number | string | bigint | null | undefined;
 
-    constructor(value: any) {
+    constructor(value: number | string | bigint | null | undefined) {
         this.value = value;
     }
 
@@ -1104,9 +1142,9 @@ export class SQLParamDecFloat34 {
 //------------------------------------------------------
 
 export class SQLParamDouble {
-    value: any;
+    value: number | null | undefined;
 
-    constructor(value: any) {
+    constructor(value: number | null | undefined) {
         this.value = value;
     }
 
@@ -1127,9 +1165,9 @@ export class SQLParamDouble {
 //------------------------------------------------------
 
 export class SQLParamString {
-    value: any;
+    value: string | null | undefined;
 
-    constructor(value: any) {
+    constructor(value: string | null | undefined) {
         this.value = value;
     }
 
@@ -1151,9 +1189,9 @@ export class SQLParamString {
 //------------------------------------------------------
 
 export class SQLParamBuffer {
-    value: any;
+    value: Buffer | null | undefined;
 
-    constructor(value: any) {
+    constructor(value: Buffer | null | undefined) {
         this.value = value;
     }
 
@@ -1197,9 +1235,9 @@ export function encodeDateTimeParts(value: Date): { date: number; time: number }
 //------------------------------------------------------
 
 export class SQLParamQuad {
-    value: any;
+    value: Quad | null | undefined;
 
-    constructor(value: any) {
+    constructor(value: Quad | null | undefined) {
         this.value = value;
     }
 
@@ -1223,9 +1261,9 @@ export class SQLParamQuad {
 //------------------------------------------------------
 
 export class SQLParamDate {
-    value: any;
+    value: Date | null | undefined;
 
-    constructor(value: any) {
+    constructor(value: Date | null | undefined) {
         this.value = value;
     }
 
@@ -1249,7 +1287,7 @@ export class SQLParamDate {
 //------------------------------------------------------
 
 export class SQLParamBool {
-    value: any;
+    value: boolean | number | null | undefined;
     /**
      * Encode as a real BOOLEAN (blr_bool + xdr opaque byte) instead of the
      * legacy blr_short 0/1. Set when the DESCRIBED parameter type is
@@ -1260,7 +1298,7 @@ export class SQLParamBool {
      */
     asBoolean: boolean;
 
-    constructor(value: any, asBoolean = false) {
+    constructor(value: boolean | number | null | undefined, asBoolean = false) {
         this.value = value;
         this.asBoolean = asBoolean;
     }

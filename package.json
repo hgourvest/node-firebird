@@ -1,6 +1,6 @@
 {
     "name": "node-firebird",
-    "version": "2.20.0",
+    "version": "2.21.0",
     "description": "Pure JavaScript and Asynchronous Firebird client for Node.js.",
     "keywords": [
         "firebird",
@@ -54,7 +54,8 @@
         "test": "vitest run",
         "lint": "oxlint",
         "bench": "node benchmarks/index.js",
-        "bench:live": "node benchmarks/index.js --all"
+        "bench:live": "node benchmarks/index.js --micro --live",
+        "bench:compare": "node benchmarks/index.js --compare"
     },
     "devDependencies": {
         "@types/node": "^26.1.1",

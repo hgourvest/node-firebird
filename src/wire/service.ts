@@ -2,7 +2,78 @@ import Events from 'events';
 import stream from 'stream';
 import Const from './const';
 import { BlrReader } from './serialize';
-import { doError, fromCallback } from '../callback';
+import { doError, fromCallback, type Callback } from '../callback';
+import type Connection from './connection';
+import type { WireResponse } from './wire-types';
+import type {
+    ReadableOptions,
+    BackupOptions,
+    NBackupOptions,
+    RestoreOptions,
+    NRestoreOptions,
+    ValidateOptions,
+    StatsOptions,
+    TraceOptions,
+    UserInfo,
+    ServerInfo,
+    ServerInfoReq
+} from '../types';
+
+export interface ServiceBackupFilePart {
+    filename: string;
+    sizefile: string;
+}
+
+export type ServiceBackupOptions = Omit<BackupOptions, 'files'> & {
+    files?: string | ServiceBackupFilePart[];
+    backupfiles?: string | ServiceBackupFilePart[];
+};
+
+export type ServiceNBackupOptions = Omit<NBackupOptions, 'file'> & {
+    file?: string;
+    backupfile?: string;
+};
+
+export type ServiceRestoreOptions = Omit<RestoreOptions, 'files' | 'pagesize'> & {
+    files?: string | string[];
+    backupfiles?: string | string[];
+    pagesize?: number;
+};
+
+export type ServiceNRestoreOptions = Omit<NRestoreOptions, 'files'> & {
+    files?: string | string[];
+    backupfiles?: string | string[];
+};
+
+export interface ServiceFixPropertiesOptions extends ReadableOptions {
+    database?: string;
+    dialect?: number;
+    sweepinterval?: number;
+    nbpagebuffers?: number;
+    bringonline?: boolean;
+    shutdown?: number;
+    shutdowndelay?: number;
+    shutdownmode?: number;
+    activateshadow?: boolean;
+    forcewrite?: boolean;
+    reservespace?: boolean;
+    accessmode?: number;
+}
+
+export interface ServiceUserMutationOptions extends ReadableOptions, Partial<UserInfo> {
+    password?: string;
+}
+
+export interface ServiceQueryResult extends Omit<ServerInfo, 'fbcapatibilities' | 'fbusers'> {
+    line?: string;
+    fbcapatibilities?: string[];
+    fbusers?: Array<Partial<UserInfo>>;
+    [key: string]: unknown;
+}
+
+export type ServiceStreamCallback = Callback<stream.Readable>;
+export type ServiceQueryCallback = Callback<ServiceQueryResult>;
+export type ServiceLineCallback = Callback<{ result: number; line: string }>;
 
 /***************************************
  *
@@ -10,7 +81,7 @@ import { doError, fromCallback } from '../callback';
  *
  ***************************************/
 
-function isEmpty(obj: any): boolean {
+function isEmpty(obj: Record<string, unknown> | null | undefined): boolean {
     for(var p in obj) return false;
     return true;
 }
@@ -44,27 +115,27 @@ class ServiceManager extends Events.EventEmitter {
     static ShutdownMode = ShutdownMode;
     static ShutdownKind = ShutdownKind;
 
-    connection: any;
+    connection: Connection;
 
-    constructor(connection: any) {
+    constructor(connection: Connection) {
         super();
         this.connection = connection;
         connection.svc = this;
     }
 
-    _createOutputStream(optread: string | null | undefined, buffersize: number | null | undefined, callback: (err: any, stream?: stream.Readable) => void): void {
+    _createOutputStream(optread: string | null | undefined, buffersize: number | null | undefined, callback: ServiceStreamCallback): void {
         var self = this;
         optread = optread || 'byline';
         var t = new stream.Readable({ objectMode: optread === 'byline' }); // chunk by line
-        (t as any).__proto__._read = function (this: stream.Readable) {
+        (t as unknown as { __proto__: stream.Readable }).__proto__._read = function (this: stream.Readable) {
             var selfread = this;
             var fct = optread === 'byline' ? self.readline : self.readeof;
-            fct.call(self, { buffersize: buffersize }, function (err: any, data: any) {
+            fct.call(self, { buffersize: buffersize ?? undefined }, function (err?: Error | null, data?: { result: number; line?: string }) {
                 if (err) {
                     selfread.push(err.message, Const.DEFAULT_ENCODING);
                     return;
                 }
-                if (data.line && data.line.length)
+                if (data && data.line && data.line.length)
                     selfread.push(data.line, Const.DEFAULT_ENCODING);
                 else
                     selfread.push(null);
@@ -97,7 +168,7 @@ class ServiceManager extends Events.EventEmitter {
         "78"/*isc_info_svc_stdin*/ : ""
     };
 
-    _processcapabilities(blr: BlrReader, res: any): void {
+    _processcapabilities(blr: BlrReader, res: ServiceQueryResult): void {
         var capArray = [
             "WAL_SUPPORT",
             "MULTI_CLIENT_SUPPORT",
@@ -111,7 +182,8 @@ class ServiceManager extends Events.EventEmitter {
             "SERVER_CONFIG_SUPPORT",
             "QUOTED_FILENAME_SUPPORT"
         ];
-        var dbcapa: string[] = res[this._infosmapping[57]] = [];
+        var dbcapa: string[] = [];
+        res[this._infosmapping[57]] = dbcapa;
         var caps = blr.readInt32();
     
         for (var i = 0; i < capArray.length; ++i)
@@ -119,11 +191,15 @@ class ServiceManager extends Events.EventEmitter {
                 dbcapa.push(capArray[i]);
     }
 
-    _processdbinfo(blr: BlrReader, res: any): void {
+    _processdbinfo(blr: BlrReader, res: ServiceQueryResult): void {
         var tinfo = blr.readByteCode();
-        var dbinfo: any = res[this._infosmapping[50]] = {};
+        var dbinfo: { database: string[]; nbattachment: number; nbdatabase: number } = {
+            database: [],
+            nbattachment: 0,
+            nbdatabase: 0
+        };
+        res[this._infosmapping[50]] = dbinfo;
     
-        dbinfo.database = [];
         for (; tinfo != Const.isc_info_flag_end; tinfo = blr.readByteCode()) {
             switch (tinfo) {
                 case Const.isc_spb_dbname:
@@ -139,7 +215,7 @@ class ServiceManager extends Events.EventEmitter {
         }
     }
 
-    _processquery(buffer: Buffer, callback: (err: any, res?: any) => void): void {
+    _processquery(buffer: Buffer, callback: ServiceQueryCallback): void {
         if (!Buffer.isBuffer(buffer)) {
             doError(new Error('Malformed service-manager response: missing BLR buffer'), callback);
             return;
@@ -148,8 +224,7 @@ class ServiceManager extends Events.EventEmitter {
         try {
             var br = new BlrReader(buffer);
             var tinfo = br.readByteCode();
-            var res: any = {};
-            res.result = 0;
+            var res: ServiceQueryResult = { result: 0 };
             for (; tinfo !== Const.isc_info_end; tinfo = br.readByteCode()) {
                 switch (tinfo) {
                     case Const.isc_info_svc_server_version:
@@ -175,38 +250,38 @@ class ServiceManager extends Events.EventEmitter {
                         res[this._infosmapping[tinfo]] = [];
                         break;
                     case Const.isc_spb_sec_username:
-                        var tuser = res[this._infosmapping[68]];
+                        var tuser = res[this._infosmapping[68]] as Array<Partial<UserInfo>>;
                         tuser.push({});
                         tuser[tuser.length - 1].username = br.readString();
                         break;
                     case Const.isc_spb_sec_firstname:
-                        var tuser = res[this._infosmapping[68]];
+                        var tuser = res[this._infosmapping[68]] as Array<Partial<UserInfo>>;
                         var user = tuser[tuser.length-1];
                         user.firstname = br.readString();
                         break;
                     case Const.isc_spb_sec_middlename:
-                        var tuser = res[this._infosmapping[68]];
+                        var tuser = res[this._infosmapping[68]] as Array<Partial<UserInfo>>;
                         var user = tuser[tuser.length-1];
                         user.middlename = br.readString();
                         break;
                     case Const.isc_spb_sec_lastname:
-                        var tuser = res[this._infosmapping[68]];
+                        var tuser = res[this._infosmapping[68]] as Array<Partial<UserInfo>>;
                         var user = tuser[tuser.length-1];
                         user.lastname = br.readString();
                         break;
                     case Const.isc_spb_sec_groupid:
-                        var tuser = res[this._infosmapping[68]];
+                        var tuser = res[this._infosmapping[68]] as Array<Partial<UserInfo>>;
                         var user = tuser[tuser.length-1];
                         user.groupid = br.readInt32();
                         break;
                     case Const.isc_spb_sec_userid:
-                        var tuser = res[this._infosmapping[68]];
+                        var tuser = res[this._infosmapping[68]] as Array<Partial<UserInfo>>;
                         var user = tuser[tuser.length-1];
                         user.userid = br.readInt32();
         
                         break;
                     case Const.isc_spb_sec_admin:
-                        var tuser = res[this._infosmapping[68]];
+                        var tuser = res[this._infosmapping[68]] as Array<Partial<UserInfo>>;
                         var user = tuser[tuser.length-1];
                         user.admin = br.readInt32();
                         break;
@@ -246,35 +321,37 @@ class ServiceManager extends Events.EventEmitter {
         }
     }
 
-    detach(callback?: (err?: any, obj?: any) => void, force?: boolean): this {
+    detach(callback?: ((err?: Error | null, obj?: WireResponse) => void) | Callback<void>, force?: boolean): this {
         var self = this;
     
         if (!force && self.connection._pending.length > 0) {
             self.connection._detachAuto = true;
-            self.connection._detachCallback = callback;
+            self.connection._detachCallback = callback as Callback<WireResponse> | undefined;
             return self;
         }
     
-        self.connection.svcdetach(function (err: any, obj: any) {
+        self.connection.svcdetach(function (err?: Error | null, obj?: WireResponse) {
     
             self.connection.disconnect();
             self.emit('detach', false);
     
             if (callback)
-                callback(err, obj);
+                (callback as (err?: Error | null, obj?: WireResponse) => void)(err, obj);
     
         }, force);
     
         return self;
     }
 
-    backup(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
+    backup(options: ServiceBackupOptions, callback: ServiceStreamCallback): void {
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
         var verbose = options.verbose || false;
         // format of bckfile {filename:'name', sizefile:''} sizefile is length of part in bytes
-        var bckfiles = options.backupfiles || options.files || null;
+        var rawBckfiles = options.backupfiles || options.files || null;
         // for convenience
-        if (bckfiles) bckfiles = bckfiles.constructor !== Array?[{ filename: bckfiles, sizefile: '0' }]:bckfiles;
+        var bckfiles: ServiceBackupFilePart[] | null = rawBckfiles
+            ? (Array.isArray(rawBckfiles) ? rawBckfiles : [{ filename: rawBckfiles, sizefile: '0' }])
+            : null;
         var factor = options.factor || 0; //If backing up to a physical tape device, this switch lets you specify the tape's blocking factor
         var ignorechecksums = options.ignorechecksums || false;
         var ignorelimbo = options.ignorelimbo || false;
@@ -323,16 +400,16 @@ class ServiceManager extends Events.EventEmitter {
         if (verbose)
             blr.addByte(Const.isc_spb_verbose);
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    nbackup(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
+    nbackup(options: ServiceNBackupOptions, callback: ServiceStreamCallback): void {
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
         var bckfile = options.backupfile || options.file || null;
         var level = options.level || 0; // nb day for incremental
@@ -360,19 +437,21 @@ class ServiceManager extends Events.EventEmitter {
         if (notriggers) opts = opts | Const.isc_spb_nbk_no_triggers;
         blr.addByteInt32(Const.isc_spb_options, opts);
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    restore(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
-        var bckfiles = options.backupfiles || options.files || null; // format bckfiles ['file1', 'file2', 'file3']
+    restore(options: ServiceRestoreOptions, callback: ServiceStreamCallback): void {
+        var rawBckfiles = options.backupfiles || options.files || null; // format bckfiles ['file1', 'file2', 'file3']
         // for convenience
-        if (bckfiles) bckfiles = bckfiles.constructor !== Array?[bckfiles]:bckfiles;
+        var bckfiles: string[] | null = rawBckfiles
+            ? (Array.isArray(rawBckfiles) ? rawBckfiles : [rawBckfiles])
+            : null;
         var dbfile = options.database || this.connection.options.filename || this.connection.options.database;;
         var verbose = options.verbose || false;
         var cachebuffers = options.cachebuffers || 2048; // gbak -buffers
@@ -431,19 +510,21 @@ class ServiceManager extends Events.EventEmitter {
         if (verbose)
             blr.addByte(Const.isc_spb_verbose);
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    nrestore(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
-        var bckfiles = options.backupfiles || options.files || null; // format bckfiles ['file1', 'file2', 'file3']
+    nrestore(options: ServiceNRestoreOptions, callback: ServiceStreamCallback): void {
+        var rawBckfiles = options.backupfiles || options.files || null; // format bckfiles ['file1', 'file2', 'file3']
         // for convenience
-        if (bckfiles) bckfiles = bckfiles.constructor !== Array?[bckfiles]:bckfiles;
+        var bckfiles: string[] | null = rawBckfiles
+            ? (Array.isArray(rawBckfiles) ? rawBckfiles : [rawBckfiles])
+            : null;
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
     
         if (bckfiles == null || bckfiles.length === 0) {
@@ -463,16 +544,16 @@ class ServiceManager extends Events.EventEmitter {
         }
         blr.addString2(Const.isc_spb_dbname, dbpath, Const.DEFAULT_ENCODING);
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    _fixpropertie(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
+    _fixpropertie(options: ServiceFixPropertiesOptions, callback: ServiceStreamCallback): void {
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
         var dialect = options.dialect || null;
         var sweep = options.sweepinterval || null;
@@ -529,62 +610,66 @@ class ServiceManager extends Events.EventEmitter {
         if (opts)
             blr.addByteInt32(Const.isc_spb_options, opts);
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    setDialect(db: string, dialect: number, callback: any): void {
+    setDialect(db: string, dialect: number, callback: ServiceStreamCallback): void {
         this._fixpropertie({ database: db, dialect: dialect }, callback);
     }
 
-    setSweepinterval(db: string, sweepinterval: number, callback: any): void {
+    setSweepinterval(db: string, sweepinterval: number, callback: ServiceStreamCallback): void {
         this._fixpropertie({ database: db, sweepinterval: sweepinterval }, callback);
     }
 
-    setCachebuffer(db: string, nbpages: number, callback: any): void {
+    setCachebuffer(db: string, nbpages: number, callback: ServiceStreamCallback): void {
         this._fixpropertie({ database: db, nbpagebuffers: nbpages }, callback);
     }
 
-    BringOnline(db: string, callback: any): void {
+    BringOnline(db: string, callback: ServiceStreamCallback): void {
         this._fixpropertie({ database: db, bringonline: true }, callback);
     }
 
-    Shutdown(db: string, kind: number, delay: number, mode?: any, callback?: any): void {
+    Shutdown(db: string, kind: number, delay: number, mode?: number | ServiceStreamCallback, callback?: ServiceStreamCallback): void {
         // mode parameter is for server version >= 2.0
-        if (mode instanceof Function) {
-            callback = mode;
-            mode = undefined;
+        var resolvedMode: number | undefined;
+        var resolvedCb: ServiceStreamCallback | undefined = callback;
+        if (typeof mode === 'function') {
+            resolvedCb = mode;
+            resolvedMode = undefined;
+        } else {
+            resolvedMode = mode;
         }
     
-        this._fixpropertie({ database: db, shutdown: kind, shutdowndelay: delay, shutdownmode: mode }, callback);
+        this._fixpropertie({ database: db, shutdown: kind, shutdowndelay: delay, shutdownmode: resolvedMode }, resolvedCb!);
     }
 
-    setShadow(db: string, val: boolean, callback: any): void {
+    setShadow(db: string, val: boolean, callback: ServiceStreamCallback): void {
         this._fixpropertie({ database: db, activateshadow : val }, callback);
     }
 
-    setForcewrite(db: string, val: boolean, callback: any): void {
+    setForcewrite(db: string, val: boolean, callback: ServiceStreamCallback): void {
         this._fixpropertie({ database: db, forcewrite : val }, callback);
     }
 
-    setReservespace(db: string, val: boolean, callback: any): void {
+    setReservespace(db: string, val: boolean, callback: ServiceStreamCallback): void {
         this._fixpropertie({ database: db, reservespace : val }, callback);
     }
 
-    setReadonlyMode(db: string, callback: any): void {
+    setReadonlyMode(db: string, callback: ServiceStreamCallback): void {
         this._fixpropertie({ database: db, accessmode : 0 }, callback);
     }
 
-    setReadwriteMode(db: string, callback: any): void {
+    setReadwriteMode(db: string, callback: ServiceStreamCallback): void {
         this._fixpropertie({ database: db, accessmode : 1 }, callback);
     }
 
-    validate(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
+    validate(options: ValidateOptions, callback: ServiceStreamCallback): void {
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
         var checkdb = options.checkdb || false;
         var ignorechecksums = options.ignorechecksums || false;
@@ -617,16 +702,16 @@ class ServiceManager extends Events.EventEmitter {
         if (icu) opts = opts | Const.isc_spb_rpr_icu;
         blr.addByteInt32(Const.isc_spb_options, opts);
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    commit(db: string, transactid: number, callback: any): void {
+    commit(db: string, transactid: number, callback: ServiceStreamCallback): void {
         var dbpath = db || this.connection.options.filename || this.connection.options.database;
         if (dbpath == null || dbpath.length === 0) {
             doError(new Error('No database specified'), callback);
@@ -639,16 +724,16 @@ class ServiceManager extends Events.EventEmitter {
         blr.addString2(Const.isc_spb_dbname, dbpath, Const.DEFAULT_ENCODING);
         blr.addByteInt32(Const.isc_spb_rpr_commit_trans, transactid);
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(null, null, callback);
         });
     }
 
-    rollback(db: string, transactid: number, callback: any): void {
+    rollback(db: string, transactid: number, callback: ServiceStreamCallback): void {
         var dbpath = db || this.connection.options.filename || this.connection.options.database;
         if (dbpath == null || dbpath.length === 0) {
             doError(new Error('No database specified'), callback);
@@ -661,16 +746,16 @@ class ServiceManager extends Events.EventEmitter {
         blr.addString2(Const.isc_spb_dbname, dbpath, Const.DEFAULT_ENCODING);
         blr.addByteInt32(Const.isc_spb_rpr_rollback_trans, transactid);
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(null, null, callback);
         });
     }
 
-    recover(db: string, transactid: number, callback: any): void {
+    recover(db: string, transactid: number, callback: ServiceStreamCallback): void {
         var dbpath = db || this.connection.options.filename || this.connection.options.database;
         if (dbpath == null || dbpath.length === 0) {
             doError(new Error('No database specified'), callback);
@@ -683,16 +768,16 @@ class ServiceManager extends Events.EventEmitter {
         blr.addString2(Const.isc_spb_dbname, dbpath, Const.DEFAULT_ENCODING);
         blr.addByteInt32(Const.isc_spb_rpr_recover_two_phase, transactid);
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(null, null, callback);
         });
     }
 
-    getStats(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
+    getStats(options: StatsOptions, callback: ServiceStreamCallback): void {
         var dbpath = options.database || this.connection.options.filename || this.connection.options.database;
         var record = options.record || false;
         var nocreation = options.nocreation || false;
@@ -725,9 +810,9 @@ class ServiceManager extends Events.EventEmitter {
             blr.addByteInt32(Const.isc_spb_options, opts);
         if (objects) blr.addString2(Const.isc_spb_command_line, objects, Const.DEFAULT_ENCODING);
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
@@ -735,45 +820,46 @@ class ServiceManager extends Events.EventEmitter {
     
     }
 
-    getLog(options: any, callback: (err: any, stream?: stream.Readable) => void): void {
+    getLog(options: ReadableOptions, callback: ServiceStreamCallback): void {
         var self = this;
         var blr = this.connection._blr;
         var optread = options.optread || 'byline';
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_get_fb_log);
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(optread, options.buffersize, callback);
         });
     }
 
-    getUsers(username: string | null, callback: any): void {
+    getUsers(username: string | null, callback: ServiceQueryCallback): void {
         var self = this;
         var blr = this.connection._blr;
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_display_user);
         if (username) blr.addString2(Const.isc_spb_sec_username, username, Const.DEFAULT_ENCODING);
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self.readusers({}, callback);
         });
     }
 
-    addUser(username: string, password: string, options: any, callback: any): void {
-        var rolename = options.rolename || null;
-        var groupname = options.groupname || null;
-        var firsname = options.firstname || null;
-        var middlename = options.middlename || null;
-        var lastname = options.lastname || null;
-        var userid = options.userid || null;
-        var groupid = options.groupid || null;
-        var admin = options.admin || null;
+    addUser(username: string, password: string, options: ServiceUserMutationOptions | undefined, callback: ServiceStreamCallback): void {
+        var opts = options || {};
+        var rolename = opts.rolename || null;
+        var groupname = opts.groupname || null;
+        var firsname = opts.firstname || null;
+        var middlename = opts.middlename || null;
+        var lastname = opts.lastname || null;
+        var userid = opts.userid || null;
+        var groupid = opts.groupid || null;
+        var admin = opts.admin || null;
     
         var blr = this.connection._blr;
         blr.pos = 0;
@@ -790,16 +876,16 @@ class ServiceManager extends Events.EventEmitter {
         if (admin != null) blr.addByteInt32(Const.isc_spb_sec_admin, admin);
     
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
-            self._createOutputStream(options.optread, options.buffersize, callback);
+            self._createOutputStream(opts.optread, opts.buffersize, callback);
         });
     }
 
-    editUser(username: string, options: any, callback: any): void {
+    editUser(username: string, options: ServiceUserMutationOptions, callback: ServiceStreamCallback): void {
         var rolename = options.rolename || null;
         var groupname = options.groupname || null;
         var firsname = options.firstname || null;
@@ -824,33 +910,33 @@ class ServiceManager extends Events.EventEmitter {
         if (admin != null) blr.addByteInt32(Const.isc_spb_sec_admin, admin);
     
         var self = this;
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    removeUser(username: string, rolename: string | null, callback: any): void {
+    removeUser(username: string, rolename: string | null, callback: ServiceStreamCallback): void {
         var blr = this.connection._blr;
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_delete_user);
         blr.addString2(Const.isc_spb_sec_username, username, Const.DEFAULT_ENCODING);
         if (rolename) blr.addString2(Const.isc_dpb_sql_role_name, rolename, Const.DEFAULT_ENCODING);
     
-        var self = this, options: any = {};
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        var self = this, options: ReadableOptions = {};
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    getFbserverInfos(infos: any, options: any, callback: any): void {
+    getFbserverInfos(infos: ServerInfoReq | Record<string, boolean>, options: ReadableOptions, callback: ServiceQueryCallback): void {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 1;
         var opts: Record<string, number> = {
@@ -866,23 +952,23 @@ class ServiceManager extends Events.EventEmitter {
             "fbenvmsg" : Const.isc_info_svc_get_env_msg
         };
         // if infos is empty all options are asked to the service
-    
-        var tops: number[] = [], empty = isEmpty(infos);
+        var infosMap = infos as Record<string, unknown>;
+        var tops: number[] = [], empty = isEmpty(infosMap);
         for (let popts in opts)
-            if (empty || infos[popts])
+            if (empty || infosMap[popts])
                 tops.push(opts[popts]);
     
         var self = this;
-        this.connection.svcquery(tops, buffersize, timeout, function (err: any, data: any) {
-            if (err || !data.buffer) {
-                doError(new Error(err||'Bad query return'), callback);
+        this.connection.svcquery(tops, buffersize, timeout, function (err?: Error | null, data?: WireResponse) {
+            if (err || !data || !data.buffer) {
+                doError(new Error(err ? String(err) : 'Bad query return'), callback);
                 return;
             }
             self._processquery(data.buffer, callback);
         });
     }
 
-    startTrace(options: any, callback: any): void {
+    startTrace(options: TraceOptions, callback: ServiceStreamCallback): void {
         var self = this;
         var blr = this.connection._blr;
         var configfile = options.configfile || '';
@@ -901,16 +987,16 @@ class ServiceManager extends Events.EventEmitter {
         blr.addByte(Const.isc_action_svc_trace_start);
         blr.addString2(Const.isc_spb_trc_cfg, configfile, Const.DEFAULT_ENCODING);
         blr.addString2(Const.isc_spb_trc_name, tracename, Const.DEFAULT_ENCODING);
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    suspendTrace(options: any, callback: any): void {
+    suspendTrace(options: TraceOptions, callback: ServiceStreamCallback): void {
         var self = this;
         var blr = this.connection._blr;
         var traceid = options.traceid || null;
@@ -923,16 +1009,16 @@ class ServiceManager extends Events.EventEmitter {
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_trace_suspend);
         blr.addByteInt32(Const.isc_spb_trc_id, traceid);
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    resumeTrace(options: any, callback: any): void {
+    resumeTrace(options: TraceOptions, callback: ServiceStreamCallback): void {
         var self = this;
         var blr = this.connection._blr;
         var traceid = options.traceid || null;
@@ -945,16 +1031,16 @@ class ServiceManager extends Events.EventEmitter {
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_trace_resume);
         blr.addByteInt32(Const.isc_spb_trc_id, traceid);
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    stopTrace(options: any, callback: any): void {
+    stopTrace(options: TraceOptions, callback: ServiceStreamCallback): void {
         var self = this;
         var blr = this.connection._blr;
         var traceid = options.traceid || null;
@@ -967,88 +1053,88 @@ class ServiceManager extends Events.EventEmitter {
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_trace_stop);
         blr.addByteInt32(Const.isc_spb_trc_id, traceid);
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    getTraceList(options: any, callback: any): void {
+    getTraceList(options: ReadableOptions, callback: ServiceStreamCallback): void {
         var self = this;
         var blr = this.connection._blr;
         blr.pos = 0;
         blr.addByte(Const.isc_action_svc_trace_list);
-        this.connection.svcstart(blr, function (err: any, data: any) {
+        this.connection.svcstart(blr, function (err?: Error | null) {
             if (err) {
-                doError(new Error(err), callback);
+                doError(new Error(String(err)), callback);
                 return;
             }
             self._createOutputStream(options.optread, options.buffersize, callback);
         });
     }
 
-    readline(options: any, callback: any): void {
+    readline(options: ReadableOptions, callback: ServiceLineCallback): void {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
-        this.connection.svcquery([Const.isc_info_svc_line], buffersize, timeout, function (err: any, data: any) {
-            if (err || !data.buffer) {
-                doError(new Error(err||'Bad query return'), callback);
+        this.connection.svcquery([Const.isc_info_svc_line], buffersize, timeout, function (err?: Error | null, data?: WireResponse) {
+            if (err || !data || !data.buffer) {
+                doError(new Error(err ? String(err) : 'Bad query return'), callback);
                 return;
             }
-            self._processquery(data.buffer, callback);
+            self._processquery(data.buffer, callback as ServiceQueryCallback);
         });
     }
 
-    readeof(options: any, callback: any): void {
+    readeof(options: ReadableOptions, callback: ServiceLineCallback): void {
         var buffersize = options.buffersize || (8 * 1024);
         var timeout = options.timeout || 60;
         var self = this;
-        this.connection.svcquery([Const.isc_info_svc_to_eof], buffersize, timeout, function (err: any, data: any) {
-            if (err || !data.buffer) {
-                doError(new Error(err||'Bad query return'), callback);
+        this.connection.svcquery([Const.isc_info_svc_to_eof], buffersize, timeout, function (err?: Error | null, data?: WireResponse) {
+            if (err || !data || !data.buffer) {
+                doError(new Error(err ? String(err) : 'Bad query return'), callback);
+                return;
+            }
+            self._processquery(data.buffer, callback as ServiceQueryCallback);
+        });
+    }
+
+    hasRunningAction(options: ReadableOptions, callback: ServiceQueryCallback): void {
+        var buffersize = options.buffersize || 2048;
+        var timeout = options.timeout || 60;
+        var self = this;
+        this.connection.svcquery([Const.isc_info_svc_running], buffersize, timeout, function (err?: Error | null, data?: WireResponse) {
+            if (err || !data || !data.buffer) {
+                doError(new Error(err ? String(err) : 'Bad query return'), callback);
                 return;
             }
             self._processquery(data.buffer, callback);
         });
     }
 
-    hasRunningAction(options: any, callback: any): void {
+    readusers(options: ReadableOptions, callback: ServiceQueryCallback): void {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
-        this.connection.svcquery([Const.isc_info_svc_running], buffersize, timeout, function (err: any, data: any) {
-            if (err || !data.buffer) {
-                doError(new Error(err||'Bad query return'), callback);
+        this.connection.svcquery([Const.isc_info_svc_get_users], buffersize, timeout, function (err?: Error | null, data?: WireResponse) {
+            if (err || !data || !data.buffer) {
+                doError(new Error(err ? String(err) : 'Bad query return'), callback);
                 return;
             }
             self._processquery(data.buffer, callback);
         });
     }
 
-    readusers(options: any, callback: any): void {
+    readlimbo(options: ReadableOptions, callback: ServiceQueryCallback): void {
         var buffersize = options.buffersize || 2048;
         var timeout = options.timeout || 60;
         var self = this;
-        this.connection.svcquery([Const.isc_info_svc_get_users], buffersize, timeout, function (err: any, data: any) {
-            if (err || !data.buffer) {
-                doError(new Error(err||'Bad query return'), callback);
-                return;
-            }
-            self._processquery(data.buffer, callback);
-        });
-    }
-
-    readlimbo(options: any, callback: any): void {
-        var buffersize = options.buffersize || 2048;
-        var timeout = options.timeout || 60;
-        var self = this;
-        this.connection.svcquery([Const.isc_info_svc_limbo_trans], buffersize, timeout, function (err: any, data: any) {
-            if (err || !data.buffer) {
-                doError(new Error(err||'Bad query return'), callback);
+        this.connection.svcquery([Const.isc_info_svc_limbo_trans], buffersize, timeout, function (err?: Error | null, data?: WireResponse) {
+            if (err || !data || !data.buffer) {
+                doError(new Error(err ? String(err) : 'Bad query return'), callback);
                 return;
             }
             self._processquery(data.buffer, callback);
@@ -1062,177 +1148,177 @@ class ServiceManager extends Events.EventEmitter {
         return fromCallback(function(cb) { self.detach(cb, force); });
     }
 
-    backupAsync(options: any): Promise<stream.Readable> {
+    backupAsync(options: ServiceBackupOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.backup(options, cb); });
     }
 
-    nbackupAsync(options: any): Promise<stream.Readable> {
+    nbackupAsync(options: ServiceNBackupOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.nbackup(options, cb); });
     }
 
-    restoreAsync(options: any): Promise<stream.Readable> {
+    restoreAsync(options: ServiceRestoreOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.restore(options, cb); });
     }
 
-    nrestoreAsync(options: any): Promise<stream.Readable> {
+    nrestoreAsync(options: ServiceNRestoreOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.nrestore(options, cb); });
     }
 
-    setDialectAsync(db: string, dialect: number): Promise<any> {
+    setDialectAsync(db: string, dialect: number): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.setDialect(db, dialect, cb); });
     }
 
-    setSweepintervalAsync(db: string, sweepinterval: number): Promise<any> {
+    setSweepintervalAsync(db: string, sweepinterval: number): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.setSweepinterval(db, sweepinterval, cb); });
     }
 
-    setCachebufferAsync(db: string, nbpages: number): Promise<any> {
+    setCachebufferAsync(db: string, nbpages: number): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.setCachebuffer(db, nbpages, cb); });
     }
 
-    BringOnlineAsync(db: string): Promise<any> {
+    BringOnlineAsync(db: string): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.BringOnline(db, cb); });
     }
 
-    ShutdownAsync(db: string, kind: number, delay: number, mode?: any): Promise<any> {
+    ShutdownAsync(db: string, kind: number, delay: number, mode?: number): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.Shutdown(db, kind, delay, mode, cb); });
     }
 
-    setShadowAsync(db: string, val: boolean): Promise<any> {
+    setShadowAsync(db: string, val: boolean): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.setShadow(db, val, cb); });
     }
 
-    setForcewriteAsync(db: string, val: boolean): Promise<any> {
+    setForcewriteAsync(db: string, val: boolean): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.setForcewrite(db, val, cb); });
     }
 
-    setReservespaceAsync(db: string, val: boolean): Promise<any> {
+    setReservespaceAsync(db: string, val: boolean): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.setReservespace(db, val, cb); });
     }
 
-    setReadonlyModeAsync(db: string): Promise<any> {
+    setReadonlyModeAsync(db: string): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.setReadonlyMode(db, cb); });
     }
 
-    setReadwriteModeAsync(db: string): Promise<any> {
+    setReadwriteModeAsync(db: string): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.setReadwriteMode(db, cb); });
     }
 
-    validateAsync(options: any): Promise<stream.Readable> {
+    validateAsync(options: ValidateOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.validate(options, cb); });
     }
 
-    commitAsync(db: string, transactid: number): Promise<any> {
+    commitAsync(db: string, transactid: number): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.commit(db, transactid, cb); });
     }
 
-    rollbackAsync(db: string, transactid: number): Promise<any> {
+    rollbackAsync(db: string, transactid: number): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.rollback(db, transactid, cb); });
     }
 
-    recoverAsync(db: string, transactid: number): Promise<any> {
+    recoverAsync(db: string, transactid: number): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.recover(db, transactid, cb); });
     }
 
-    getStatsAsync(options: any): Promise<stream.Readable> {
+    getStatsAsync(options: StatsOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.getStats(options, cb); });
     }
 
-    getLogAsync(options: any): Promise<stream.Readable> {
+    getLogAsync(options: ReadableOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.getLog(options, cb); });
     }
 
-    getUsersAsync(username?: string | null): Promise<any> {
+    getUsersAsync(username?: string | null): Promise<ServiceQueryResult> {
         var self = this;
         return fromCallback(function(cb) { self.getUsers(username === undefined ? null : username, cb); });
     }
 
-    addUserAsync(username: string, password: string, options?: any): Promise<any> {
+    addUserAsync(username: string, password: string, options?: ServiceUserMutationOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.addUser(username, password, options, cb); });
     }
 
-    editUserAsync(username: string, options: any): Promise<any> {
+    editUserAsync(username: string, options: ServiceUserMutationOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.editUser(username, options, cb); });
     }
 
-    removeUserAsync(username: string, rolename?: string | null): Promise<any> {
+    removeUserAsync(username: string, rolename?: string | null): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.removeUser(username, rolename === undefined ? null : rolename, cb); });
     }
 
-    getFbserverInfosAsync(infos?: any, options?: any): Promise<any> {
+    getFbserverInfosAsync(infos?: ServerInfoReq | Record<string, boolean>, options?: ReadableOptions): Promise<ServiceQueryResult> {
         var self = this;
         return fromCallback(function(cb) { self.getFbserverInfos(infos || {}, options || {}, cb); });
     }
 
-    startTraceAsync(options: any): Promise<stream.Readable> {
+    startTraceAsync(options: TraceOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.startTrace(options, cb); });
     }
 
-    suspendTraceAsync(options: any): Promise<stream.Readable> {
+    suspendTraceAsync(options: TraceOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.suspendTrace(options, cb); });
     }
 
-    resumeTraceAsync(options: any): Promise<stream.Readable> {
+    resumeTraceAsync(options: TraceOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.resumeTrace(options, cb); });
     }
 
-    stopTraceAsync(options: any): Promise<stream.Readable> {
+    stopTraceAsync(options: TraceOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.stopTrace(options, cb); });
     }
 
-    getTraceListAsync(options?: any): Promise<stream.Readable> {
+    getTraceListAsync(options?: ReadableOptions): Promise<stream.Readable> {
         var self = this;
         return fromCallback(function(cb) { self.getTraceList(options || {}, cb); });
     }
 
-    readlineAsync(options?: any): Promise<{ result: number, line: string }> {
+    readlineAsync(options?: ReadableOptions): Promise<{ result: number, line: string }> {
         var self = this;
         return fromCallback(function(cb) { self.readline(options || {}, cb); });
     }
 
-    readeofAsync(options?: any): Promise<{ result: number, line: string }> {
+    readeofAsync(options?: ReadableOptions): Promise<{ result: number, line: string }> {
         var self = this;
         return fromCallback(function(cb) { self.readeof(options || {}, cb); });
     }
 
-    hasRunningActionAsync(options?: any): Promise<any> {
+    hasRunningActionAsync(options?: ReadableOptions): Promise<ServiceQueryResult> {
         var self = this;
         return fromCallback(function(cb) { self.hasRunningAction(options || {}, cb); });
     }
 
-    readusersAsync(options?: any): Promise<any> {
+    readusersAsync(options?: ReadableOptions): Promise<ServiceQueryResult> {
         var self = this;
         return fromCallback(function(cb) { self.readusers(options || {}, cb); });
     }
 
-    readlimboAsync(options?: any): Promise<any> {
+    readlimboAsync(options?: ReadableOptions): Promise<ServiceQueryResult> {
         var self = this;
         return fromCallback(function(cb) { self.readlimbo(options || {}, cb); });
     }

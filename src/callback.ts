@@ -15,6 +15,7 @@ export interface FbStatusObject {
 export interface FbError extends Error {
     gdscode?: number;
     gdsparams?: any[];
+    sqlcode?: number;
 }
 
 export type SimpleCallback = (err?: any) => void;
